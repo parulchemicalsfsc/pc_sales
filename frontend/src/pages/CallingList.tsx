@@ -1,445 +1,578 @@
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Box,
-  Grid,
-  Card,
-  CardContent,
   Typography,
-  Chip,
-  Stack,
-  TextField,
+  Tabs,
+  Tab,
+  Paper,
   Button,
   IconButton,
-  Divider,
+  Chip,
+  Stack,
   Alert,
   CircularProgress,
-  Paper,
-  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
   Snackbar,
+  Tooltip,
+  TablePagination,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Divider,
+  useTheme,
+  alpha,
 } from "@mui/material";
 import {
-  Refresh as RefreshIcon,
   Phone as PhoneIcon,
-  Payments as PaymentsIcon,
-  Schedule as ScheduleIcon,
-  WarningAmber as WarningIcon,
+  PhoneCallback as PhoneCallbackIcon,
+  PersonOff as PersonOffIcon,
+  CheckCircle as CheckIcon,
+  Cancel as CancelIcon,
+  Refresh as RefreshIcon,
+  Send as DistributeIcon,
+  SwapHoriz as ReassignIcon,
+  Timer as TimerIcon,
   Person as PersonIcon,
   Place as PlaceIcon,
-  Event as EventIcon,
-  Insights as InsightsIcon,
-  Send as SendIcon,
+  Assignment as AssignmentIcon,
+  AdminPanelSettings as AdminIcon,
 } from "@mui/icons-material";
-import { ListSkeleton } from "../components/Skeletons";
 import { automationAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 
-type CallingListItem = {
-  customer_id?: number;
-  name?: string;
-  mobile?: string;
-  village?: string;
-  priority?: "High" | "Medium" | "Low";
-  reason?: string;
-  outstanding_balance?: number;
-  days_since_purchase?: number;
-  status?: string;
-  notes?: string;
-  [key: string]: any;
+// ── Types ──────────────────────────────────────────────
+interface Assignment {
+  assignment_id: number;
+  user_email: string;
+  customer_id: number;
+  priority: string;
+  reason: string;
+  status: string;
+  notes: string;
+  assigned_date: string;
+  name: string;
+  mobile: string;
+  village: string;
+  taluka?: string;
+  district?: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+}
+
+interface Summary {
+  total: number;
+  pending: number;
+  called: number;
+}
+
+interface Telecaller {
+  email: string;
+  name: string;
+  role: string;
+}
+
+// ── Outcome Options ────────────────────────────────────
+const CALL_OUTCOMES = [
+  { value: "connected", label: "✅ Connected — Spoke with the person", color: "#2e7d32" },
+  { value: "not_reachable", label: "📵 Not Reachable — No answer / switched off", color: "#d32f2f" },
+  { value: "callback", label: "🔄 Call Back Later — Asked to call again", color: "#ed6c02" },
+  { value: "wrong_number", label: "❌ Wrong Number — Invalid contact", color: "#9e9e9e" },
+];
+
+const STATUS_COLORS: Record<string, string> = {
+  Pending: "#1976d2",
+  Called: "#2e7d32",
+  "Not Reachable": "#d32f2f",
+  Callback: "#ed6c02",
+  "Wrong Number": "#9e9e9e",
 };
 
-type AssignmentsResponse = {
-  assignments: CallingListItem[];
-  summary: {
-    total: number;
-    pending: number;
-  };
-  error?: string;
-};
-
-function Metric({
-  label,
-  value,
-  color,
-  icon,
-}: {
-  label: string;
-  value: number | string;
-  color: string;
-  icon: React.ReactElement;
-}) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 2,
-        borderRadius: 2,
-        border: `1px solid ${color}33`,
-        bgcolor: `${color}0A`,
-        minWidth: 180,
-      }}
-    >
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Box
-          sx={{
-            width: 36,
-            height: 36,
-            borderRadius: 1.5,
-            bgcolor: color,
-            color: "#fff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {icon}
-        </Box>
-        <Box>
-          <Typography
-            variant="caption"
-            sx={{ color: `${color}`, fontWeight: 600 }}
-          >
-            {label}
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            {value}
-          </Typography>
-        </Box>
-      </Stack>
-    </Paper>
-  );
-}
-
-function PriorityHeader({
-  title,
-  color,
-  count,
-}: {
-  title: string;
-  color: string;
-  count: number;
-}) {
-  return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-      <Chip
-        label={title}
-        sx={{ bgcolor: `${color}1A`, color: color, fontWeight: 700 }}
-      />
-      <Typography variant="body2" color="text.secondary">
-        ({count})
-      </Typography>
-    </Stack>
-  );
-}
-
-function DetailRow({
-  icon,
-  text,
-}: {
-  icon: React.ReactElement;
-  text?: string | number | null;
-}) {
-  if (text === undefined || text === null || text === "") return null;
-  return (
-    <Stack direction="row" alignItems="center" spacing={0.75}>
-      <Box sx={{ color: "text.secondary" }}>{icon}</Box>
-      <Typography variant="body2" color="text.secondary">
-        {text}
-      </Typography>
-    </Stack>
-  );
-}
-
-function CallItemCard({ item }: { item: CallingListItem }) {
-  const color =
-    item.priority === "High"
-      ? "#d32f2f"
-      : item.priority === "Medium"
-        ? "#ed6c02"
-        : "#1976d2";
-  const telHref = item.mobile ? `tel:${item.mobile}` : undefined;
-
-  return (
-    <Card
-      variant="outlined"
-      sx={{
-        borderColor: `${color}33`,
-        "&:hover": { borderColor: color },
-        transition: "border-color .2s",
-        bgcolor: item.status === "Pending" ? "background.paper" : "#f5f5f5"
-      }}
-    >
-      <CardContent>
-        <Stack direction="row" justifyContent="space-between" spacing={2}>
-          <Box sx={{ minWidth: 0 }}>
-            <Stack
-              direction="row"
-              alignItems="center"
-              spacing={1}
-              sx={{ mb: 0.5 }}
-            >
-              <PersonIcon sx={{ fontSize: 18, color }} />
-              <Typography
-                variant="subtitle1"
-                sx={{
-                  fontWeight: 700,
-                  color,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {item.name || "Unknown"}
-              </Typography>
-              {item.reason ? (
-                <Chip size="small" label={item.reason} sx={{ height: 20 }} />
-              ) : null}
-            </Stack>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1.5}
-              flexWrap="wrap"
-            >
-              <DetailRow
-                icon={<PlaceIcon sx={{ fontSize: 16 }} />}
-                text={item.village}
-              />
-              <DetailRow
-                icon={<PhoneIcon sx={{ fontSize: 16 }} />}
-                text={item.mobile}
-              />
-              {item.outstanding_balance ? (
-                <DetailRow
-                  icon={<PaymentsIcon sx={{ fontSize: 16 }} />}
-                  text={`Due ₹${item.outstanding_balance}`}
-                />
-              ) : null}
-
-            </Stack>
-          </Box>
-          <Stack alignItems="flex-end" spacing={1} sx={{ minWidth: 56 }}>
-            <Chip
-              size="small"
-              label={item.priority || "Low"}
-              sx={{ bgcolor: `${color}1A`, color }}
-            />
-            {item.status !== "Pending" && (
-              <Chip size="small" label={item.status} color="success" variant="outlined" />
-            )}
-
-            {telHref ? (
-              <Tooltip title={`Call ${item.mobile}`}>
-                <IconButton component="a" href={telHref} color="primary">
-                  <PhoneIcon />
-                </IconButton>
-              </Tooltip>
-            ) : (
-              <Tooltip title="No phone">
-                <span>
-                  <IconButton disabled color="primary">
-                    <PhoneIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-          </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-}
-
+// ── Main Component ─────────────────────────────────────
 export default function CallingList() {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<AssignmentsResponse | null>(null);
-  const [distributing, setDistributing] = useState(false);
-  const [toast, setToast] = useState<{ msg: string, type: "success" | "error" } | null>(null);
+  const theme = useTheme();
+  const { user, role } = useAuth();
+  const isAdmin = role === "admin" || role === "developer" || role === "Admin" || role === "Developer";
 
-  const load = async () => {
+  // Tab: 0 = To Call, 1 = Called
+  const [tab, setTab] = useState(0);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
+  const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, called: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; severity: "success" | "error" | "info" } | null>(null);
+
+  // Call dialog
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [activeAssignment, setActiveAssignment] = useState<Assignment | null>(null);
+  const [selectedOutcome, setSelectedOutcome] = useState<string>("");
+  const [callNotes, setCallNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Admin
+  const [distributing, setDistributing] = useState(false);
+  const [distributionStatus, setDistributionStatus] = useState<any>(null);
+  const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
+  const [adminTab, setAdminTab] = useState(false);
+  const [adminAssignments, setAdminAssignments] = useState<any>(null);
+
+  // ── Load Assignments ───────────────────────────────────
+  const loadAssignments = useCallback(async (page = 1) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await automationAPI.getMyAssignments();
-      setData(res);
+      const status = tab === 0 ? "Pending" : undefined;
+      const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
+      setAssignments(res.assignments || []);
+      setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
+      setSummary(res.summary || { total: 0, pending: 0, called: 0 });
     } catch (e: any) {
-      setError(e?.message || "Failed to load your assignments");
+      setError(e?.message || "Failed to load assignments");
     } finally {
       setLoading(false);
     }
+  }, [tab]);
+
+  useEffect(() => {
+    loadAssignments(1);
+  }, [loadAssignments]);
+
+  // ── Load Admin Data ────────────────────────────────────
+  useEffect(() => {
+    if (isAdmin) {
+      automationAPI.getDistributionStatus()
+        .then(setDistributionStatus)
+        .catch(() => { });
+      automationAPI.getTelecallers()
+        .then(res => setTelecallers(res.telecallers || []))
+        .catch(() => { });
+    }
+  }, [isAdmin]);
+
+  const loadAdminAssignments = async () => {
+    try {
+      const res = await automationAPI.getAdminAssignments({ page: 1, limit: 200 });
+      setAdminAssignments(res);
+    } catch (e: any) {
+      setToast({ msg: "Failed to load admin data", severity: "error" });
+    }
   };
 
+  // ── Call Flow ──────────────────────────────────────────
+  const handleCallClick = (assignment: Assignment) => {
+    // Open phone dialer
+    if (assignment.mobile) {
+      window.open(`tel:${assignment.mobile}`, "_self");
+    }
+    // Open dialog after a short delay
+    setTimeout(() => {
+      setActiveAssignment(assignment);
+      setSelectedOutcome("");
+      setCallNotes("");
+      setCallDialogOpen(true);
+    }, 500);
+  };
+
+  const handleSubmitCallStatus = async () => {
+    if (!activeAssignment || !selectedOutcome) return;
+    try {
+      setSubmitting(true);
+      await automationAPI.updateCallStatus(activeAssignment.assignment_id, selectedOutcome, callNotes);
+      setToast({ msg: "Call status recorded successfully", severity: "success" });
+      setCallDialogOpen(false);
+      loadAssignments(pagination.page);
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to update status", severity: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Distribution ─────────────────────────────────────
   const handleDistribute = async () => {
-    if (!window.confirm("Are you sure you want to trigger daily distribution now? (This is usually automated)")) return;
+    if (!window.confirm("Distribute calls to all telecallers now?")) return;
     try {
       setDistributing(true);
-      const res = await automationAPI.runDistribution();
-      setToast({ msg: `Distribution Complete: ${res.total_calls} calls assigned to ${res.staff_count} staff.`, type: "success" });
-      load(); // reload to see if I got any
+      const res = await automationAPI.adminDistribute();
+      if (res.status === "skipped") {
+        setToast({ msg: "Already distributed for today", severity: "info" });
+      } else {
+        setToast({ msg: `Distributed ${res.total_calls} calls to ${res.telecaller_count} telecallers`, severity: "success" });
+      }
+      loadAssignments(1);
+      automationAPI.getDistributionStatus().then(setDistributionStatus).catch(() => { });
     } catch (e: any) {
-      setToast({ msg: `Distribution Failed: ${e.message}`, type: "error" });
+      setToast({ msg: e?.response?.data?.detail || "Distribution failed", severity: "error" });
     } finally {
       setDistributing(false);
     }
-  }
+  };
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Reassign ───────────────────────────────────────────
+  const handleReassign = async (assignmentId: number, newEmail: string) => {
+    try {
+      await automationAPI.adminReassign(assignmentId, newEmail);
+      setToast({ msg: "Reassigned successfully", severity: "success" });
+      if (adminAssignments) loadAdminAssignments();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Reassign failed", severity: "error" });
+    }
+  };
 
-  const assignments = data?.assignments || [];
-  const high = assignments.filter(x => x.priority === "High");
-  const med = assignments.filter(x => x.priority === "Medium");
-  const low = assignments.filter(x => x.priority === "Low");
+  const calledList = tab === 1
+    ? assignments.filter(a => a.status !== "Pending")
+    : assignments;
 
-  const empty = !loading && !error && assignments.length === 0;
-
+  // ── Render ─────────────────────────────────────────────
   return (
     <Box>
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        justifyContent="space-between"
-        alignItems={{ xs: "flex-start", md: "center" }}
-        spacing={2}
-        sx={{ mb: 3 }}
-      >
-        <Typography
-          variant="h5"
-          sx={{
-            fontWeight: 700,
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-          }}
-        >
-          <WarningIcon color="warning" /> My Calling List (Today)
-        </Typography>
+      {/* Header */}
+      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }} spacing={2} sx={{ mb: 3 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 1 }}>
+            <PhoneIcon color="primary" /> My Calling List
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </Typography>
+        </Box>
         <Stack direction="row" spacing={1.5}>
-          {user?.email === "admin@gmail.com" && (
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<SendIcon />}
-              onClick={handleDistribute}
-              disabled={distributing}
-              title="Admin Tool: Manually Trigger Distribution"
-            >
-              {distributing ? "Distributing..." : "Run Distribution"}
-            </Button>
+          {isAdmin && (
+            <>
+              <Button
+                variant={adminTab ? "contained" : "outlined"}
+                color="secondary"
+                startIcon={<AdminIcon />}
+                onClick={() => { setAdminTab(!adminTab); if (!adminTab) loadAdminAssignments(); }}
+                size="small"
+              >
+                Admin Panel
+              </Button>
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={distributing ? <CircularProgress size={16} /> : <DistributeIcon />}
+                onClick={handleDistribute}
+                disabled={distributing || distributionStatus?.distributed}
+                size="small"
+              >
+                {distributionStatus?.distributed ? "✅ Distributed" : "Distribute Calls"}
+              </Button>
+            </>
           )}
-          <Button
-            variant="contained"
-            startIcon={<RefreshIcon />}
-            onClick={load}
-            disabled={loading}
-          >
+          <Button variant="contained" startIcon={<RefreshIcon />} onClick={() => loadAssignments(1)} disabled={loading} size="small">
             Refresh
           </Button>
         </Stack>
       </Stack>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md="auto">
-          <Metric
-            label="My Total Tasks"
-            value={data?.summary?.total || 0}
-            color="#1976d2"
-            icon={<PhoneIcon />}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md="auto">
-          <Metric
-            label="Pending"
-            value={data?.summary?.pending || 0}
-            color="#d32f2f"
-            icon={<ScheduleIcon />}
-          />
-        </Grid>
-      </Grid>
+      {/* Stats Cards */}
+      <Stack direction="row" spacing={2} sx={{ mb: 3, flexWrap: "wrap" }}>
+        {[
+          { label: "Total", value: summary.total, color: "#1976d2", icon: <AssignmentIcon /> },
+          { label: "Pending", value: summary.pending, color: "#d32f2f", icon: <PhoneIcon /> },
+          { label: "Completed", value: summary.called, color: "#2e7d32", icon: <CheckIcon /> },
+        ].map(s => (
+          <Paper
+            key={s.label}
+            sx={{
+              p: 2,
+              borderRadius: 2,
+              border: `1px solid ${alpha(s.color, 0.3)}`,
+              bgcolor: alpha(s.color, 0.05),
+              minWidth: 140,
+              display: "flex",
+              alignItems: "center",
+              gap: 1.5,
+            }}
+          >
+            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: s.color, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {s.icon}
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ color: s.color, fontWeight: 600 }}>{s.label}</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>{s.value}</Typography>
+            </Box>
+          </Paper>
+        ))}
 
-      {loading ? (
-        <ListSkeleton count={5} />
-      ) : error ? (
-        <Alert severity="error">{error}</Alert>
-      ) : empty ? (
-        <Alert severity="info">
-          No calls assigned to you for today yet.
-          (Admins: Click 'Run Distribution' to assign tasks)
-        </Alert>
-      ) : (
-        <Grid container spacing={3}>
-          {high.length > 0 && (
-            <Grid item xs={12}>
-              <PriorityHeader
-                title="High Priority"
-                color="#d32f2f"
-                count={high.length}
-              />
+        {/* Timer for admin */}
+        {isAdmin && distributionStatus && !distributionStatus.distributed && !distributionStatus.past_deadline && (
+          <Paper sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha("#ed6c02", 0.3)}`, bgcolor: alpha("#ed6c02", 0.05), minWidth: 180, display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: "#ed6c02", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <TimerIcon />
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ color: "#ed6c02", fontWeight: 600 }}>Auto-distribute in</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>{distributionStatus.minutes_until_deadline} min</Typography>
+            </Box>
+          </Paper>
+        )}
+      </Stack>
+
+      {/* Tabs */}
+      <Paper sx={{ borderRadius: 2, mb: 3 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: "divider" }}>
+          <Tab label={`📞 To Call (${summary.pending})`} />
+          <Tab label={`✅ Called (${summary.called})`} />
+        </Tabs>
+
+        {/* Content */}
+        <Box sx={{ p: 2 }}>
+          {loading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : error ? (
+            <Alert severity="error">{error}</Alert>
+          ) : calledList.length === 0 ? (
+            <Alert severity="info" sx={{ borderRadius: 2 }}>
+              {tab === 0
+                ? "No pending calls. Either all calls are complete or distribution hasn't happened yet."
+                : "No completed calls yet. Start calling from the 'To Call' tab!"}
+            </Alert>
+          ) : (
+            <>
               <Stack spacing={1.5}>
-                {high.map((item, idx) => (
-                  <CallItemCard
-                    key={`high-${idx}-${item.customer_id ?? ""}`}
-                    item={item}
-                  />
+                {calledList.map((item) => {
+                  const statusColor = STATUS_COLORS[item.status] || "#1976d2";
+                  return (
+                    <Paper
+                      key={item.assignment_id}
+                      variant="outlined"
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        borderColor: alpha(statusColor, 0.3),
+                        transition: "all 0.2s",
+                        "&:hover": { borderColor: statusColor, bgcolor: alpha(statusColor, 0.02) },
+                      }}
+                    >
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                            <PersonIcon sx={{ fontSize: 18, color: statusColor }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {item.name || "Unknown"}
+                            </Typography>
+                            <Chip size="small" label={item.priority} sx={{ bgcolor: alpha(statusColor, 0.1), color: statusColor, height: 22 }} />
+                          </Stack>
+                          <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
+                            {item.mobile && (
+                              <Stack direction="row" alignItems="center" spacing={0.5}>
+                                <PhoneIcon sx={{ fontSize: 14, color: "text.secondary" }} />
+                                <Typography variant="body2" color="text.secondary">{item.mobile}</Typography>
+                              </Stack>
+                            )}
+                            {item.village && (
+                              <Stack direction="row" alignItems="center" spacing={0.5}>
+                                <PlaceIcon sx={{ fontSize: 14, color: "text.secondary" }} />
+                                <Typography variant="body2" color="text.secondary">{item.village}</Typography>
+                              </Stack>
+                            )}
+                            {item.reason && (
+                              <Typography variant="body2" color="text.secondary">• {item.reason}</Typography>
+                            )}
+                          </Stack>
+                          {item.status !== "Pending" && item.notes && (
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block", fontStyle: "italic" }}>
+                              Notes: {item.notes}
+                            </Typography>
+                          )}
+                        </Box>
+
+                        <Stack alignItems="flex-end" spacing={0.5}>
+                          {item.status !== "Pending" && (
+                            <Chip size="small" label={item.status} sx={{ bgcolor: alpha(statusColor, 0.15), color: statusColor, fontWeight: 600 }} />
+                          )}
+                          {item.status === "Pending" && (
+                            <Tooltip title={item.mobile ? `Call ${item.mobile}` : "No phone number"}>
+                              <span>
+                                <IconButton
+                                  color="success"
+                                  disabled={!item.mobile}
+                                  onClick={() => handleCallClick(item)}
+                                  sx={{
+                                    bgcolor: alpha("#2e7d32", 0.1),
+                                    "&:hover": { bgcolor: alpha("#2e7d32", 0.2) },
+                                    width: 44,
+                                    height: 44,
+                                  }}
+                                >
+                                  <PhoneIcon />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          )}
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+
+              {/* Pagination */}
+              <TablePagination
+                component="div"
+                count={pagination.total}
+                page={pagination.page - 1}
+                rowsPerPage={pagination.limit}
+                onPageChange={(_, p) => loadAssignments(p + 1)}
+                rowsPerPageOptions={[20]}
+              />
+            </>
+          )}
+        </Box>
+      </Paper>
+
+      {/* ── Admin Panel ── */}
+      {isAdmin && adminTab && (
+        <Paper sx={{ p: 3, borderRadius: 3, mb: 3, border: `2px solid ${alpha(theme.palette.secondary.main, 0.3)}` }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
+            <AdminIcon color="secondary" /> Admin — Assignment Overview
+          </Typography>
+
+          {adminAssignments?.telecaller_summary && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Telecaller Distribution</Typography>
+              <Stack direction="row" spacing={2} sx={{ flexWrap: "wrap" }}>
+                {Object.entries(adminAssignments.telecaller_summary as Record<string, any>).map(([email, data]: [string, any]) => (
+                  <Paper key={email} variant="outlined" sx={{ p: 1.5, borderRadius: 2, minWidth: 200 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{email}</Typography>
+                    <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                      <Chip size="small" label={`Total: ${data.total}`} />
+                      <Chip size="small" label={`Pending: ${data.pending}`} color="warning" />
+                      <Chip size="small" label={`Done: ${data.called}`} color="success" />
+                    </Stack>
+                  </Paper>
                 ))}
               </Stack>
-            </Grid>
+            </Box>
           )}
 
-          {high.length > 0 && med.length > 0 && (
-            <Grid item xs={12}><Divider /></Grid>
-          )}
-
-          {med.length > 0 && (
-            <Grid item xs={12}>
-              <PriorityHeader
-                title="Medium Priority"
-                color="#ed6c02"
-                count={med.length}
-              />
-              <Stack spacing={1.5}>
-                {med.map((item, idx) => (
-                  <CallItemCard
-                    key={`med-${idx}-${item.customer_id ?? ""}`}
-                    item={item}
-                  />
+          {adminAssignments?.assignments && adminAssignments.assignments.length > 0 && (
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>Reassign Calls</Typography>
+              <Stack spacing={1}>
+                {adminAssignments.assignments.filter((a: any) => a.status === "Pending").slice(0, 20).map((a: any) => (
+                  <Stack key={a.assignment_id} direction="row" alignItems="center" spacing={2} sx={{ p: 1, borderRadius: 1, bgcolor: alpha(theme.palette.background.default, 0.5) }}>
+                    <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }}>
+                      {a.name || "Unknown"} — {a.village || ""}
+                    </Typography>
+                    <Chip size="small" label={a.user_email} variant="outlined" />
+                    <ReassignIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <InputLabel>Reassign to</InputLabel>
+                      <Select
+                        label="Reassign to"
+                        value=""
+                        onChange={(e) => handleReassign(a.assignment_id, e.target.value as string)}
+                      >
+                        {telecallers.filter(t => t.email !== a.user_email).map(t => (
+                          <MenuItem key={t.email} value={t.email}>{t.name || t.email}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Stack>
                 ))}
               </Stack>
-            </Grid>
+            </Box>
           )}
-
-          {(high.length > 0 || med.length > 0) && low.length > 0 && (
-            <Grid item xs={12}><Divider /></Grid>
-          )}
-
-          {low.length > 0 && (
-            <Grid item xs={12}>
-              <PriorityHeader
-                title="Low Priority"
-                color="#1976d2"
-                count={low.length}
-              />
-              <Stack spacing={1.5}>
-                {low.map((item, idx) => (
-                  <CallItemCard
-                    key={`low-${idx}-${item.customer_id ?? ""}`}
-                    item={item}
-                  />
-                ))}
-              </Stack>
-            </Grid>
-          )}
-        </Grid>
+        </Paper>
       )}
 
+      {/* ── Post-Call Dialog ── */}
+      <Dialog
+        open={callDialogOpen}
+        onClose={() => !submitting && setCallDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          How did the call go?
+          {activeAssignment && (
+            <Typography variant="body2" color="text.secondary">
+              {activeAssignment.name} • {activeAssignment.mobile}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+            Select call outcome
+          </Typography>
+          <Stack spacing={1} sx={{ mb: 3 }}>
+            {CALL_OUTCOMES.map(o => (
+              <Paper
+                key={o.value}
+                variant="outlined"
+                onClick={() => setSelectedOutcome(o.value)}
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  cursor: "pointer",
+                  borderColor: selectedOutcome === o.value ? o.color : alpha("#000", 0.12),
+                  borderWidth: selectedOutcome === o.value ? 2 : 1,
+                  bgcolor: selectedOutcome === o.value ? alpha(o.color, 0.08) : "transparent",
+                  "&:hover": { borderColor: o.color, bgcolor: alpha(o.color, 0.04) },
+                  transition: "all 0.15s",
+                }}
+              >
+                <Typography variant="body1" sx={{ fontWeight: selectedOutcome === o.value ? 700 : 400 }}>
+                  {o.label}
+                </Typography>
+              </Paper>
+            ))}
+          </Stack>
+
+          <TextField
+            label="Notes (optional)"
+            multiline
+            rows={3}
+            fullWidth
+            value={callNotes}
+            onChange={(e) => setCallNotes(e.target.value)}
+            placeholder="Any additional details about the call..."
+            sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCallDialogOpen(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitCallStatus}
+            disabled={!selectedOutcome || submitting}
+            startIcon={submitting ? <CircularProgress size={16} /> : <CheckIcon />}
+            sx={{ borderRadius: 2 }}
+          >
+            {submitting ? "Saving..." : "Submit"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Toast */}
       <Snackbar
         open={!!toast}
-        autoHideDuration={6000}
+        autoHideDuration={5000}
         onClose={() => setToast(null)}
-        message={toast?.msg}
-      />
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity={toast?.severity || "info"} onClose={() => setToast(null)} sx={{ borderRadius: 2 }}>
+          {toast?.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

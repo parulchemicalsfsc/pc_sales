@@ -345,27 +345,39 @@ export const demoAPI = {
 };
 
 export const automationAPI = {
-  getCallingList: async (params?: {
-    inactive_days?: number;
-    limit?: number;
-  }) => {
-    const response = await apiClient.get("/api/automation/calling-list", {
-      params,
+  getMyAssignments: async (params?: { status?: string; page?: number; limit?: number }) => {
+    const response = await apiClient.get("/api/automation/my-assignments", { params });
+    return response.data;
+  },
+  updateCallStatus: async (assignmentId: number, callOutcome: string, notes?: string) => {
+    const response = await apiClient.post("/api/automation/update-call-status", {
+      assignment_id: assignmentId,
+      call_outcome: callOutcome,
+      notes: notes || "",
     });
     return response.data;
   },
-  getInactiveInsights: async (inactive_days?: number) => {
-    const response = await apiClient.get("/api/automation/insights/inactive", {
-      params: inactive_days ? { inactive_days } : undefined,
+  getTelecallers: async () => {
+    const response = await apiClient.get("/api/automation/telecallers");
+    return response.data;
+  },
+  getAdminAssignments: async (params?: { target_date?: string; page?: number; limit?: number }) => {
+    const response = await apiClient.get("/api/automation/admin/assignments", { params });
+    return response.data;
+  },
+  adminDistribute: async () => {
+    const response = await apiClient.post("/api/automation/admin/distribute");
+    return response.data;
+  },
+  adminReassign: async (assignmentId: number, newUserEmail: string) => {
+    const response = await apiClient.post("/api/automation/admin/reassign", {
+      assignment_id: assignmentId,
+      new_user_email: newUserEmail,
     });
     return response.data;
   },
-  getMyAssignments: async () => {
-    const response = await apiClient.get("/api/automation/my-assignments");
-    return response.data;
-  },
-  runDistribution: async () => {
-    const response = await apiClient.post("/api/automation/run-distribution");
+  getDistributionStatus: async () => {
+    const response = await apiClient.get("/api/automation/distribution-status");
     return response.data;
   },
 };

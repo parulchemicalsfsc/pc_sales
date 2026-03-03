@@ -1,355 +1,527 @@
+"""
+Calling List / Automation Router — v3
+Handles telecaller call assignments, call logging, admin distribution,
+and load-aware auto-distribution with APScheduler.
+"""
 
-from datetime import datetime, timedelta, date
-from typing import Any, Dict, List, Optional
+import os
 import math
-import random
+import logging
+from datetime import datetime, date
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Header
-from supabase_db import SupabaseClient, get_db, get_supabase
+from fastapi import APIRouter, Depends, Query, HTTPException, Header, Body
+from pydantic import BaseModel
+from supabase_db import SupabaseClient, get_db
 
 router = APIRouter()
+logger = logging.getLogger("automation")
 
-# ==========================================
-# CONSTANTS & HELPERS
-# ==========================================
+# ─── Pydantic Models ─────────────────────────────────────
 
-def get_master_calling_list(db: SupabaseClient, inactive_days: int) -> List[Dict]:
-    """
-    Generates the master calling list by combining:
-    1. Inactive Customers (High Value)
-    2. Pending Demo Follow-ups
-    3. Outstanding Payments
-    """
-    master_list = []
-    
-    # ----------------------------------
-    # 1. Outstanding Payments
-    # ----------------------------------
+class CallStatusUpdate(BaseModel):
+    assignment_id: int
+    call_outcome: str  # 'connected', 'not_reachable', 'callback', 'wrong_number'
+    notes: Optional[str] = None
+
+class ReassignRequest(BaseModel):
+    assignment_id: int
+    new_user_email: str
+
+VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
+
+# ─── Distribution Logic ──────────────────────────────────
+
+def _get_telecaller_emails(db: SupabaseClient) -> list:
+    """Get telecaller users from app_users table."""
     try:
-        # Get sales with pending/partial status
-        pending_sales = db.table("sales").select("*").in_("payment_status", ["Pending", "Partial"]).execute()
-        
-        for sale in pending_sales.data or []:
-            # Get customer details
-            customer_res = db.table("customers").select("mid, name, mobile, village").eq("customer_id", sale["customer_id"]).execute()
-            if not customer_res.data: continue
-            cust = customer_res.data[0]
-            
-            # Use 'sales.paid_amount' if implemented, else rely on status
-            paid = sale.get("paid_amount") or 0
-            # Also check payments table? For now, simplistic reliance on sales record
-            # In a robust system, we'd sum payments table, but let's stick to simple logic first
-            
-            # Actually, let's just push High priority for any "Pending" status > 7 days old
-            sale_date = datetime.strptime(sale["sale_date"], "%Y-%m-%d").date()
-            days_old = (date.today() - sale_date).days
-            
-            if days_old > 7:
-                master_list.append({
-                    "customer_id": sale["customer_id"],
-                    "name": cust["name"],
-                    "mobile": cust["mobile"],
-                    "village": cust["village"],
-                    "priority": "High",
-                    "reason": f"Payment pending for Invoice {sale.get('invoice_no')} ({days_old} days)",
-                    "type": "payment",
-                    "reference_id": sale.get("sale_id"),
-                    "amount": sale.get("total_amount") - paid
-                })
+        res = db.table("app_users").select("email, name, role").eq("is_active", True).execute()
+        users = res.data or []
+        telecallers = [
+            u for u in users
+            if u.get("role", "").lower() in ("telecaller", "staff")
+        ]
+        return telecallers
     except Exception as e:
-        print(f"Error fetching outstanding payments: {e}")
+        logger.error(f"Error fetching telecallers: {e}")
+        return []
 
-    # ----------------------------------
-    # 2. Demo Follow-ups
-    # ----------------------------------
+
+def _check_already_distributed(db: SupabaseClient, target_date: str) -> bool:
+    """Idempotency check: are there assignments for this date already?"""
     try:
-        # Get active demos
-        today_str = date.today().isoformat()
-        demos = db.table("demos").select("*").in_("conversion_status", ["Scheduled", "Pending"]).execute()
-        
-        for demo in demos.data or []:
-            customer_res = db.table("customers").select("name, mobile, village").eq("customer_id", demo["customer_id"]).execute()
-            if not customer_res.data: continue
-            cust = customer_res.data[0]
-            
-            # Logic: If demo date passed and no conversion, Call them.
-            # If follow_up_date is today/past, Call them.
-            should_call = False
-            reason = ""
-            
-            demo_date = datetime.strptime(demo["demo_date"], "%Y-%m-%d").date()
-            follow_up = demo.get("follow_up_date")
-            
-            if follow_up:
-                follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d").date()
-                if follow_up_date <= date.today():
-                    should_call = True
-                    reason = "Scheduled Follow-up"
-            elif demo_date < date.today():
-                 should_call = True
-                 reason = "Post-Demo Feedback"
-                 
-            if should_call:
-                master_list.append({
-                    "customer_id": demo["customer_id"],
-                    "name": cust["name"],
-                    "mobile": cust["mobile"],
-                    "village": cust["village"],
-                    "priority": "High",
-                    "reason": reason,
-                    "type": "demo",
-                    "reference_id": demo.get("demo_id")
-                })
-    except Exception as e:
-         print(f"Error fetching demos: {e}")
-
-    # ----------------------------------
-    # 3. Inactive Customers
-    # ----------------------------------
-    try:
-        # This is harder in NoSQL-ish/Supabase client without raw SQL join power for "Max Date"
-        # Strategy: Fetch all recent sales, find set of active customers, subtract from all customers?
-        # Better: Just limit to checking recently inactive ones if dataset is huge.
-        
-        # Simplified: Fetch top 50 customers who haven't bought in X days.
-        # We rely on 'sales' date.
-        
-        # 1. Get all customers
-        all_customers = db.table("customers").select("customer_id, name, mobile, village").eq("status", "Active").execute()
-        
-        # 2. Get recent sales (within inactive_days)
-        # Fetching sales to filter in Python for accuracy
-        all_sales_res = db.table("sales").select("customer_id, sale_date").execute()
-        
-        cutoff_date_dt = date.today() - timedelta(days=inactive_days)
-        active_customer_ids = set()
-        
-        for sale in all_sales_res.data or []:
-            s_date_str = sale.get("sale_date")
-            if not s_date_str: continue
-            
-            try:
-                s_date = datetime.strptime(s_date_str, "%Y-%m-%d").date()
-                if s_date >= cutoff_date_dt:
-                    active_customer_ids.add(sale.get("customer_id"))
-            except ValueError:
-                continue
-        
-        count = 0
-        for cust in all_customers.data or []:
-            if count >= 30: break # Limit inactive list size for daily mix
-            
-            if cust["customer_id"] not in active_customer_ids:
-                # This customer is inactive
-                master_list.append({
-                    "customer_id": cust["customer_id"],
-                    "name": cust["name"],
-                    "mobile": cust["mobile"],
-                    "village": cust["village"],
-                    "priority": "Medium",
-                    "reason": f"Inactive for {inactive_days}+ days",
-                    "type": "inactive",
-                    "reference_id": None
-                })
-                count += 1
-                
-    except Exception as e:
-        print(f"Error fetching inactive customers: {e}")
-
-    return master_list
-
-
-# ==========================================
-# ENDPOINTS
-# ==========================================
-
-@router.post("/run-distribution")
-def run_daily_distribution(
-    db: SupabaseClient = Depends(get_db),
-    admin_email: str = Header(None, alias="x-user-email") # Basic security
-):
-    """
-    Triggers the daily distribution process manually.
-    Splits the master calling list equally among 'staff' users.
-    """
-    try:
-        # 1. Get Eligible Users from Supabase Auth (ignore local app_users table)
-        # We need the official client for admin ops
-        supabase = get_supabase()
-        
-        # Determine if we have service role key privileges (attempt list_users)
-        # Note: This requires SUPABASE_SERVICE_ROLE_KEY to be set in env for full access
-        # but locally it might work if the user key has permissions.
-        
-        staff_emails = []
+        res = db.table("calling_assignments") \
+            .select("assignment_id", count="exact") \
+            .eq("assigned_date", target_date) \
+            .limit(1) \
+            .execute()
+        return (res.count or 0) > 0 or len(res.data or []) > 0
+    except Exception:
+        # Fallback: just check if we get any data
         try:
-             # Fetch users from Auth
-             response = supabase.auth.admin.list_users()
-             # response is usually UserList with .users
-             users = response.users if hasattr(response, "users") else response
-             
-             # Filter out admin and ensure email exists
-             staff_emails = [
-                 u.email for u in users 
-                 if u.email and u.email != "admin@gmail.com"
-             ]
-        except Exception as auth_error:
-             # Fallback or error - if auth admin fails (e.g. no permissions), 
-             # we might need to rely on the manual table or raise error.
-             print(f"Auth Admin fetch failed: {auth_error}")
-             # If this fails, we can't do much if the user complained the table is wrong.
-             # Let's try to query app_users as a fallback but likely it is empty/wrong as reported.
-             raise HTTPException(
-                 status_code=500, 
-                 detail=f"Failed to sync users from Supabase Auth. Ensure SUPABASE_SERVICE_ROLE_KEY is set. Error: {str(auth_error)}"
-             )
-        
-        if not staff_emails:
-            # Fallback: if no staff, maybe assign to admin or fail
-            return {"message": "No active staff users found to distribute calls.", "count": 0}
-            
-        # 2. Get Master List
-        master_list = get_master_calling_list(db, inactive_days=30)
-        
-        if not master_list:
-            return {"message": "No calls to assign today.", "count": 0}
-            
-        # 3. Shuffle & Split
-        random.shuffle(master_list)
-        total_items = len(master_list)
-        total_staff = len(staff_emails)
-        chunk_size = math.ceil(total_items / total_staff)
-        
-        assignments = []
-        notifications_to_send = {}
-        today_str = date.today().isoformat()
-        
-        staff_idx = 0
-        for item in master_list:
-            assigned_email = staff_emails[staff_idx % total_staff]
-            staff_idx += 1
-            
-            assignments.append({
-                "user_email": assigned_email,
-                "customer_id": item["customer_id"],
-                "priority": item["priority"],
-                "reason": item["reason"],
-                "assigned_date": today_str,
-                "status": "Pending",
-                "notes": item.get("type", "") 
-            })
-            
-            # Count notifications
-            if assigned_email not in notifications_to_send:
-                 notifications_to_send[assigned_email] = 0
-            notifications_to_send[assigned_email] += 1
-            
-        # 4. Bulk Insert Assignments
-        if assignments:
-            db.table("calling_assignments").insert(assignments).execute()
-            
-        # 5. Insert Notifications
-        notification_records = []
-        for email, count in notifications_to_send.items():
-            notification_records.append({
-                "user_email": email,
-                "title": "New Calls Assigned",
-                "message": f"You have been assigned {count} new calls for today.",
-                "notification_type": "info",
-                "entity_type": "calling_list",
-                "is_read": False
-            })
-            
-        if notification_records:
-            db.table("notifications").insert(notification_records).execute()
-        
-        return {
-            "message": "Distribution successful",
-            "total_calls": total_items,
-            "staff_count": total_staff,
-            "calls_per_person": chunk_size
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Distribution failed: {str(e)}")
+            res = db.table("calling_assignments") \
+                .select("assignment_id") \
+                .eq("assigned_date", target_date) \
+                .limit(1) \
+                .execute()
+            return len(res.data or []) > 0
+        except:
+            return False
 
+
+def _get_pending_counts(db: SupabaseClient, emails: list) -> dict:
+    """Get current pending assignment counts per telecaller (load-aware)."""
+    counts = {e: 0 for e in emails}
+    try:
+        res = db.table("calling_assignments") \
+            .select("user_email") \
+            .eq("status", "Pending") \
+            .in_("user_email", emails) \
+            .execute()
+        for row in res.data or []:
+            email = row.get("user_email")
+            if email in counts:
+                counts[email] += 1
+    except Exception as e:
+        logger.error(f"Error fetching pending counts: {e}")
+    return counts
+
+
+def distribute_calls(db: SupabaseClient, admin_email: str = "system") -> dict:
+    """
+    Load-aware, idempotent distribution of pending customers to telecallers.
+    Uses calling_assignments from algorithm or master list.
+    """
+    today_str = date.today().isoformat()
+
+    # 1. Idempotency check
+    if _check_already_distributed(db, today_str):
+        return {"message": "Already distributed for today", "status": "skipped"}
+
+    # 2. Get telecallers
+    telecallers = _get_telecaller_emails(db)
+    if not telecallers:
+        logger.warning("No active telecallers found for distribution!")
+        # Alert admin
+        try:
+            db.table("notifications").insert({
+                "user_email": admin_email if admin_email != "system" else "admin@gmail.com",
+                "title": "⚠️ No Telecallers Available",
+                "message": "Auto-distribution failed: No active telecallers found. Please add telecallers to app_users.",
+                "notification_type": "warning",
+                "entity_type": "calling_list",
+                "is_read": False,
+            }).execute()
+        except Exception:
+            pass
+        return {"message": "No active telecallers found", "status": "error", "total_calls": 0}
+
+    emails = [t["email"] for t in telecallers]
+
+    # 3. Get customers to call (top 150 from customers table, or all pending)
+    try:
+        customers_res = db.table("customers") \
+            .select("customer_id, name, mobile, village, taluka, district") \
+            .eq("status", "Active") \
+            .limit(150) \
+            .execute()
+        customers = customers_res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {e}")
+
+    if not customers:
+        return {"message": "No customers to distribute", "status": "empty", "total_calls": 0}
+
+    # 4. Load-aware distribution: fewer pending → more new calls
+    pending_counts = _get_pending_counts(db, emails)
+    # Sort by pending count ascending (least busy first)
+    sorted_emails = sorted(emails, key=lambda e: pending_counts.get(e, 0))
+
+    # Round-robin with load-aware ordering
+    assignments = []
+    notifications_map = {}
+    for i, cust in enumerate(customers):
+        assigned_email = sorted_emails[i % len(sorted_emails)]
+        assignments.append({
+            "user_email": assigned_email,
+            "customer_id": cust["customer_id"],
+            "priority": "Medium",
+            "reason": "Auto-assigned",
+            "assigned_date": today_str,
+            "status": "Pending",
+            "notes": "",
+        })
+        notifications_map[assigned_email] = notifications_map.get(assigned_email, 0) + 1
+
+    # 5. Bulk insert assignments
+    if assignments:
+        # Insert in batches to avoid oversized requests
+        batch_size = 50
+        for i in range(0, len(assignments), batch_size):
+            batch = assignments[i:i + batch_size]
+            db.table("calling_assignments").insert(batch).execute()
+
+    # 6. Send notifications to telecallers
+    notification_records = []
+    for email, count in notifications_map.items():
+        notification_records.append({
+            "user_email": email,
+            "title": "📞 New Calls Assigned",
+            "message": f"You have {count} new calls assigned for today.",
+            "notification_type": "info",
+            "entity_type": "calling_list",
+            "is_read": False,
+        })
+    if notification_records:
+        db.table("notifications").insert(notification_records).execute()
+
+    return {
+        "message": "Distribution successful",
+        "status": "success",
+        "total_calls": len(assignments),
+        "telecaller_count": len(sorted_emails),
+        "calls_per_person": math.ceil(len(assignments) / len(sorted_emails)),
+        "distribution": {email: count for email, count in notifications_map.items()},
+    }
+
+
+# ─── Endpoints ────────────────────────────────────────────
 
 @router.get("/my-assignments")
 def get_my_assignments(
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
     user_email: str = Header(..., alias="x-user-email"),
-    db: SupabaseClient = Depends(get_db)
-):
-    """
-    Fetch the calling list assigned to the logged-in user for TODAY.
-    """
-    try:
-        today_str = date.today().isoformat()
-        
-        # 1. Get assignments
-        res = db.table("calling_assignments")\
-            .select("*")\
-            .eq("user_email", user_email)\
-            .eq("assigned_date", today_str)\
-            .execute()
-            
-        assignments = res.data or []
-        
-        # 2. Enrich with customer details
-        # Supabase join syntax is tricky in python client without defined relations sometimes.
-        # We'll fetch customer details manually for the list.
-        cust_ids = [a["customer_id"] for a in assignments]
-        
-        if not cust_ids:
-            return {"assignments": [], "summary": {"total": 0, "pending": 0}}
-            
-        customers_res = db.table("customers").select("*").in_("customer_id", cust_ids).execute()
-        customers_map = {c["customer_id"]: c for c in customers_res.data}
-        
-        enhanced_list = []
-        for a in assignments:
-            c = customers_map.get(a["customer_id"], {})
-            enhanced_list.append({
-                **a,
-                "name": c.get("name"),
-                "mobile": c.get("mobile"),
-                "village": c.get("village"),
-                # adapt to frontend expected fields
-                "customer_id": a["customer_id"],
-                "priority": a["priority"], 
-                "reason": a["reason"],
-                "outstanding_balance": 0, # could fetch real balance if needed
-            })
-            
-        return {
-            "assignments": enhanced_list,
-            "summary": {
-                "total": len(enhanced_list),
-                "pending": len([x for x in enhanced_list if x["status"] == "Pending"])
-            }
-        }
-        
-    except Exception as e:
-        print(f"Error getting assignments: {e}")
-        return {"assignments": [], "error": str(e)}
-
-# Keep the old endpoint for admin backward compatibility or reference
-@router.get("/calling-list")
-def get_daily_calling_list(
-    limit: int = Query(50),
     db: SupabaseClient = Depends(get_db),
 ):
-    # This just returns the master list without assignment
-    raw_list = get_master_calling_list(db, inactive_days=30)
-    
-    # Format to match old interface roughly
-    return {
-        "generated_at": datetime.now().isoformat(),
-        "calling_priorities": {
-            "high_priority": [x for x in raw_list if x["priority"] == "High"],
-            "medium_priority": [x for x in raw_list if x["priority"] == "Medium"],
-            "low_priority": []
-        },
-        "summary": {
-            "total_calls_suggested": len(raw_list)
+    """Fetch paginated assignments for the logged-in telecaller."""
+    try:
+        today_str = date.today().isoformat()
+        offset = (page - 1) * limit
+
+        # Build query
+        query = db.table("calling_assignments") \
+            .select("*") \
+            .eq("user_email", user_email) \
+            .eq("assigned_date", today_str) \
+            .order("assignment_id")
+
+        if status:
+            query = query.eq("status", status)
+
+        query = query.limit(limit).offset(offset)
+        res = query.execute()
+        assignments = res.data or []
+
+        # Get total count for pagination
+        count_query = db.table("calling_assignments") \
+            .select("assignment_id") \
+            .eq("user_email", user_email) \
+            .eq("assigned_date", today_str)
+        if status:
+            count_query = count_query.eq("status", status)
+        count_res = count_query.execute()
+        total = len(count_res.data or [])
+
+        # Enrich with customer details
+        cust_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
+        customers_map = {}
+        if cust_ids:
+            cust_res = db.table("customers") \
+                .select("customer_id, name, mobile, village, taluka, district") \
+                .in_("customer_id", cust_ids) \
+                .execute()
+            customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
+
+        enhanced = []
+        for a in assignments:
+            c = customers_map.get(a["customer_id"], {})
+            enhanced.append({
+                **a,
+                "name": c.get("name", "Unknown"),
+                "mobile": c.get("mobile", ""),
+                "village": c.get("village", ""),
+                "taluka": c.get("taluka", ""),
+                "district": c.get("district", ""),
+            })
+
+        # Summary counts (all statuses for today)
+        all_res = db.table("calling_assignments") \
+            .select("status") \
+            .eq("user_email", user_email) \
+            .eq("assigned_date", today_str) \
+            .execute()
+        all_assignments = all_res.data or []
+        pending = sum(1 for x in all_assignments if x["status"] == "Pending")
+        called = sum(1 for x in all_assignments if x["status"] != "Pending")
+
+        return {
+            "assignments": enhanced,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": math.ceil(total / limit) if total > 0 else 1,
+            },
+            "summary": {
+                "total": len(all_assignments),
+                "pending": pending,
+                "called": called,
+            },
         }
+
+    except Exception as e:
+        logger.error(f"Error getting assignments: {e}")
+        return {"assignments": [], "error": str(e), "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 1}, "summary": {"total": 0, "pending": 0, "called": 0}}
+
+
+@router.post("/update-call-status")
+def update_call_status(
+    body: CallStatusUpdate,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Telecaller logs a call outcome + notes."""
+    if body.call_outcome not in VALID_OUTCOMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid outcome. Must be one of: {', '.join(VALID_OUTCOMES)}"
+        )
+
+    try:
+        # 1. Verify assignment belongs to this user and is Pending
+        res = db.table("calling_assignments") \
+            .select("*") \
+            .eq("assignment_id", body.assignment_id) \
+            .eq("user_email", user_email) \
+            .execute()
+
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Assignment not found or not yours")
+
+        assignment = res.data[0]
+        if assignment["status"] != "Pending":
+            raise HTTPException(status_code=400, detail="This call has already been logged")
+
+        # 2. Map outcome to status
+        status_map = {
+            "connected": "Called",
+            "not_reachable": "Not Reachable",
+            "callback": "Callback",
+            "wrong_number": "Wrong Number",
+        }
+        new_status = status_map.get(body.call_outcome, "Called")
+
+        # 3. Update assignment status + notes
+        db.table("calling_assignments") \
+            .eq("assignment_id", body.assignment_id) \
+            .update({
+                "status": new_status,
+                "notes": body.notes or "",
+            })
+
+        # 4. Insert call log
+        db.table("call_logs").insert({
+            "assignment_id": body.assignment_id,
+            "user_email": user_email,
+            "customer_id": assignment["customer_id"],
+            "call_outcome": body.call_outcome,
+            "notes": body.notes or "",
+        }).execute()
+
+        return {"message": "Call status updated", "status": new_status}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating call status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update call status: {e}")
+
+
+@router.get("/telecallers")
+def get_telecallers(
+    db: SupabaseClient = Depends(get_db),
+):
+    """List all active telecaller users."""
+    try:
+        telecallers = _get_telecaller_emails(db)
+        return {"telecallers": telecallers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/assignments")
+def get_admin_assignments(
+    target_date: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin: view all assignments for a date, grouped summary."""
+    try:
+        d = target_date or date.today().isoformat()
+        offset = (page - 1) * limit
+
+        res = db.table("calling_assignments") \
+            .select("*") \
+            .eq("assigned_date", d) \
+            .order("assignment_id") \
+            .limit(limit) \
+            .offset(offset) \
+            .execute()
+
+        assignments = res.data or []
+
+        # Enrich with customer details
+        cust_ids = list(set(a["customer_id"] for a in assignments if a.get("customer_id")))
+        customers_map = {}
+        if cust_ids:
+            cust_res = db.table("customers") \
+                .select("customer_id, name, mobile, village") \
+                .in_("customer_id", cust_ids) \
+                .execute()
+            customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
+
+        enhanced = []
+        for a in assignments:
+            c = customers_map.get(a["customer_id"], {})
+            enhanced.append({
+                **a,
+                "name": c.get("name", "Unknown"),
+                "mobile": c.get("mobile", ""),
+                "village": c.get("village", ""),
+            })
+
+        # Count total for date
+        count_res = db.table("calling_assignments") \
+            .select("assignment_id") \
+            .eq("assigned_date", d) \
+            .execute()
+        total = len(count_res.data or [])
+
+        # Per-telecaller summary
+        all_res = db.table("calling_assignments") \
+            .select("user_email, status") \
+            .eq("assigned_date", d) \
+            .execute()
+        telecaller_summary = {}
+        for row in (all_res.data or []):
+            email = row["user_email"]
+            if email not in telecaller_summary:
+                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0}
+            telecaller_summary[email]["total"] += 1
+            if row["status"] == "Pending":
+                telecaller_summary[email]["pending"] += 1
+            else:
+                telecaller_summary[email]["called"] += 1
+
+        return {
+            "assignments": enhanced,
+            "telecaller_summary": telecaller_summary,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": math.ceil(total / limit) if total > 0 else 1,
+            },
+            "date": d,
+            "already_distributed": total > 0,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting admin assignments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/distribute")
+def admin_distribute(
+    admin_email: str = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin: Trigger idempotent, load-aware call distribution."""
+    try:
+        result = distribute_calls(db, admin_email or "admin")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Distribution failed: {e}")
+
+
+@router.post("/admin/reassign")
+def admin_reassign(
+    body: ReassignRequest,
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin: Reassign a call to a different telecaller. Only if status is Pending."""
+    try:
+        # 1. Verify assignment exists and is Pending
+        res = db.table("calling_assignments") \
+            .select("*") \
+            .eq("assignment_id", body.assignment_id) \
+            .execute()
+
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Assignment not found")
+
+        assignment = res.data[0]
+        if assignment["status"] != "Pending":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reassign: call status is '{assignment['status']}', must be 'Pending'"
+            )
+
+        old_email = assignment["user_email"]
+
+        # 2. Update assignment
+        db.table("calling_assignments") \
+            .eq("assignment_id", body.assignment_id) \
+            .update({"user_email": body.new_user_email})
+
+        # 3. Notify new telecaller
+        db.table("notifications").insert({
+            "user_email": body.new_user_email,
+            "title": "📞 Call Reassigned to You",
+            "message": f"A call has been reassigned to you (was: {old_email}).",
+            "notification_type": "info",
+            "entity_type": "calling_list",
+            "is_read": False,
+        }).execute()
+
+        return {"message": "Reassigned successfully", "old_user": old_email, "new_user": body.new_user_email}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reassign failed: {e}")
+
+
+@router.get("/distribution-status")
+def get_distribution_status(
+    db: SupabaseClient = Depends(get_db),
+):
+    """Check if today's distribution has happened and return timer info."""
+    today_str = date.today().isoformat()
+    distributed = _check_already_distributed(db, today_str)
+
+    # Calculate time until 10 AM IST
+    import pytz
+    ist = pytz.timezone("Asia/Kolkata")
+    now_ist = datetime.now(ist)
+    target = now_ist.replace(hour=10, minute=0, second=0, microsecond=0)
+
+    if now_ist >= target:
+        minutes_remaining = 0
+        past_deadline = True
+    else:
+        diff = target - now_ist
+        minutes_remaining = int(diff.total_seconds() / 60)
+        past_deadline = False
+
+    return {
+        "distributed": distributed,
+        "date": today_str,
+        "past_deadline": past_deadline,
+        "minutes_until_deadline": minutes_remaining,
     }
