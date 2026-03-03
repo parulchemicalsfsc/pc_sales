@@ -266,7 +266,7 @@ export default function CallingList() {
                 disabled={distributing || distributionStatus?.distributed}
                 size="small"
               >
-                {distributionStatus?.distributed ? "✅ Distributed" : "Distribute Calls"}
+                {distributionStatus?.distributed ? "Distributed" : "Distribute Calls"}
               </Button>
             </>
           )}

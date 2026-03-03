@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from activity_logger import get_activity_logger
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from supabase_db import SupabaseClient, get_db, get_supabase
+from supabase_db import SupabaseClient, get_db, get_supabase, get_supabase_admin
 from models import UserCreate
 
 router = APIRouter()
@@ -584,8 +584,8 @@ def create_user(
     Only accessible by admin users
     """
     try:
-        # Use Supabase Admin API to create user
-        supabase = get_supabase()
+        # Use official Supabase Admin client (with service role key) for auth operations
+        supabase = get_supabase_admin()
         
         # Create user with metadata
         result = supabase.auth.admin.create_user({
