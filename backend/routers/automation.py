@@ -40,12 +40,15 @@ VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
 def _get_telecaller_emails(db: SupabaseClient) -> list:
     """Get telecaller users from app_users table."""
     try:
-        res = db.table("app_users").select("email, name, role").eq("is_active", True).execute()
+        res = db.table("app_users").select("email, name, role").execute()
         users = res.data or []
+        telecaller_roles = {"telecaller", "staff", "telecaller1", "telecaller2"}
         telecallers = [
             u for u in users
-            if u.get("role", "").lower() in ("telecaller", "staff")
+            if u.get("role", "").lower().replace(" ", "_") in telecaller_roles
+               or "telecaller" in u.get("role", "").lower()
         ]
+        logger.info(f"Found {len(telecallers)} telecallers out of {len(users)} users")
         return telecallers
     except Exception as e:
         logger.error(f"Error fetching telecallers: {e}")
