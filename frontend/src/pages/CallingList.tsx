@@ -193,9 +193,14 @@ export default function CallingList() {
 
   const loadAdmin = async () => {
     try {
-      const res = await automationAPI.getAdminAssignments({ page: 1, limit: 200 });
+      setAdminData((prev: any) => prev ? { ...prev, _loading: true } : { _loading: true });
+      const res = await automationAPI.getAdminAssignments({ page: 1, limit: 500 });
       setAdminData(res);
-    } catch { }
+    } catch (e: any) {
+      console.error("Admin load failed:", e);
+      setToast({ msg: "Failed to load admin data", sev: "error" });
+      setAdminData(null);
+    }
   };
 
   // ── Handlers ────────────────────────────────────────────
