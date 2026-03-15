@@ -47,7 +47,7 @@ const fetchPermissionsFromBackend = async (
   try {
     const API_BASE =
       import.meta.env.VITE_API_URL ||
-      (import.meta.env.DEV ? "http://127.0.0.1:8000" : "");
+      (import.meta.env.DEV ? "http://127.0.0.1:8000" : "https://pc-sales-8phu.onrender.com");
     const res = await fetch(`${API_BASE}/api/rbac/my-permissions`, {
       headers: { "x-user-email": email },
     });
