@@ -10,7 +10,8 @@
     "reports": "Reports",
     "callingList": "Calling List",
     "algorithm": "Algorithm",
-    "import": "Data Import"
+    "import": "Data Import",
+    "chat": "Chat"
   },
   "common": {
     "add": "Add",

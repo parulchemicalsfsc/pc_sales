@@ -46,6 +46,7 @@ import {
   AttachMoney as MoneyIcon,
   Shield as ShieldIcon,
   ManageAccounts as ManageAccountsIcon,
+  Chat as ChatIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -55,6 +56,7 @@ import { languages } from "../i18n/i18n";
 import { useAuth } from "../contexts/AuthContext";
 import { notificationsAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
+import { useChat } from "../hooks/useChat";
 
 const drawerWidth = 260;
 
@@ -151,6 +153,12 @@ const navigationItems: NavItem[] = [
     path: "/import",
     permission: PERMISSIONS.IMPORT_DATA,
   },
+  {
+    id: "chat",
+    labelKey: "nav.chat",
+    icon: <ChatIcon />,
+    path: "/chat",
+  },
 ];
 
 const adminNavigationItem: NavItem = {
@@ -188,6 +196,7 @@ export default function Layout({
 
   const { user, signOut, hasPermission } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const { totalUnread: chatUnread } = useChat(user?.email);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -316,6 +325,8 @@ export default function Layout({
           return true;
         }).map((item) => {
           const active = isActive(item.path);
+          // Inject live badge count for chat nav item
+          const badgeCount = item.id === "chat" ? (chatUnread || undefined) : item.badge;
           return (
             <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
               <ListItemButton
@@ -344,8 +355,8 @@ export default function Layout({
                     minWidth: 40,
                   }}
                 >
-                  {item.badge ? (
-                    <Badge badgeContent={item.badge} color="error">
+                  {badgeCount ? (
+                    <Badge badgeContent={badgeCount} color="error">
                       {item.icon}
                     </Badge>
                   ) : (
