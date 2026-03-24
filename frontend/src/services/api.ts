@@ -349,12 +349,16 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
-  updateCallStatus: async (assignmentId: number, callOutcome: string, notes?: string) => {
-    const response = await apiClient.post("/api/automation/update-call-status", {
+  updateCallStatus: async (assignmentId: number, outcome: string, notes?: string, callbackDate?: string) => {
+    const payload: any = {
       assignment_id: assignmentId,
-      call_outcome: callOutcome,
-      notes: notes || "",
-    });
+      call_outcome: outcome,
+      notes,
+    };
+    if (callbackDate) {
+      payload.callback_date = callbackDate;
+    }
+    const response = await apiClient.post("/api/automation/update-call-status", payload);
     return response.data;
   },
   getTelecallers: async () => {

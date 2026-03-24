@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
   Button,
@@ -47,6 +47,7 @@ import { PERMISSIONS } from "../config/permissions";
 export default function Sales() {
   const { t, tf } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sales, setSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -94,6 +95,19 @@ export default function Sales() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Check router state from CallingList "Take Order" navigation
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.openNewSale && customers.length > 0 && !openDialog) {
+      handleOpenDialog();
+      if (state.customerId) {
+        setFormData(prev => ({ ...prev, customer_id: state.customerId }));
+      }
+      // clear the state so it doesn't reopen on refresh
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, customers, openDialog, navigate]);
 
   const loadData = async (background = false) => {
     try {

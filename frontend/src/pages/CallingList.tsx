@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { PERMISSIONS } from "../config/permissions";
 import {
   Box,
@@ -133,9 +134,11 @@ function useCountdownTo10AM() {
 export default function CallingList() {
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
-  const { hasPermission } = useAuth();
-  const canDistribute = hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION);
+  const { role, hasPermission } = useAuth();
+  const isAdmin = role === "admin" || role === "developer";
+  const canDistribute = isAdmin || hasPermission?.(PERMISSIONS.RUN_CALL_DISTRIBUTION);
   const { timeLeft, progress, isPast } = useCountdownTo10AM();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState(0);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -150,6 +153,7 @@ export default function CallingList() {
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
   const [outcome, setOutcome] = useState("");
   const [notes, setNotes] = useState("");
+  const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // Admin
@@ -171,7 +175,7 @@ export default function CallingList() {
     try {
       setLoading(true);
       setError(null);
-      const status = tab === 0 ? "Pending" : undefined;
+      const status = tab === 0 ? "Pending" : "completed";
       const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
       setAssignments(res.assignments || []);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
@@ -207,20 +211,41 @@ export default function CallingList() {
   // ── Handlers ────────────────────────────────────────────
   const handleCall = (a: Assignment) => {
     if (a.mobile) window.open(`tel:${a.mobile}`, "_self");
-    setTimeout(() => { setActiveItem(a); setOutcome(""); setNotes(""); setDialogOpen(true); }, 400);
+    setTimeout(() => { setActiveItem(a); setOutcome(""); setNotes(""); setCallbackDate(""); setDialogOpen(true); }, 400);
   };
 
   const submitOutcome = async () => {
     if (!activeItem || !outcome) return;
+    if (outcome === "callback" && !callbackDate) {
+      setToast({ msg: "Please select a date for the callback.", sev: "error" });
+      return;
+    }
     try {
       setSubmitting(true);
-      await automationAPI.updateCallStatus(activeItem.assignment_id, outcome, notes);
+      await automationAPI.updateCallStatus(activeItem.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
       setToast({ msg: "Call logged successfully", sev: "success" });
       setDialogOpen(false);
       load(pagination.page);
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" });
     } finally { setSubmitting(false); }
+  };
+
+  const handleTakeOrder = async () => {
+    if (!activeItem) return;
+    try {
+      setSubmitting(true);
+      // Auto-log as connected first
+      await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiated Take Order");
+      setDialogOpen(false);
+      
+      // Navigate to Sales passing customerId
+      navigate("/sales", { state: { openNewSale: true, customerId: activeItem.customer_id } });
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to log call before taking order.", sev: "error" });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDistribute = async () => {
@@ -688,18 +713,42 @@ export default function CallingList() {
             placeholder="Optional details..."
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
+          {outcome === "callback" && (
+            <TextField
+              type="date"
+              label="Callback Date"
+              fullWidth
+              required
+              value={callbackDate}
+              onChange={e => setCallbackDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ min: new Date().toISOString().split("T")[0] }}
+              sx={{ mt: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+            />
+          )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
           <Button onClick={() => setDialogOpen(false)} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={submitOutcome}
-            disabled={!outcome || submitting}
-            startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
-            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
-          >
-            {submitting ? "Saving…" : "Submit"}
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleTakeOrder}
+              disabled={submitting}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+            >
+              Take Order
+            </Button>
+            <Button
+              variant="contained"
+              onClick={submitOutcome}
+              disabled={!outcome || submitting || (outcome === "callback" && !callbackDate)}
+              startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
+            >
+              {submitting ? "Saving…" : "Submit"}
+            </Button>
+          </Stack>
         </DialogActions>
       </Dialog>
 
