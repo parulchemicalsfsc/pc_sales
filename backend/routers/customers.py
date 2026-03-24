@@ -22,6 +22,43 @@ def get_customers(db: SupabaseClient = Depends(get_db)):
         raise HTTPException(
             status_code=500, detail=f"Error fetching customers: {str(e)}"
         )
+@router.get("/{customer_id}/summary", dependencies=[Depends(verify_permission("view_customers"))])
+def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db)):
+    """Get summarized sales, payments, and join date for a customer"""
+    try:
+        cust_res = db.table("customers").select("created_at").eq("customer_id", customer_id).execute()
+        if not cust_res.data or len(cust_res.data) == 0:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        
+        joined_date = cust_res.data[0].get("created_at")
+        
+        sales_res = db.table("sales").select("total_amount, sale_id").eq("customer_id", customer_id).execute()
+        sales_data = sales_res.data or []
+        sales_count = len(sales_data)
+        total_sales = sum(float(s.get("total_amount") or 0) for s in sales_data)
+        
+        total_paid = 0.0
+        if sales_data:
+            sale_ids = [s["sale_id"] for s in sales_data]
+            payments_res = db.table("payments").select("amount").in_("sale_id", sale_ids).execute()
+            payments_data = payments_res.data or []
+            total_paid = sum(float(p.get("amount") or 0) for p in payments_data)
+            
+        total_pending = max(0.0, total_sales - total_paid)
+
+        return {
+            "joined_date": joined_date,
+            "sales_count": sales_count,
+            "total_sales": total_sales,
+            "total_paid": total_paid,
+            "total_pending": total_pending
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching customer summary: {str(e)}"
+        )
 
 
 @router.get("/{customer_id}", dependencies=[Depends(verify_permission("view_customers"))])

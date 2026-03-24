@@ -27,6 +27,7 @@ import {
   InputLabel,
   Divider,
   LinearProgress,
+  Grid,
   useTheme,
   alpha,
 } from "@mui/material";
@@ -46,8 +47,9 @@ import {
   ReportProblem as WrongIcon,
   Schedule as ScheduleIcon,
   Autorenew as AutorenewIcon,
+  ShoppingCart as ShoppingCartIcon,
 } from "@mui/icons-material";
-import { automationAPI } from "../services/api";
+import { automationAPI, customerAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 
 // ── Types ──────────────────────────────────────────────
@@ -77,6 +79,7 @@ const CALL_OUTCOMES = [
   { value: "not_reachable", label: "Not Reachable", desc: "No answer / switched off", icon: <PhoneDisabledIcon />, color: "#dc2626" },
   { value: "callback", label: "Call Back Later", desc: "Asked to call again", icon: <CallMissedIcon />, color: "#ea580c" },
   { value: "wrong_number", label: "Wrong Number", desc: "Invalid contact", icon: <WrongIcon />, color: "#71717a" },
+  { value: "take_order", label: "Take Order", desc: "Create a sale for this Sabhasad", icon: <ShoppingCartIcon />, color: "#3b82f6" },
 ];
 
 const STATUS_CHIP: Record<string, { bg: string; fg: string }> = {
@@ -155,6 +158,9 @@ export default function CallingList() {
   const [notes, setNotes] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  
+  const [customerSummary, setCustomerSummary] = useState<any>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Admin
   const [distributing, setDistributing] = useState(false);
@@ -211,11 +217,29 @@ export default function CallingList() {
   // ── Handlers ────────────────────────────────────────────
   const handleCall = (a: Assignment) => {
     if (a.mobile) window.open(`tel:${a.mobile}`, "_self");
-    setTimeout(() => { setActiveItem(a); setOutcome(""); setNotes(""); setCallbackDate(""); setDialogOpen(true); }, 400);
+    setTimeout(() => { 
+      setActiveItem(a); 
+      setOutcome(""); 
+      setNotes(""); 
+      setCallbackDate(""); 
+      setDialogOpen(true);
+      
+      // Fetch customer summary
+      setCustomerSummary(null);
+      setSummaryLoading(true);
+      customerAPI.getSummary(a.customer_id)
+        .then(setCustomerSummary)
+        .catch(() => console.error("Summary load fail"))
+        .finally(() => setSummaryLoading(false));
+        
+    }, 400);
   };
 
   const submitOutcome = async () => {
     if (!activeItem || !outcome) return;
+    if (outcome === "take_order") {
+      return handleTakeOrder();
+    }
     if (outcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the callback.", sev: "error" });
       return;
@@ -677,6 +701,37 @@ export default function CallingList() {
           )}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+          {/* ── Customer Summary Box ── */}
+          <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: alpha(theme.palette.primary.main, 0.04), border: `1px solid ${border}` }}>
+            {summaryLoading ? (
+              <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ height: 60 }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="text.secondary">Fetching history...</Typography>
+              </Stack>
+            ) : customerSummary ? (
+              <Grid container spacing={1.5}>
+                <Grid item xs={6}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Sabhasad Since</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{customerSummary.joined_date ? new Date(customerSummary.joined_date).toLocaleDateString() : "—"}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Sales History</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{customerSummary.sales_count} (₹{(customerSummary.total_sales || 0).toLocaleString()})</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Total Paid</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: "success.main" }}>₹{(customerSummary.total_paid || 0).toLocaleString()}</Typography>
+                </Grid>
+                <Grid item xs={6}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Total Pending</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: "error.main" }}>₹{(customerSummary.total_pending || 0).toLocaleString()}</Typography>
+                </Grid>
+              </Grid>
+            ) : (
+              <Typography variant="caption" color="text.secondary">No summary available</Typography>
+            )}
+          </Box>
+
           <Stack spacing={1} sx={{ mb: 2.5 }}>
             {CALL_OUTCOMES.map(o => (
               <Box
@@ -729,26 +784,15 @@ export default function CallingList() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
           <Button onClick={() => setDialogOpen(false)} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              color="primary"
-              onClick={handleTakeOrder}
-              disabled={submitting}
-              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
-            >
-              Take Order
-            </Button>
-            <Button
-              variant="contained"
-              onClick={submitOutcome}
-              disabled={!outcome || submitting || (outcome === "callback" && !callbackDate)}
-              startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
-              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
-            >
-              {submitting ? "Saving…" : "Submit"}
-            </Button>
-          </Stack>
+          <Button
+            variant="contained"
+            onClick={submitOutcome}
+            disabled={!outcome || submitting || (outcome === "callback" && !callbackDate)}
+            startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
+            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
+          >
+            {submitting ? "Saving…" : "Submit"}
+          </Button>
         </DialogActions>
       </Dialog>
 

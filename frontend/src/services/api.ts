@@ -147,6 +147,10 @@ export const customerAPI = {
     const response = await apiClient.get(`/api/customers/${id}`);
     return response.data;
   },
+  getSummary: async (id: number) => {
+    const response = await apiClient.get(`/api/customers/${id}/summary`);
+    return response.data;
+  },
   create: async (data: any) => {
     const response = await apiClient.post("/api/customers", data);
     return response.data;
