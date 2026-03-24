@@ -26,8 +26,9 @@ import {
   FormControl,
   InputLabel,
   Divider,
-  LinearProgress,
+  LinearProgress as MuiLinearProgress,
   Grid,
+  Avatar,
   useTheme,
   alpha,
 } from "@mui/material";
@@ -48,6 +49,12 @@ import {
   Schedule as ScheduleIcon,
   Autorenew as AutorenewIcon,
   ShoppingCart as ShoppingCartIcon,
+  Close as CloseIcon,
+  CalendarMonth as CalendarIcon,
+  Receipt as ReceiptIcon,
+  AccountBalanceWallet as WalletIcon,
+  TrendingUp as TrendingUpIcon,
+  LocationOn as LocationIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -151,16 +158,19 @@ export default function CallingList() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
 
-  // Dialog
+  // History Dialog
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItem, setHistoryItem] = useState<Assignment | null>(null);
+  const [customerSummary, setCustomerSummary] = useState<any>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Call Outcome Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
   const [outcome, setOutcome] = useState("");
   const [notes, setNotes] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  
-  const [customerSummary, setCustomerSummary] = useState<any>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Admin
   const [distributing, setDistributing] = useState(false);
@@ -215,14 +225,9 @@ export default function CallingList() {
   };
 
   // ── Handlers ────────────────────────────────────────────
-  const openDialogFor = (a: Assignment) => {
-    setActiveItem(a); 
-    setOutcome(""); 
-    setNotes(""); 
-    setCallbackDate(""); 
-    setDialogOpen(true);
-    
-    // Fetch customer summary
+  const openHistoryDialog = (a: Assignment) => {
+    setHistoryItem(a);
+    setHistoryOpen(true);
     setCustomerSummary(null);
     setSummaryLoading(true);
     customerAPI.getSummary(a.customer_id)
@@ -234,7 +239,13 @@ export default function CallingList() {
   const handleCallButton = (e: React.MouseEvent, a: Assignment) => {
     e.stopPropagation();
     if (a.mobile) window.open(`tel:${a.mobile}`, "_self");
-    setTimeout(() => { openDialogFor(a); }, 400);
+    setTimeout(() => {
+      setActiveItem(a);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }, 400);
   };
 
   const submitOutcome = async () => {
@@ -400,7 +411,7 @@ export default function CallingList() {
                   {timeLeft}
                 </Typography>
               </Stack>
-              <LinearProgress
+              <MuiLinearProgress
                 variant="determinate"
                 value={progress}
                 sx={{
@@ -485,7 +496,7 @@ export default function CallingList() {
                   return (
                     <Box
                       key={item.assignment_id}
-                      onClick={() => openDialogFor(item)}
+                      onClick={() => openHistoryDialog(item)}
                       sx={{
                         p: 2,
                         borderRadius: 2,
@@ -694,6 +705,126 @@ export default function CallingList() {
         </Paper>
       )}
 
+      {/* ── Customer History Dialog ── */}
+      <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: "hidden" } }}>
+        {/* Gradient Header */}
+        <Box sx={{ background: "linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)", color: "#fff", px: 3, pt: 3, pb: 2.5, position: "relative" }}>
+          <IconButton onClick={() => setHistoryOpen(false)} sx={{ position: "absolute", top: 8, right: 8, color: "rgba(255,255,255,.7)", "&:hover": { color: "#fff" } }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Avatar sx={{ width: 48, height: 48, bgcolor: "rgba(255,255,255,.15)", fontSize: 20, fontWeight: 700 }}>
+              {(historyItem?.name || "?")[0].toUpperCase()}
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{historyItem?.name || "Unknown"}</Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }}>
+                {historyItem?.mobile && (
+                  <Typography variant="caption" sx={{ opacity: .85, display: "flex", alignItems: "center", gap: 0.3 }}>
+                    <PhoneIcon sx={{ fontSize: 13 }} /> {historyItem.mobile}
+                  </Typography>
+                )}
+                {historyItem?.village && (
+                  <Typography variant="caption" sx={{ opacity: .85, display: "flex", alignItems: "center", gap: 0.3 }}>
+                    <LocationIcon sx={{ fontSize: 13 }} /> {historyItem.village}
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+          </Stack>
+        </Box>
+        <DialogContent sx={{ pt: 2.5, pb: 3 }}>
+          {summaryLoading ? (
+            <Stack spacing={2} alignItems="center" sx={{ py: 4 }}>
+              <CircularProgress size={28} />
+              <Typography variant="body2" color="text.secondary">Loading customer history...</Typography>
+            </Stack>
+          ) : customerSummary ? (
+            <Stack spacing={2.5}>
+              {/* ── Stat Cards ── */}
+              <Grid container spacing={1.5}>
+                <Grid item xs={6}>
+                  <Box sx={{ p: 1.5, borderRadius: 2.5, bgcolor: alpha("#2563eb", 0.06), border: `1px solid ${alpha("#2563eb", 0.12)}` }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                      <CalendarIcon sx={{ fontSize: 16, color: "#2563eb" }} />
+                      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 500 }}>Sabhasad Since</Typography>
+                    </Stack>
+                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                      {customerSummary.joined_date ? new Date(customerSummary.joined_date).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : "—"}
+                    </Typography>
+                  </Box>
+                </Grid>
+                <Grid item xs={6}>
+                  <Box sx={{ p: 1.5, borderRadius: 2.5, bgcolor: alpha("#7c3aed", 0.06), border: `1px solid ${alpha("#7c3aed", 0.12)}` }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                      <ReceiptIcon sx={{ fontSize: 16, color: "#7c3aed" }} />
+                      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 500 }}>Total Orders</Typography>
+                    </Stack>
+                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                      {customerSummary.sales_count}
+                      <Typography component="span" variant="caption" sx={{ ml: 0.5, color: "text.secondary" }}>
+                        (₹{(customerSummary.total_sales || 0).toLocaleString("en-IN")})
+                      </Typography>
+                    </Typography>
+                  </Box>
+                </Grid>
+                <Grid item xs={6}>
+                  <Box sx={{ p: 1.5, borderRadius: 2.5, bgcolor: alpha("#16a34a", 0.06), border: `1px solid ${alpha("#16a34a", 0.12)}` }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                      <WalletIcon sx={{ fontSize: 16, color: "#16a34a" }} />
+                      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 500 }}>Paid</Typography>
+                    </Stack>
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: "#16a34a" }}>₹{(customerSummary.total_paid || 0).toLocaleString("en-IN")}</Typography>
+                  </Box>
+                </Grid>
+                <Grid item xs={6}>
+                  <Box sx={{ p: 1.5, borderRadius: 2.5, bgcolor: alpha("#dc2626", 0.06), border: `1px solid ${alpha("#dc2626", 0.12)}` }}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                      <TrendingUpIcon sx={{ fontSize: 16, color: "#dc2626" }} />
+                      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 500 }}>Pending</Typography>
+                    </Stack>
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: "#dc2626" }}>₹{(customerSummary.total_pending || 0).toLocaleString("en-IN")}</Typography>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              {/* ── Payment Progress Bar ── */}
+              {customerSummary.total_sales > 0 && (() => {
+                const paidPct = Math.round((customerSummary.total_paid / customerSummary.total_sales) * 100);
+                return (
+                  <Box>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>Payment Progress</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: paidPct >= 100 ? "#16a34a" : "#ea580c" }}>{paidPct}%</Typography>
+                    </Stack>
+                    <MuiLinearProgress
+                      variant="determinate"
+                      value={Math.min(paidPct, 100)}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        bgcolor: alpha("#e5e7eb", 0.5),
+                        "& .MuiLinearProgress-bar": {
+                          borderRadius: 4,
+                          background: paidPct >= 100 ? "linear-gradient(90deg, #16a34a, #22c55e)" : "linear-gradient(90deg, #2563eb, #60a5fa)",
+                        },
+                      }}
+                    />
+                  </Box>
+                );
+              })()}
+            </Stack>
+          ) : (
+            <Box sx={{ textAlign: "center", py: 4 }}>
+              <Typography variant="body2" color="text.secondary">No history available for this Sabhasad.</Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setHistoryOpen(false)} sx={{ borderRadius: 2, textTransform: "none" }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* ── Post-Call Dialog ── */}
       <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
@@ -705,36 +836,6 @@ export default function CallingList() {
           )}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          {/* ── Customer Summary Box ── */}
-          <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, bgcolor: alpha(theme.palette.primary.main, 0.04), border: `1px solid ${border}` }}>
-            {summaryLoading ? (
-              <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ height: 60 }}>
-                <CircularProgress size={20} />
-                <Typography variant="body2" color="text.secondary">Fetching history...</Typography>
-              </Stack>
-            ) : customerSummary ? (
-              <Grid container spacing={1.5}>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Sabhasad Since</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{customerSummary.joined_date ? new Date(customerSummary.joined_date).toLocaleDateString() : "—"}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Sales History</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{customerSummary.sales_count} (₹{(customerSummary.total_sales || 0).toLocaleString()})</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Total Paid</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: "success.main" }}>₹{(customerSummary.total_paid || 0).toLocaleString()}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>Total Pending</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: "error.main" }}>₹{(customerSummary.total_pending || 0).toLocaleString()}</Typography>
-                </Grid>
-              </Grid>
-            ) : (
-              <Typography variant="caption" color="text.secondary">No summary available</Typography>
-            )}
-          </Box>
 
           <Stack spacing={1} sx={{ mb: 2.5 }}>
             {CALL_OUTCOMES.map(o => (
