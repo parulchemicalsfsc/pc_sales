@@ -23,6 +23,8 @@ import {
   ListItemAvatar,
   Snackbar,
   Alert,
+  Slide,
+  Paper,
 } from "@mui/material";
 
 import {
@@ -298,7 +300,7 @@ export default function Layout({
 
   useEffect(() => {
     fetchRecentActivity();
-    const interval = setInterval(fetchRecentActivity, 10000); // Check every 10 seconds
+    const interval = setInterval(fetchRecentActivity, 5000); // Check every 5 seconds (faster)
     return () => clearInterval(interval);
   }, [user?.email]);
 
@@ -750,10 +752,48 @@ export default function Layout({
         autoHideDuration={4000}
         onClose={handleCloseToast}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        TransitionComponent={Slide}
       >
-        <Alert onClose={handleCloseToast} severity={activityToast?.severity || "success"} sx={{ width: "100%", boxShadow: 3 }}>
-          {activityToast?.msg}
-        </Alert>
+        <Paper
+          elevation={6}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            p: 2,
+            minWidth: 280,
+            borderRadius: 3,
+            borderLeft: `6px solid ${
+              activityToast?.severity === "success" 
+                ? theme.palette.success.main 
+                : theme.palette.info.main
+            }`,
+            bgcolor: theme.palette.background.paper,
+            color: theme.palette.text.primary,
+          }}
+        >
+          <Avatar 
+            sx={{ 
+              bgcolor: activityToast?.severity === "success" 
+                ? `${theme.palette.success.main}1A` 
+                : `${theme.palette.info.main}1A`,
+              color: activityToast?.severity === "success" 
+                ? theme.palette.success.main 
+                : theme.palette.info.main,
+              width: 40, height: 40
+            }}
+          >
+            <TimelineIcon />
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle2" fontWeight={600}>
+              Live Activity
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {activityToast?.msg}
+            </Typography>
+          </Box>
+        </Paper>
       </Snackbar>
     </Box>
   );
