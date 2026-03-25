@@ -196,7 +196,7 @@ function App() {
                 <Route
                   path="/admin"
                   element={
-                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_ACTIVITY_LOGS}>
+                    <ProtectedRoute>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Admin />
                         <QuickActions />

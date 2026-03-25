@@ -405,10 +405,10 @@ export default function Layout({
         })}
 
         {/* Admin Navigation - Only for users with admin permissions */}
-        {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) || hasPermission(PERMISSIONS.VIEW_USERS) || hasPermission(PERMISSIONS.MANAGE_PRICING) || hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
+        {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) || hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) || hasPermission(PERMISSIONS.VIEW_USERS) || hasPermission(PERMISSIONS.MANAGE_PRICING) || hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
           <>
             <Divider sx={{ my: 1 }} />
-            {hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) && (
+            {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) || hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION)) && (
               <ListItem disablePadding sx={{ mb: 0.5 }}>
                 <ListItemButton
                   onClick={() => handleNavigation("/admin")}
@@ -434,7 +434,7 @@ export default function Layout({
                     <AdminIcon />
                   </ListItemIcon>
                   <ListItemText
-                    primary={t("nav.activityLogs", "Activity Logs")}
+                    primary={t("nav.adminMenu", "Admin Panel")}
                     primaryTypographyProps={{ fontWeight: isActive("/admin") ? 600 : 500, fontSize: "0.95rem" }}
                   />
                 </ListItemButton>
