@@ -21,10 +21,6 @@ import {
   Snackbar,
   Tooltip,
   TablePagination,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Divider,
   LinearProgress as MuiLinearProgress,
   Grid,
@@ -37,19 +33,12 @@ import {
   Phone as PhoneIcon,
   CheckCircle as CheckIcon,
   Refresh as RefreshIcon,
-  Send as DistributeIcon,
-  SwapHoriz as ReassignIcon,
-  Timer as TimerIcon,
-  Person as PersonIcon,
-  Place as PlaceIcon,
+  ReportProblem as WrongIcon,
+  ShoppingCart as ShoppingCartIcon,
   Assignment as AssignmentIcon,
-  AdminPanelSettings as AdminIcon,
+  Place as PlaceIcon,
   PhoneDisabled as PhoneDisabledIcon,
   CallMissed as CallMissedIcon,
-  ReportProblem as WrongIcon,
-  Schedule as ScheduleIcon,
-  Autorenew as AutorenewIcon,
-  ShoppingCart as ShoppingCartIcon,
   Close as CloseIcon,
   CalendarMonth as CalendarIcon,
   Receipt as ReceiptIcon,
@@ -101,45 +90,7 @@ const STATUS_CHIP: Record<string, { bg: string; fg: string }> = {
 const PRIORITY_DOT: Record<string, string> = { High: "#dc2626", Medium: "#eab308", Low: "#16a34a" };
 
 // ── Live Timer Hook ────────────────────────────────────
-function useCountdownTo10AM() {
-  const [timeLeft, setTimeLeft] = useState("");
-  const [progress, setProgress] = useState(0);
-  const [isPast, setIsPast] = useState(false);
 
-  useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      const target = new Date(now);
-      target.setHours(10, 0, 0, 0);
-      const midnight = new Date(now);
-      midnight.setHours(0, 0, 0, 0);
-
-      if (now >= target) {
-        setIsPast(true);
-        setTimeLeft("00:00:00");
-        setProgress(100);
-        return;
-      }
-
-      setIsPast(false);
-      const diff = target.getTime() - now.getTime();
-      const totalWindow = target.getTime() - midnight.getTime(); // 10 hours
-      const elapsed = now.getTime() - midnight.getTime();
-      setProgress(Math.min(100, (elapsed / totalWindow) * 100));
-
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`);
-    };
-
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  return { timeLeft, progress, isPast };
-}
 
 // ── Main Component ─────────────────────────────────────
 export default function CallingList() {
@@ -147,9 +98,6 @@ export default function CallingList() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const { role, hasPermission } = useAuth();
-  const isAdmin = role === "admin" || role === "developer";
-  const canDistribute = isAdmin || hasPermission?.(PERMISSIONS.RUN_CALL_DISTRIBUTION);
-  const { timeLeft, progress, isPast } = useCountdownTo10AM();
   const navigate = useNavigate();
 
   const [tab, setTab] = useState(0);
@@ -174,19 +122,7 @@ export default function CallingList() {
   const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Admin
-  const [distributing, setDistributing] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [distStatus, setDistStatus] = useState<any>(null);
-  const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [adminData, setAdminData] = useState<any>(null);
 
-  // Bulk
-  const [bulkEmail, setBulkEmail] = useState("");
-  const [bulkPriority, setBulkPriority] = useState("Medium");
-  const [bulkCount, setBulkCount] = useState(10);
-  const [bulkLoading, setBulkLoading] = useState(false);
 
   // ── Data ────────────────────────────────────────────────
   const load = useCallback(async (page = 1) => {
@@ -207,24 +143,7 @@ export default function CallingList() {
 
   useEffect(() => { load(1); }, [load]);
 
-  useEffect(() => {
-    if (canDistribute) {
-      automationAPI.getDistributionStatus().then(setDistStatus).catch(() => { });
-      automationAPI.getTelecallers().then(r => setTelecallers(r.telecallers || [])).catch(() => { });
-    }
-  }, [canDistribute]);
 
-  const loadAdmin = async () => {
-    try {
-      setAdminData((prev: any) => prev ? { ...prev, _loading: true } : { _loading: true });
-      const res = await automationAPI.getAdminAssignments({ page: 1, limit: 500 });
-      setAdminData(res);
-    } catch (e: any) {
-      console.error("Admin load failed:", e);
-      setToast({ msg: "Failed to load admin data", sev: "error" });
-      setAdminData(null);
-    }
-  };
 
   // ── Handlers ────────────────────────────────────────────
   const openHistoryDialog = (a: Assignment) => {
@@ -287,47 +206,7 @@ export default function CallingList() {
     }
   };
 
-  const handleDistribute = async () => {
-    if (!window.confirm("Distribute today's calls to all telecallers?")) return;
-    try {
-      setDistributing(true);
-      const res = await automationAPI.adminDistribute();
-      setToast({ msg: res.status === "skipped" ? "Already distributed" : `${res.total_calls} calls distributed`, sev: res.status === "skipped" ? "info" : "success" });
-      load(1);
-      automationAPI.getDistributionStatus().then(setDistStatus);
-    } catch (e: any) { setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" }); }
-    finally { setDistributing(false); }
-  };
 
-  const handleRefresh = async () => {
-    if (!window.confirm("Re-distribute all uncalled assignments? Pending calls will be reassigned.")) return;
-    try {
-      setRefreshing(true);
-      const res = await automationAPI.refreshDistribution();
-      setToast({ msg: res.message || "Refreshed", sev: "success" });
-      load(1);
-      if (showAdmin) loadAdmin();
-    } catch (e: any) { setToast({ msg: e?.response?.data?.detail || "Refresh failed", sev: "error" }); }
-    finally { setRefreshing(false); }
-  };
-
-  const handleReassign = async (id: number, email: string) => {
-    try {
-      await automationAPI.adminReassign(id, email);
-      setToast({ msg: "Reassigned", sev: "success" });
-      if (adminData) loadAdmin();
-    } catch (e: any) { setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" }); }
-  };
-
-  const handleBulk = async () => {
-    try {
-      setBulkLoading(true);
-      const res = await automationAPI.bulkReassign(bulkEmail, bulkPriority, bulkCount);
-      setToast({ msg: res.message, sev: "success" });
-      loadAdmin();
-    } catch (e: any) { setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" }); }
-    finally { setBulkLoading(false); }
-  };
 
   // ── Styles ──────────────────────────────────────────────
   const surface = isDark ? "#1e1e2e" : "#ffffff";
@@ -347,85 +226,12 @@ export default function CallingList() {
               {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1}>
-            {canDistribute && (
-              <>
-                <Button
-                  variant={showAdmin ? "contained" : "outlined"}
-                  size="small"
-                  color="secondary"
-                  startIcon={<AdminIcon />}
-                  onClick={() => { setShowAdmin(!showAdmin); if (!showAdmin) loadAdmin(); }}
-                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 13 }}
-                >
-                  Admin
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={refreshing ? <CircularProgress size={14} /> : <AutorenewIcon />}
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 13 }}
-                >
-                  Refresh List
-                </Button>
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={distributing ? <CircularProgress size={14} color="inherit" /> : <DistributeIcon />}
-                  onClick={handleDistribute}
-                  disabled={distributing || distStatus?.distributed}
-                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 13 }}
-                >
-                  {distStatus?.distributed ? "Distributed" : "Distribute"}
-                </Button>
-              </>
-            )}
-            <IconButton size="small" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
-          </Stack>
+          <IconButton size="small" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
+            <RefreshIcon fontSize="small" />
+          </IconButton>
         </Stack>
 
-        {/* ── Timer Bar ── */}
-        {canDistribute && !isPast && (
-          <Paper
-            sx={{
-              p: 1.5,
-              px: 2.5,
-              borderRadius: 2.5,
-              border: `1px solid ${border}`,
-              bgcolor: surfaceMuted,
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-              mt: 1.5,
-            }}
-          >
-            <ScheduleIcon sx={{ color: "#2563eb", fontSize: 20 }} />
-            <Box sx={{ flex: 1 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
-                <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
-                  Auto-distribution at 10:00 AM
-                </Typography>
-                <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, color: "#2563eb", fontSize: 13 }}>
-                  {timeLeft}
-                </Typography>
-              </Stack>
-              <MuiLinearProgress
-                variant="determinate"
-                value={progress}
-                sx={{
-                  height: 4,
-                  borderRadius: 2,
-                  bgcolor: alpha("#2563eb", 0.1),
-                  "& .MuiLinearProgress-bar": { bgcolor: "#2563eb", borderRadius: 2 },
-                }}
-              />
-            </Box>
-          </Paper>
-        )}
+
       </Box>
 
       {/* ── Stats ── */}
@@ -587,125 +393,7 @@ export default function CallingList() {
         </Box>
       </Paper>
 
-      {/* ── Admin Panel ── */}
-      {canDistribute && showAdmin && (
-        <Paper sx={{ mt: 3, p: 3, borderRadius: 3, border: `1px solid ${border}`, bgcolor: surface }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 2, display: "flex", alignItems: "center", gap: 1 }}>
-            <AdminIcon sx={{ color: "#7c3aed" }} /> Admin Controls
-          </Typography>
 
-          {/* Telecaller summary cards */}
-          {adminData?.telecaller_summary && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", mb: 1, display: "block" }}>
-                TELECALLER DISTRIBUTION
-              </Typography>
-              <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap", gap: 1.5 }}>
-                {Object.entries(adminData.telecaller_summary as Record<string, any>).map(([email, d]: [string, any]) => (
-                  <Paper key={email} sx={{ p: 1.5, borderRadius: 2, border: `1px solid ${border}`, bgcolor: surfaceMuted, minWidth: 180 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 0.5, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {email.split("@")[0]}
-                    </Typography>
-                    <Stack direction="row" spacing={0.5}>
-                      <Chip size="small" label={d.total} sx={{ height: 20, fontSize: 11 }} />
-                      <Chip size="small" label={`${d.pending} pending`} sx={{ height: 20, fontSize: 11, bgcolor: "#fff7ed", color: "#ea580c" }} />
-                      <Chip size="small" label={`${d.called} done`} sx={{ height: 20, fontSize: 11, bgcolor: "#f0fdf4", color: "#16a34a" }} />
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Box>
-          )}
-
-          {/* Bulk assign */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", mb: 1, display: "block" }}>
-              BULK ASSIGN BY PRIORITY
-            </Typography>
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: "wrap" }}>
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel>Telecaller</InputLabel>
-                <Select label="Telecaller" value={bulkEmail} onChange={e => setBulkEmail(e.target.value as string)} sx={{ borderRadius: 2, fontSize: 13 }}>
-                  {telecallers.map(t => <MenuItem key={t.email} value={t.email}>{t.name || t.email}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 110 }}>
-                <InputLabel>Priority</InputLabel>
-                <Select label="Priority" value={bulkPriority} onChange={e => setBulkPriority(e.target.value as string)} sx={{ borderRadius: 2, fontSize: 13 }}>
-                  <MenuItem value="High">🔴 High</MenuItem>
-                  <MenuItem value="Medium">🟡 Medium</MenuItem>
-                  <MenuItem value="Low">🟢 Low</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField size="small" type="number" label="Count" value={bulkCount} onChange={e => setBulkCount(Math.max(1, parseInt(e.target.value) || 1))} sx={{ width: 80, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} inputProps={{ min: 1 }} />
-              <Button
-                variant="contained"
-                size="small"
-                disabled={!bulkEmail || bulkLoading}
-                startIcon={bulkLoading ? <CircularProgress size={14} color="inherit" /> : <DistributeIcon />}
-                onClick={handleBulk}
-                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 13 }}
-              >
-                Assign
-              </Button>
-            </Stack>
-          </Box>
-
-          {/* Individual reassign */}
-          {adminData?.assignments && (() => {
-            const pending = adminData.assignments.filter((a: any) => a.status === "Pending");
-            const pageSize = 12;
-            const pg = adminData._pg || 0;
-            return pending.length > 0 ? (
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", mb: 1, display: "block" }}>
-                  REASSIGN INDIVIDUAL CALLS ({pending.length})
-                </Typography>
-                <Stack spacing={0.75}>
-                  {pending.slice(pg * pageSize, (pg + 1) * pageSize).map((a: any) => (
-                    <Stack
-                      key={a.assignment_id}
-                      direction="row"
-                      alignItems="center"
-                      spacing={1.5}
-                      sx={{ p: 1, px: 1.5, borderRadius: 2, border: `1px solid ${border}`, bgcolor: surfaceMuted }}
-                    >
-                      <Typography variant="body2" sx={{ flex: 1, fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {a.name || "—"} <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>· {a.village || ""}</Typography>
-                      </Typography>
-                      <Chip size="small" label={a.user_email.split("@")[0]} variant="outlined" sx={{ height: 22, fontSize: 11 }} />
-                      <FormControl size="small" sx={{ minWidth: 140 }}>
-                        <InputLabel sx={{ fontSize: 12 }}>Move to</InputLabel>
-                        <Select
-                          label="Move to"
-                          value=""
-                          onChange={e => handleReassign(a.assignment_id, e.target.value as string)}
-                          sx={{ borderRadius: 2, fontSize: 12 }}
-                        >
-                          {telecallers.filter(t => t.email !== a.user_email).map(t => (
-                            <MenuItem key={t.email} value={t.email} sx={{ fontSize: 13 }}>{t.name || t.email}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </Stack>
-                  ))}
-                </Stack>
-                {pending.length > pageSize && (
-                  <TablePagination
-                    component="div"
-                    count={pending.length}
-                    page={pg}
-                    rowsPerPage={pageSize}
-                    onPageChange={(_, p) => setAdminData({ ...adminData, _pg: p })}
-                    rowsPerPageOptions={[pageSize]}
-                    sx={{ mt: 0.5 }}
-                  />
-                )}
-              </Box>
-            ) : null;
-          })()}
-        </Paper>
-      )}
 
       {/* ── Customer History Dialog ── */}
       <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 4, overflow: "hidden" } }}>
