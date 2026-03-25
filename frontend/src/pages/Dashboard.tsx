@@ -439,7 +439,7 @@ export default function Dashboard() {
                                 <Payment sx={{ fontSize: 180 }} />
                             </Box>
                             <CardContent sx={{ position: "relative", zIndex: 1, textAlign: "center" }}>
-                                <Box sx={{ display: "flex", gap: 1, justifyContent: "center", mb: 2, background: "rgba(255,255,255,0.1)", p: 1, borderRadius: 2 }}>
+                                <Box sx={{ display: "flex", gap: 1, justifyContent: "center", mb: 2, background: "rgba(255,255,255,0.1)", p: 1, borderRadius: 2, flexWrap: "wrap" }}>
                                     <TextField type="date" size="small" value={collectedPaymentRange.start}
                                         onChange={(e) => setCollectedPaymentRange({ ...collectedPaymentRange, start: e.target.value })}
                                         sx={{ "& .MuiInputBase-input": { color: "white", py: 0.5, fontSize: "0.875rem" }, "& .MuiOutlinedInput-notchedOutline": { border: "none" } }} />
@@ -452,7 +452,7 @@ export default function Dashboard() {
                                 {loadingCollected ? (
                                     <Skeleton variant="text" width="60%" height={60} sx={{ bgcolor: "rgba(255,255,255,0.3)", mx: "auto" }} />
                                 ) : (
-                                    <Typography variant="h2" sx={{ fontWeight: 700 }}>₹{collectedAmount.toLocaleString()}</Typography>
+                                    <Typography variant="h2" sx={{ fontWeight: 700, fontSize: { xs: '1.5rem', sm: '2.5rem', md: '3.75rem' } }}>₹{collectedAmount.toLocaleString()}</Typography>
                                 )}
                             </CardContent>
                         </Card>

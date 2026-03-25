@@ -363,7 +363,7 @@ export default function Payments() {
     <PermissionGate permission={PERMISSIONS.VIEW_PAYMENTS} page permissionLabel="view payments">
       <Box>
         {/* Header with Action Button */}
-        <Box sx={{ mb: 4, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
+        <Box sx={{ mb: { xs: 2, md: 4 }, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
           <Box>
             <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
               <PaymentIcon sx={{ mr: 1, verticalAlign: "middle" }} />

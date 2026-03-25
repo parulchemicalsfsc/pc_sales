@@ -111,8 +111,8 @@ export default function Demos() {
   return (
     <PermissionGate permission={PERMISSIONS.VIEW_DEMOS} page permissionLabel="view demos">
       <Box>
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+        <Box sx={{ mb: { xs: 2, md: 4 } }}>
+          <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
             <ScienceIcon sx={{ mr: 1, verticalAlign: "middle" }} />
             {t("demos.title")}
           </Typography>

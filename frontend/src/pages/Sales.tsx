@@ -597,7 +597,7 @@ export default function Sales() {
     <PermissionGate permission={PERMISSIONS.VIEW_SALES} page permissionLabel="view sales">
       <Box>
         {/* Header */}
-        <Box sx={{ mb: 4 }}>
+        <Box sx={{ mb: { xs: 2, md: 4 } }}>
           <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
             <ShoppingCartIcon sx={{ mr: 1, verticalAlign: "middle" }} />
             {t("sales.title")}

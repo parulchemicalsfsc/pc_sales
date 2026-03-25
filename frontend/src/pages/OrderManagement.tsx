@@ -522,7 +522,9 @@ export default function OrderManagement() {
         display="flex"
         justifyContent="space-between"
         alignItems="center"
-        mb={3}
+        mb={{ xs: 2, md: 3 }}
+        flexWrap="wrap"
+        gap={1}
       >
         <Typography variant="h4" fontWeight="bold">
           Order Management
@@ -530,8 +532,8 @@ export default function OrderManagement() {
       </Box>
 
       {/* Statistics Cards */}
-      <Grid container spacing={3} mb={3}>
-        <Grid item xs={12} sm={3}>
+      <Grid container spacing={{ xs: 1.5, md: 3 }} mb={{ xs: 2, md: 3 }}>
+        <Grid item xs={6} sm={3}>
           <Card
             sx={{
               borderLeft: 6,
@@ -568,7 +570,7 @@ export default function OrderManagement() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={3}>
+        <Grid item xs={6} sm={3}>
           <Card
             sx={{
               borderLeft: 6,
@@ -600,7 +602,7 @@ export default function OrderManagement() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={3}>
+        <Grid item xs={6} sm={3}>
           <Card
             sx={{
               borderLeft: 6,
@@ -631,7 +633,7 @@ export default function OrderManagement() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={3}>
+        <Grid item xs={6} sm={3}>
           <Card
             sx={{
               borderLeft: 6,

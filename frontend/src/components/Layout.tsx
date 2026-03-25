@@ -583,7 +583,7 @@ export default function Layout({
             variant="h6"
             noWrap
             component="div"
-            sx={{ flexGrow: 1, fontWeight: 600 }}
+            sx={{ flexGrow: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.25rem' } }}
           >
             {location.pathname === "/admin"
               ? t("nav.admin", "Admin")
@@ -599,10 +599,10 @@ export default function Layout({
           </Typography>
 
           {/* Actions */}
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            {/* Language Switcher */}
+          <Box sx={{ display: "flex", gap: { xs: 0, sm: 1 }, alignItems: "center" }}>
+            {/* Language Switcher - hide on smallest screens */}
             <Tooltip title={t("layout.changeLanguage")}>
-              <IconButton onClick={handleLanguageMenuOpen} color="inherit">
+              <IconButton onClick={handleLanguageMenuOpen} color="inherit" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
                 <LanguageIcon />
               </IconButton>
             </Tooltip>
@@ -638,7 +638,7 @@ export default function Layout({
             </Tooltip>
 
             <Tooltip title={t("layout.settings")}>
-              <IconButton color="inherit">
+              <IconButton color="inherit" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
                 <Settings />
               </IconButton>
             </Tooltip>
@@ -743,7 +743,7 @@ export default function Layout({
         }}
       >
         <Toolbar /> {/* Spacer for AppBar */}
-        <Box sx={{ p: { xs: 2, sm: 3, md: 4 } }}>{children}</Box>
+        <Box sx={{ p: { xs: 1.5, sm: 2.5, md: 4 }, maxWidth: '100%', overflowX: 'hidden' }}>{children}</Box>
       </Box>
 
       {/* Floating Activity Toast */}
