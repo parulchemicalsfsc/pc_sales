@@ -19,6 +19,8 @@ import {
   IconButton,
   InputAdornment,
   Paper,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -36,6 +38,8 @@ import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
 
 export default function Payments() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
   const location = useLocation();
   const pendingSectionRef = useRef<HTMLDivElement>(null);
@@ -359,7 +363,7 @@ export default function Payments() {
     <PermissionGate permission={PERMISSIONS.VIEW_PAYMENTS} page permissionLabel="view payments">
       <Box>
         {/* Header with Action Button */}
-        <Box sx={{ mb: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Box sx={{ mb: 4, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
           <Box>
             <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
               <PaymentIcon sx={{ mr: 1, verticalAlign: "middle" }} />
@@ -516,7 +520,7 @@ export default function Payments() {
                   <RefreshIcon />
                 </IconButton>
               </Box>
-              <Box sx={{ height: 600, width: "100%" }}>
+              <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
                 {loading ? (
                   <TableSkeleton rows={10} columns={6} />
                 ) : (
@@ -552,7 +556,7 @@ export default function Payments() {
                 {t("payments.history", "Payment History")}
               </Typography>
             </Box>
-            <Box sx={{ height: 500, width: "100%" }}>
+            <Box sx={{ height: 500, width: "100%", overflowX: "auto" }}>
               {loading ? (
                 <Box
                   sx={{
@@ -586,6 +590,7 @@ export default function Payments() {
           onClose={handleCloseDialog}
           maxWidth="sm"
           fullWidth
+          fullScreen={isMobile}
         >
           <DialogTitle>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

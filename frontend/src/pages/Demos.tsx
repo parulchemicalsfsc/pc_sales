@@ -129,7 +129,7 @@ export default function Demos() {
 
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
               <PermissionGate permission={PERMISSIONS.SCHEDULE_DEMO}>
                 <Button
                   variant="contained"
@@ -157,7 +157,7 @@ export default function Demos() {
 
         <Card>
           <CardContent>
-            <Box sx={{ height: 600, width: "100%" }}>
+            <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
               {loading ? (
                 <TableSkeleton rows={10} columns={5} />
               ) : (

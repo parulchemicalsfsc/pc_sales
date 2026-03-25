@@ -13,8 +13,10 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Box,
   Typography,
+  useMediaQuery,
+  useTheme,
+  Box,
 } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { TimePicker } from "@mui/x-date-pickers/TimePicker";
@@ -31,6 +33,8 @@ interface DemoDialogProps {
 }
 
 export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +144,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth fullScreen={isMobile}>
       <DialogTitle>Schedule New Demo</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>

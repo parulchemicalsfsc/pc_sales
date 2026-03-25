@@ -28,9 +28,10 @@ import {
   Divider,
   LinearProgress as MuiLinearProgress,
   Grid,
-  Avatar,
   useTheme,
   alpha,
+  useMediaQuery,
+  Avatar,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -143,6 +144,7 @@ function useCountdownTo10AM() {
 // ── Main Component ─────────────────────────────────────
 export default function CallingList() {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const { role, hasPermission } = useAuth();
   const isAdmin = role === "admin" || role === "developer";
@@ -706,7 +708,7 @@ export default function CallingList() {
       )}
 
       {/* ── Customer History Dialog ── */}
-      <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: "hidden" } }}>
+      <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 4, overflow: "hidden" } }}>
         {/* Gradient Header */}
         <Box sx={{ background: "linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)", color: "#fff", px: 3, pt: 3, pb: 2.5, position: "relative" }}>
           <IconButton onClick={() => setHistoryOpen(false)} sx={{ position: "absolute", top: 8, right: 8, color: "rgba(255,255,255,.7)", "&:hover": { color: "#fff" } }}>
@@ -826,7 +828,7 @@ export default function CallingList() {
       </Dialog>
 
       {/* ── Post-Call Dialog ── */}
-      <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, p: 0.5 } }}>
+      <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
           Log Call Outcome
           {activeItem && (

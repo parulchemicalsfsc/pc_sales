@@ -29,8 +29,9 @@ import {
   StepLabel,
   Tooltip,
   Alert,
-  CircularProgress,
   Menu,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -97,6 +98,8 @@ export default function OrderManagement() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
@@ -688,7 +691,7 @@ export default function OrderManagement() {
       </Paper>
 
       {/* Orders Table */}
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: "grey.100" }}>
@@ -808,6 +811,7 @@ export default function OrderManagement() {
         onClose={() => setDetailsDialogOpen(false)}
         maxWidth="md"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogTitle>Order Details - {selectedOrder?.invoice_no}</DialogTitle>
         <DialogContent>
@@ -931,6 +935,7 @@ export default function OrderManagement() {
         onClose={() => setUpdateDialogOpen(false)}
         maxWidth="sm"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogTitle>Update Order Status</DialogTitle>
         <DialogContent>

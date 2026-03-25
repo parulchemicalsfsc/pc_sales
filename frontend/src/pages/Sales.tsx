@@ -22,6 +22,8 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   InputAdornment,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -45,6 +47,8 @@ import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
 
 export default function Sales() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -612,7 +616,7 @@ export default function Sales() {
         {/* Actions */}
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
               <PermissionGate permission={PERMISSIONS.CREATE_SALE}>
                 <Button
                   variant="contained"
@@ -659,7 +663,7 @@ export default function Sales() {
         {/* Sales Table */}
         <Card>
           <CardContent>
-            <Box sx={{ height: 600, width: "100%" }}>
+            <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
               {loading ? (
                 <TableSkeleton rows={10} columns={6} />
               ) : (
@@ -686,6 +690,7 @@ export default function Sales() {
           onClose={handleCloseDialog}
           maxWidth="md"
           fullWidth
+          fullScreen={isMobile}
         >
           <DialogTitle>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -1128,6 +1133,7 @@ export default function Sales() {
           onClose={() => setOpenInvoiceDialog(false)}
           maxWidth="sm"
           fullWidth
+          fullScreen={isMobile}
         >
           <DialogTitle>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

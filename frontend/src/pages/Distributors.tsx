@@ -17,6 +17,8 @@ import {
   InputAdornment,
   Grid,
   MenuItem,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -35,6 +37,8 @@ import type { Distributor } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 
 export default function Distributors() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -281,7 +285,7 @@ export default function Distributors() {
       {/* Data Grid */}
       <Card>
         <CardContent>
-          <Box sx={{ height: 600, width: "100%" }}>
+          <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
             {loading ? (
               <TableSkeleton rows={10} columns={5} />
             ) : (
@@ -308,6 +312,7 @@ export default function Distributors() {
         onClose={handleCloseDialog}
         maxWidth="md"
         fullWidth
+        fullScreen={isMobile}
       >
         <DialogTitle>
           {editingDistributor

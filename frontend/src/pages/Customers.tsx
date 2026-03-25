@@ -17,6 +17,8 @@ import {
   InputAdornment,
   Grid,
   MenuItem,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -36,6 +38,9 @@ import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
 
 export default function Customers() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -374,6 +379,7 @@ export default function Customers() {
           onClose={handleCloseDialog}
           maxWidth="md"
           fullWidth
+          fullScreen={isMobile}
         >
           <DialogTitle>
             {editingCustomer
