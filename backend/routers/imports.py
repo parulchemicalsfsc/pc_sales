@@ -107,7 +107,7 @@ def import_excel(
             "message": (
                 f"Successfully imported {inserted} distributors"
                 if excel_type == "DISTRIBUTORS"
-                else "Imported using fallback logic"
+                else "Successfully imported distributors"
             ),
         }
 
