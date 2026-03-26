@@ -185,11 +185,14 @@ export default function DataImport() {
         setUploadProgress((prev) => Math.min(prev + 10, 90));
       }, 200);
 
-      // Create FormData and append the file and form data
+      // Create FormData and append ONLY the file
+      if (!selectedFile) {
+        setError("No file selected");
+        return;
+      }
+
       const formDataToSend = new FormData();
       formDataToSend.append("file", selectedFile);
-      formDataToSend.append("import_type", openDialog || "");
-      formDataToSend.append("data", JSON.stringify(formData));
 
       const response = await fileAPI.upload(formDataToSend);
 
@@ -418,7 +421,9 @@ export default function DataImport() {
                 sx={{ mb: 3 }}
                 onClose={() => setError(null)}
               >
-                {error}
+                {typeof error === "string"
+                  ? error
+                  : (error as any)?.response?.data?.detail || JSON.stringify(error)}
               </Alert>
             )}
 

@@ -127,6 +127,8 @@ export interface Distributor {
   mantri_name?: string;
   mantri_mobile?: string;
   sabhasad_count?: number;
+  sabhasad_morning?: number;
+  sabhasad_evening?: number;
   contact_in_group?: number;
   status?: string;
   created_date?: string;
@@ -281,6 +283,8 @@ export interface DistributorFormData {
   mantri_name: string;
   mantri_mobile: string;
   sabhasad_count: number;
+  sabhasad_morning?: number;
+  sabhasad_evening?: number;
   contact_in_group: number;
 }
 

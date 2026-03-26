@@ -1,7 +1,7 @@
 import re
-from typing import Optional
+from typing import Optional, Any
 import pandas as pd
-from psycopg2.extensions import connection
+from clean_excel_distributors import extract_distributors
 
 # =================================================
 # CONSTANTS
@@ -89,40 +89,37 @@ def detect_excel_type(file_path: str) -> str:
 # PRODUCT RESOLUTION
 # =================================================
 
-def resolve_product(conn: connection, packaging_name: str) -> Optional[int]:
+def resolve_product(conn: Any, packaging_name: str) -> Optional[int]:
     liter = extract_packaging_liter(packaging_name)
     if not liter:
         return None
 
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT product_id FROM products WHERE capacity_ltr = %s LIMIT 1",
-        (liter,),
-    )
-    row = cur.fetchone()
-    if row:
-        return row["product_id"]
+    # Check if product exists
+    res = conn.table("products").select("product_id").eq("capacity_ltr", liter).limit(1).execute()
+    if res.data:
+        return res.data[0]["product_id"]
 
-    cur.execute(
-        """
-        INSERT INTO products (product_name, capacity_ltr, is_active)
-        VALUES (%s, %s, TRUE)
-        RETURNING product_id
-        """,
-        (f"Oil {liter} Ltr", liter),
-    )
-    return cur.fetchone()["product_id"]
+    # Create new product if not found
+    insert_res = conn.table("products").insert({
+        "product_name": f"Oil {liter} Ltr",
+        "capacity_ltr": liter,
+        "is_active": True
+    }).execute()
+    
+    if insert_res.data:
+        return insert_res.data[0]["product_id"]
+    return None
 
 # =================================================
 # CUSTOMERS IMPORT (FREE-FORM)
 # =================================================
 
-def import_customers_excel(path: str, conn: connection) -> int:
+def import_customers_excel(path: str, conn: Any) -> int:
     df = pd.read_excel(path, header=None)
     df.dropna(how="all", inplace=True)
 
-    cur = conn.cursor()
     inserted = 0
+    records = []
 
     for _, row in df.iterrows():
         cells = [str(c).strip() for c in row if pd.notna(c)]
@@ -148,148 +145,132 @@ def import_customers_excel(path: str, conn: connection) -> int:
         if not (name and village and taluka):
             continue
 
-        cur.execute(
-            """
-            INSERT INTO customers (name, mobile, village, taluka)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (name, mobile, village, taluka),
-        )
-        inserted += 1
+        records.append({
+            "name": name,
+            "mobile": mobile,
+            "village": village,
+            "taluka": taluka
+        })
 
-    conn.commit()
+    if records:
+        res = conn.table("customers").insert(records).execute()
+        inserted = len(res.data) if hasattr(res, 'data') else len(records)
+
     return inserted
 
 # =================================================
 # SALES IMPORT (SHEET 0)
 # =================================================
 
-def import_sales_excel(path: str, conn: connection) -> int:
+def import_sales_excel(path: str, conn: Any) -> int:
     xls = pd.ExcelFile(path)
     df = pd.read_excel(xls, sheet_name=0)
 
     df.columns = [normalize(c) for c in df.columns]
 
-    cur = conn.cursor()
     current_sale_id = None
-    items = 0
+    items_count = 0
 
     for _, row in df.iterrows():
+        # 1. Handle New Sale (Master Record)
         if pd.notna(row.get("name")):
-            cur.execute(
-                """
-                INSERT INTO sales (invoice_no, customer_id, sale_date)
-                VALUES (
-                    %s,
-                    (SELECT customer_id FROM customers WHERE name = %s LIMIT 1),
-                    %s
-                )
-                RETURNING sale_id
-                """,
-                (
-                    row.get("invno"),
-                    str(row.get("name")).strip(),
-                    normalize_date(row.get("dispatchdate")),
-                ),
-            )
-            current_sale_id = cur.fetchone()["sale_id"]
+            customer_name = str(row.get("name")).strip()
+            # Fetch customer_id via Supabase
+            c_res = conn.table("customers").select("customer_id").eq("name", customer_name).limit(1).execute()
+            customer_id = c_res.data[0]["customer_id"] if c_res.data else None
+            
+            s_res = conn.table("sales").insert({
+                "invoice_no": row.get("invno"),
+                "customer_id": customer_id,
+                "sale_date": normalize_date(row.get("dispatchdate"))
+            }).execute()
+            
+            if s_res.data:
+                current_sale_id = s_res.data[0]["sale_id"]
 
+        # 2. Handle Sale Item (Detail Record)
         if current_sale_id and pd.notna(row.get("packing")):
-            cur.execute(
-                """
-                INSERT INTO sale_items
-                (sale_id, product_id, quantity, rate, amount)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (
-                    current_sale_id,
-                    resolve_product(conn, row.get("packing")),
-                    to_int(row.get("qtn") or row.get("qty")),
-                    to_float(row.get("rate")),
-                    to_float(row.get("amt")),
-                ),
-            )
-            items += 1
+            product_id = resolve_product(conn, row.get("packing"))
+            
+            conn.table("sale_items").insert({
+                "sale_id": current_sale_id,
+                "product_id": product_id,
+                "quantity": to_int(row.get("qtn") or row.get("qty")),
+                "rate": to_float(row.get("rate")),
+                "amount": to_float(row.get("amt"))
+            }).execute()
+            items_count += 1
 
-    conn.commit()
-    return items
+    return items_count
 
 # =================================================
 # DEMO IMPORT (SHEET 1)
 # =================================================
 
-def import_demo_excel(path: str, conn: connection) -> int:
+def import_demo_excel(path: str, conn: Any) -> int:
     xls = pd.ExcelFile(path)
     df = pd.read_excel(xls, sheet_name=1)
 
     df.columns = [normalize(c) for c in df.columns]
 
-    cur = conn.cursor()
     count = 0
 
     for _, row in df.iterrows():
         if pd.isna(row.get("name")) or pd.isna(row.get("packing")):
             continue
 
-        cur.execute(
-            """
-            INSERT INTO demos
-            (customer_id, demo_date, product_id, quantity_provided, notes)
-            VALUES (
-                (SELECT customer_id FROM customers WHERE name = %s LIMIT 1),
-                %s, %s, %s, %s
-            )
-            """,
-            (
-                str(row.get("name")).strip(),
-                normalize_date(row.get("dispatchdate")),
-                resolve_product(conn, row.get("packing")),
-                to_int(row.get("qtn") or row.get("qty")),
-                "Imported from Excel",
-            ),
-        )
+        customer_name = str(row.get("name")).strip()
+        # Fetch customer_id via Supabase
+        c_res = conn.table("customers").select("customer_id").eq("name", customer_name).limit(1).execute()
+        customer_id = c_res.data[0]["customer_id"] if c_res.data else None
+
+        conn.table("demos").insert({
+            "customer_id": customer_id,
+            "demo_date": normalize_date(row.get("dispatchdate")),
+            "product_id": resolve_product(conn, row.get("packing")),
+            "quantity_provided": to_int(row.get("qtn") or row.get("qty")),
+            "notes": "Imported from Excel"
+        }).execute()
+        
         count += 1
 
-    conn.commit()
     return count
 
+
 # =================================================
-# DISTRIBUTORS IMPORT (FREE-FORM)
+# DISTRIBUTORS IMPORT (via extract_distributors)
 # =================================================
 
-def import_distributors_excel(path: str, conn: connection) -> int:
-    df = pd.read_excel(path, header=None)
-    df.dropna(how="all", inplace=True)
+def import_distributors_excel(path: str, conn: Any) -> int:
+    """
+    Clean and import an Excel file of distributors into the Supabase distributors table.
+    """
+    data = extract_distributors(path)
+    print("🚀 NEW IMPORT FUNCTION RUNNING")
+    print(f"🔥 TOTAL EXTRACTED: {len(data)}")
 
-    cur = conn.cursor()
-    inserted = 0
+    if not data:
+        print("⚠️ No data to insert.")
+        return 0
 
-    for _, row in df.iterrows():
-        text = " ".join(str(c).lower() for c in row if pd.notna(c))
+    try:
+        # Use Supabase REST client for bulk insertion
+        # Note: .execute() is MANDATORY for the request to be sent
+        print("📦 SAMPLE ROW:", data[0] if data else "NO DATA")
+        print(f"💾 Inserting {len(data)} rows into Supabase...")
+        
+        response = conn.table("distributors").insert(data).execute()
 
-        if "taluka" not in text:
-            continue
+        # 🔍 DEBUG RESPONSE
+        print("🔍 FULL RESPONSE:", response)
 
-        cur.execute(
-            """
-            INSERT INTO distributors
-            (name, village, taluka, district,
-             mantri_name, mantri_mobile,
-             sabhasad_count, contact_in_group)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                "Unknown",
-                None,
-                None,
-                None,
-                None,
-                None,
-                0,
-                0,
-            ),
-        )
-        inserted += 1
+        if response.data:
+            print(f"✅ ACTUAL INSERT SUCCESS: {len(response.data)} rows inserted.")
+        else:
+            print("❌ INSERT FAILED:", response)
 
-    conn.commit()
-    return inserted
+    except Exception as e:
+        print(f"❌ DATABASE ERROR: {e}")
+        # If bulk fails, you might want to try one-by-one or just report the error
+        raise e
+

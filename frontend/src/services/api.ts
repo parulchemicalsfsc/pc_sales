@@ -13,8 +13,8 @@ const resolveApiBaseUrl = (): string => {
     (import.meta as any)?.env?.VITE_API_BASE_URL ||
     (import.meta as any)?.env?.VITE_API_URL;
 
-  // 3) Default fallback (Production URL)
-  const fallback = "https://pc-sales-8phu.onrender.com";
+  // 3) Default fallback (FORCING LOCALHOST FOR TESTING)
+  const fallback = "http://localhost:8000";
 
   const chosen = (windowOverride || envBase || fallback) as string;
 
@@ -407,15 +407,16 @@ export const fileAPI = {
   uploadFile: async (formData: FormData) => {
     const response = await apiClient.post("/api/imports/excel", formData, {
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Content-Type": undefined, // Force browser/axios to set it
       },
     });
     return response.data;
   },
   upload: async (formData: FormData) => {
+    // Explicitly set Content-Type: undefined to let axios/browser handle it
     const response = await apiClient.post("/api/imports/excel", formData, {
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Content-Type": undefined,
       },
     });
     return response.data;

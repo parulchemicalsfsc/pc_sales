@@ -54,7 +54,8 @@ export default function Distributors() {
     district: "",
     mantri_name: "",
     mantri_mobile: "",
-    sabhasad_count: 0,
+    sabhasad_morning: 0,
+    sabhasad_evening: 0,
     contact_in_group: 0,
     status: "Active",
   });
@@ -94,7 +95,8 @@ export default function Distributors() {
         district: "",
         mantri_name: "",
         mantri_mobile: "",
-        sabhasad_count: 0,
+        sabhasad_morning: 0,
+        sabhasad_evening: 0,
         contact_in_group: 0,
         status: "Active",
       });
@@ -168,11 +170,27 @@ export default function Distributors() {
       ),
     },
     {
+      field: "sabhasad_morning",
+      headerName: t("distributors.sabhasadMorning", "Sabhasad Morning"),
+      width: 120,
+      renderCell: (params) => (
+        <Chip label={params.value ?? 0} size="small" color="primary" />
+      ),
+    },
+    {
+      field: "sabhasad_evening",
+      headerName: t("distributors.sabhasadEvening", "Sabhasad Evening"),
+      width: 120,
+      renderCell: (params) => (
+        <Chip label={params.value ?? 0} size="small" color="info" />
+      ),
+    },
+    {
       field: "sabhasad_count",
-      headerName: t("distributors.sabhasadCount", "Sabhasad Count"),
+      headerName: t("distributors.sabhasadCount", "Sabhasad"),
       width: 140,
       renderCell: (params) => (
-        <Chip label={params.value || 0} size="small" color="primary" />
+        <Chip label={params.value ?? 0} size="small" color="secondary" />
       ),
     },
     {
@@ -390,12 +408,26 @@ export default function Distributors() {
               <TextField
                 fullWidth
                 type="number"
-                label={t("distributors.sabhasadCount", "Sabhasad Count")}
-                value={formData.sabhasad_count}
+                label={t("distributors.sabhasadMorning", "Sabhasad Morning")}
+                value={formData.sabhasad_morning}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    sabhasad_count: Number(e.target.value),
+                    sabhasad_morning: Number(e.target.value),
+                  })
+                }
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                type="number"
+                label={t("distributors.sabhasadEvening", "Sabhasad Evening")}
+                value={formData.sabhasad_evening}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    sabhasad_evening: Number(e.target.value),
                   })
                 }
               />

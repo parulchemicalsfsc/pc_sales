@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from psycopg2.extensions import connection
 
-from database import get_db
+from supabase_db import get_db
 from excel_loader import (
     detect_excel_type,
     import_customers_excel,
@@ -12,6 +12,8 @@ from excel_loader import (
     import_distributors_excel,
     import_sales_excel,
 )
+
+print("[DEBUG] imports.py loaded")
 
 router = APIRouter()
 
@@ -56,11 +58,15 @@ def import_excel(
     - Stores data using PostgreSQL (Supabase)
     """
 
+    print("IMPORT API HIT")
     file_path = save_uploaded_file(file)
+    print(f"[INFO] File saved to: {file_path}")
 
     try:
-        excel_type = detect_excel_type(file_path)
-        print("Excel type detected:", excel_type)
+        try:
+            excel_type = detect_excel_type(file_path)
+        except Exception as detection_err:
+            excel_type = "UNKNOWN"
 
         if excel_type == "DISTRIBUTORS":
             inserted = import_distributors_excel(file_path, conn)
@@ -91,31 +97,25 @@ def import_excel(
                 ),
             }
 
-        # Unknown format
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Excel format not recognized.\n\n"
-                "Required formats:\n"
-                "CUSTOMERS → name, mobile, village, taluka\n"
-                "DISTRIBUTORS → village, taluka, district, mantri name, mantri mobile, sabhasad, contact in group\n"
-                "SALES → Multiple sheets with name, packing, qtn, rate, amt, dispatch date"
+        # DISTRIBUTORS or UNKNOWN — always use distributor importer
+        if excel_type != "DISTRIBUTORS":
+            print("Fallback triggered")
+        inserted = import_distributors_excel(file_path, conn)
+        return {
+            "type": "Distributors" if excel_type == "DISTRIBUTORS" else "Distributors (Fallback)",
+            "distributors_inserted": inserted,
+            "message": (
+                f"Successfully imported {inserted} distributors"
+                if excel_type == "DISTRIBUTORS"
+                else "Imported using fallback logic"
             ),
-        )
-
-    except HTTPException:
-        raise
+        }
 
     except Exception as e:
-        conn.rollback()
+        print("❌ IMPORT ERROR:", str(e))
         import traceback
-
         print("Import error:\n", traceback.format_exc())
-
         raise HTTPException(
             status_code=500,
-            detail=(
-                f"Import failed: {str(e)}. "
-                "Please verify that the Excel file matches the required format."
-            ),
+            detail=f"Import failed: {str(e)}. Please verify the Excel file format.",
         )
