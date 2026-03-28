@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSessionTracker } from "../hooks/useSessionTracker";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -201,6 +202,9 @@ export default function Layout({
   const { language, setLanguage } = useLanguageStore();
 
   const { user, signOut, hasPermission } = useAuth();
+
+  // Run session tracking globally from Layout so it continues across all pages
+  useSessionTracker({ userEmail: user?.email });
   const [unreadCount, setUnreadCount] = useState(0);
   const { totalUnread: chatUnread } = useChat(user?.email);
 
@@ -256,7 +260,7 @@ export default function Layout({
       const data = response.data; // Assuming response.data is the object containing count
 
       // Safety check before accessing count
-      if (data && typeof data.count === 'number') {
+      if (data && typeof data.count === "number") {
         setUnreadCount(data.count);
       } else {
         setUnreadCount(0);
@@ -288,7 +292,7 @@ export default function Layout({
         () => {
           // Instantly refresh the count when a new notification arrives
           fetchUnreadCount();
-        }
+        },
       )
       .subscribe();
 
@@ -306,23 +310,33 @@ export default function Layout({
   }, [location.pathname]);
 
   // Real-time Activity Toast Polling
-  const [activityToast, setActivityToast] = useState<{ msg: string; severity: "success" | "info" } | null>(null);
+  const [activityToast, setActivityToast] = useState<{
+    msg: string;
+    severity: "success" | "info";
+  } | null>(null);
   const lastActivityId = useRef<number | null>(null);
 
   const fetchRecentActivity = async () => {
     if (!user?.email) return;
     try {
       // Only fetch 1 to make it light
-      const res = await activityAPI.getMyLogs(new Date().toISOString().split("T")[0]);
+      const res = await activityAPI.getMyLogs(
+        new Date().toISOString().split("T")[0],
+      );
       if (res.logs && res.logs.length > 0) {
         const latest = res.logs[0];
         // Only show toast if we already initialized (lastActivityId.current !== null)
         // and it's a new ID
-        if (lastActivityId.current !== null && latest.id !== lastActivityId.current) {
+        if (
+          lastActivityId.current !== null &&
+          latest.id !== lastActivityId.current
+        ) {
           const isDeleted = latest.action_type === "DELETE";
           setActivityToast({
-            msg: latest.action_description || `${latest.action_type} ${latest.entity_type}`,
-            severity: isDeleted ? "info" : "success"
+            msg:
+              latest.action_description ||
+              `${latest.action_type} ${latest.entity_type}`,
+            severity: isDeleted ? "info" : "success",
           });
         }
         lastActivityId.current = latest.id;
@@ -383,65 +397,72 @@ export default function Layout({
 
       {/* Navigation Items */}
       <List sx={{ flex: 1, py: 2, px: 1 }}>
-        {navigationItems.filter(item => {
-          if (item.permission) {
-            return hasPermission(item.permission);
-          }
-          return true;
-        }).map((item) => {
-          const active = isActive(item.path);
-          // Inject live badge count for chat nav item
-          const badgeCount = item.id === "chat" ? (chatUnread || undefined) : item.badge;
-          return (
-            <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
-              <ListItemButton
-                onClick={() => handleNavigation(item.path)}
-                sx={{
-                  borderRadius: 2,
-                  mx: 1,
-                  backgroundColor: active
-                    ? theme.palette.mode === "dark"
-                      ? "rgba(144, 202, 249, 0.16)"
-                      : "rgba(25, 118, 210, 0.08)"
-                    : "transparent",
-                  color: active ? theme.palette.primary.main : "inherit",
-                  "&:hover": {
-                    backgroundColor:
-                      theme.palette.mode === "dark"
-                        ? "rgba(144, 202, 249, 0.08)"
-                        : "rgba(25, 118, 210, 0.04)",
-                  },
-                  transition: "all 0.2s",
-                }}
-              >
-                <ListItemIcon
+        {navigationItems
+          .filter((item) => {
+            if (item.permission) {
+              return hasPermission(item.permission);
+            }
+            return true;
+          })
+          .map((item) => {
+            const active = isActive(item.path);
+            // Inject live badge count for chat nav item
+            const badgeCount =
+              item.id === "chat" ? chatUnread || undefined : item.badge;
+            return (
+              <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  onClick={() => handleNavigation(item.path)}
                   sx={{
+                    borderRadius: 2,
+                    mx: 1,
+                    backgroundColor: active
+                      ? theme.palette.mode === "dark"
+                        ? "rgba(144, 202, 249, 0.16)"
+                        : "rgba(25, 118, 210, 0.08)"
+                      : "transparent",
                     color: active ? theme.palette.primary.main : "inherit",
-                    minWidth: 40,
+                    "&:hover": {
+                      backgroundColor:
+                        theme.palette.mode === "dark"
+                          ? "rgba(144, 202, 249, 0.08)"
+                          : "rgba(25, 118, 210, 0.04)",
+                    },
+                    transition: "all 0.2s",
                   }}
                 >
-                  {badgeCount ? (
-                    <Badge badgeContent={badgeCount} color="error">
-                      {item.icon}
-                    </Badge>
-                  ) : (
-                    item.icon
-                  )}
-                </ListItemIcon>
-                <ListItemText
-                  primary={t(item.labelKey)}
-                  primaryTypographyProps={{
-                    fontWeight: active ? 600 : 500,
-                    fontSize: "0.95rem",
-                  }}
-                />
-              </ListItemButton>
-            </ListItem>
-          );
-        })}
+                  <ListItemIcon
+                    sx={{
+                      color: active ? theme.palette.primary.main : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
+                    {badgeCount ? (
+                      <Badge badgeContent={badgeCount} color="error">
+                        {item.icon}
+                      </Badge>
+                    ) : (
+                      item.icon
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={t(item.labelKey)}
+                    primaryTypographyProps={{
+                      fontWeight: active ? 600 : 500,
+                      fontSize: "0.95rem",
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            );
+          })}
 
         {/* Admin Navigation - Only for users with admin permissions */}
-        {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) || hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) || hasPermission(PERMISSIONS.VIEW_USERS) || hasPermission(PERMISSIONS.MANAGE_PRICING) || hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
+        {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) ||
+          hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) ||
+          hasPermission(PERMISSIONS.VIEW_USERS) ||
+          hasPermission(PERMISSIONS.MANAGE_PRICING) ||
+          hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
           <>
             <Divider sx={{ my: 1 }} />
             {hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) && (
@@ -456,7 +477,9 @@ export default function Layout({
                         ? "rgba(244, 67, 54, 0.16)"
                         : "rgba(211, 47, 47, 0.08)"
                       : "transparent",
-                    color: isActive("/call-distribution") ? "error.main" : "inherit",
+                    color: isActive("/call-distribution")
+                      ? "error.main"
+                      : "inherit",
                     "&:hover": {
                       backgroundColor:
                         theme.palette.mode === "dark"
@@ -466,12 +489,22 @@ export default function Layout({
                     transition: "all 0.2s",
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive("/call-distribution") ? "error.main" : "inherit", minWidth: 40 }}>
+                  <ListItemIcon
+                    sx={{
+                      color: isActive("/call-distribution")
+                        ? "error.main"
+                        : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
                     <AdminIcon />
                   </ListItemIcon>
                   <ListItemText
                     primary={t("nav.callDistribution", "Call Distribution")}
-                    primaryTypographyProps={{ fontWeight: isActive("/call-distribution") ? 600 : 500, fontSize: "0.95rem" }}
+                    primaryTypographyProps={{
+                      fontWeight: isActive("/call-distribution") ? 600 : 500,
+                      fontSize: "0.95rem",
+                    }}
                   />
                 </ListItemButton>
               </ListItem>
@@ -498,12 +531,20 @@ export default function Layout({
                     transition: "all 0.2s",
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive("/admin") ? "error.main" : "inherit", minWidth: 40 }}>
+                  <ListItemIcon
+                    sx={{
+                      color: isActive("/admin") ? "error.main" : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
                     <HistoryIcon />
                   </ListItemIcon>
                   <ListItemText
                     primary={t("nav.activityLogs", "Activity Logs")}
-                    primaryTypographyProps={{ fontWeight: isActive("/admin") ? 600 : 500, fontSize: "0.95rem" }}
+                    primaryTypographyProps={{
+                      fontWeight: isActive("/admin") ? 600 : 500,
+                      fontSize: "0.95rem",
+                    }}
                   />
                 </ListItemButton>
               </ListItem>
@@ -520,7 +561,9 @@ export default function Layout({
                         ? "rgba(244, 67, 54, 0.16)"
                         : "rgba(211, 47, 47, 0.08)"
                       : "transparent",
-                    color: isActive("/user-management") ? "error.main" : "inherit",
+                    color: isActive("/user-management")
+                      ? "error.main"
+                      : "inherit",
                     "&:hover": {
                       backgroundColor:
                         theme.palette.mode === "dark"
@@ -530,12 +573,22 @@ export default function Layout({
                     transition: "all 0.2s",
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive("/user-management") ? "error.main" : "inherit", minWidth: 40 }}>
+                  <ListItemIcon
+                    sx={{
+                      color: isActive("/user-management")
+                        ? "error.main"
+                        : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
                     <ManageAccountsIcon />
                   </ListItemIcon>
                   <ListItemText
                     primary={t("nav.userManagement", "User Management")}
-                    primaryTypographyProps={{ fontWeight: isActive("/user-management") ? 600 : 500, fontSize: "0.95rem" }}
+                    primaryTypographyProps={{
+                      fontWeight: isActive("/user-management") ? 600 : 500,
+                      fontSize: "0.95rem",
+                    }}
                   />
                 </ListItemButton>
               </ListItem>
@@ -552,7 +605,9 @@ export default function Layout({
                         ? "rgba(244, 67, 54, 0.16)"
                         : "rgba(211, 47, 47, 0.08)"
                       : "transparent",
-                    color: isActive("/product-pricing") ? "error.main" : "inherit",
+                    color: isActive("/product-pricing")
+                      ? "error.main"
+                      : "inherit",
                     "&:hover": {
                       backgroundColor:
                         theme.palette.mode === "dark"
@@ -562,12 +617,22 @@ export default function Layout({
                     transition: "all 0.2s",
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive("/product-pricing") ? "error.main" : "inherit", minWidth: 40 }}>
+                  <ListItemIcon
+                    sx={{
+                      color: isActive("/product-pricing")
+                        ? "error.main"
+                        : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
                     <MoneyIcon />
                   </ListItemIcon>
                   <ListItemText
                     primary={t("nav.productPricing", "Product Pricing")}
-                    primaryTypographyProps={{ fontWeight: isActive("/product-pricing") ? 600 : 500, fontSize: "0.95rem" }}
+                    primaryTypographyProps={{
+                      fontWeight: isActive("/product-pricing") ? 600 : 500,
+                      fontSize: "0.95rem",
+                    }}
                   />
                 </ListItemButton>
               </ListItem>
@@ -584,7 +649,9 @@ export default function Layout({
                         ? "rgba(244, 67, 54, 0.16)"
                         : "rgba(211, 47, 47, 0.08)"
                       : "transparent",
-                    color: isActive(roleManagementNavItem.path) ? "error.main" : "inherit",
+                    color: isActive(roleManagementNavItem.path)
+                      ? "error.main"
+                      : "inherit",
                     "&:hover": {
                       backgroundColor:
                         theme.palette.mode === "dark"
@@ -594,12 +661,27 @@ export default function Layout({
                     transition: "all 0.2s",
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive(roleManagementNavItem.path) ? "error.main" : "inherit", minWidth: 40 }}>
+                  <ListItemIcon
+                    sx={{
+                      color: isActive(roleManagementNavItem.path)
+                        ? "error.main"
+                        : "inherit",
+                      minWidth: 40,
+                    }}
+                  >
                     <ShieldIcon />
                   </ListItemIcon>
                   <ListItemText
-                    primary={t(roleManagementNavItem.labelKey, "Role Management")}
-                    primaryTypographyProps={{ fontWeight: isActive(roleManagementNavItem.path) ? 600 : 500, fontSize: "0.95rem" }}
+                    primary={t(
+                      roleManagementNavItem.labelKey,
+                      "Role Management",
+                    )}
+                    primaryTypographyProps={{
+                      fontWeight: isActive(roleManagementNavItem.path)
+                        ? 600
+                        : 500,
+                      fontSize: "0.95rem",
+                    }}
                   />
                 </ListItemButton>
               </ListItem>
@@ -651,26 +733,42 @@ export default function Layout({
             variant="h6"
             noWrap
             component="div"
-            sx={{ flexGrow: 1, fontWeight: 600, fontSize: { xs: '0.95rem', sm: '1.25rem' } }}
+            sx={{
+              flexGrow: 1,
+              fontWeight: 600,
+              fontSize: { xs: "0.95rem", sm: "1.25rem" },
+            }}
           >
             {location.pathname === "/admin"
               ? t("nav.admin", "Admin")
               : location.pathname === "/product-pricing"
                 ? t("nav.productPricing", "Product Pricing")
-                : navigationItems.find((item) => item.path === location.pathname)
-                  ? t(
-                    navigationItems.find(
+                : navigationItems.find(
                       (item) => item.path === location.pathname,
-                    )?.labelKey || "nav.dashboard",
-                  )
+                    )
+                  ? t(
+                      navigationItems.find(
+                        (item) => item.path === location.pathname,
+                      )?.labelKey || "nav.dashboard",
+                    )
                   : t("nav.dashboard")}
           </Typography>
 
           {/* Actions */}
-          <Box sx={{ display: "flex", gap: { xs: 0, sm: 1 }, alignItems: "center" }}>
+          <Box
+            sx={{
+              display: "flex",
+              gap: { xs: 0, sm: 1 },
+              alignItems: "center",
+            }}
+          >
             {/* Language Switcher - hide on smallest screens */}
             <Tooltip title={t("layout.changeLanguage")}>
-              <IconButton onClick={handleLanguageMenuOpen} color="inherit" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+              <IconButton
+                onClick={handleLanguageMenuOpen}
+                color="inherit"
+                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+              >
                 <LanguageIcon />
               </IconButton>
             </Tooltip>
@@ -706,7 +804,10 @@ export default function Layout({
             </Tooltip>
 
             <Tooltip title={t("layout.settings")}>
-              <IconButton color="inherit" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
+              <IconButton
+                color="inherit"
+                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+              >
                 <Settings />
               </IconButton>
             </Tooltip>
@@ -811,7 +912,15 @@ export default function Layout({
         }}
       >
         <Toolbar /> {/* Spacer for AppBar */}
-        <Box sx={{ p: { xs: 1.5, sm: 2.5, md: 4 }, maxWidth: '100%', overflowX: 'hidden' }}>{children}</Box>
+        <Box
+          sx={{
+            p: { xs: 1.5, sm: 2.5, md: 4 },
+            maxWidth: "100%",
+            overflowX: "hidden",
+          }}
+        >
+          {children}
+        </Box>
       </Box>
 
       {/* Floating Activity Toast */}
@@ -825,30 +934,33 @@ export default function Layout({
         <Paper
           elevation={6}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             gap: 2,
             p: 2,
             minWidth: 280,
             borderRadius: 3,
             borderLeft: `6px solid ${
-              activityToast?.severity === "success" 
-                ? theme.palette.success.main 
+              activityToast?.severity === "success"
+                ? theme.palette.success.main
                 : theme.palette.info.main
             }`,
             bgcolor: theme.palette.background.paper,
             color: theme.palette.text.primary,
           }}
         >
-          <Avatar 
-            sx={{ 
-              bgcolor: activityToast?.severity === "success" 
-                ? `${theme.palette.success.main}1A` 
-                : `${theme.palette.info.main}1A`,
-              color: activityToast?.severity === "success" 
-                ? theme.palette.success.main 
-                : theme.palette.info.main,
-              width: 40, height: 40
+          <Avatar
+            sx={{
+              bgcolor:
+                activityToast?.severity === "success"
+                  ? `${theme.palette.success.main}1A`
+                  : `${theme.palette.info.main}1A`,
+              color:
+                activityToast?.severity === "success"
+                  ? theme.palette.success.main
+                  : theme.palette.info.main,
+              width: 40,
+              height: 40,
             }}
           >
             <TimelineIcon />
