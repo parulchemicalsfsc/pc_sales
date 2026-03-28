@@ -8,6 +8,7 @@ Returns a list of dicts — no DB logic included.
 """
 
 import re
+from typing import Optional
 import pandas as pd
 
 
@@ -85,11 +86,14 @@ def _match_col(norm_cols: list[str], aliases: set[str]) -> str | None:
     return None
 
 
-def _safe_int(value, default: int = 0) -> int:
+def _safe_int(value, default=None):
+    if pd.isna(value):
+        return default
     try:
-        if pd.isna(value):
+        s = str(value).strip()
+        if not s or s.lower() in ["n/a", "na", "null", "none", "nil", "-", "."]:
             return default
-        return int(float(str(value).strip()))
+        return int(float(s))
     except (ValueError, TypeError):
         return default
 
@@ -98,7 +102,45 @@ def _safe_str(value) -> str | None:
     if pd.isna(value):
         return None
     s = str(value).strip()
-    return s if s else None
+    if not s or s.lower() in ["n/a", "na", "null", "none", "nil", "-", "."]:
+        return None
+    return s
+
+
+def clean_phone(value) -> Optional[str]:
+    """
+    Robustly clean and validate a 10-digit phone number.
+    - If null -> return None
+    - Convert to string
+    - Strip spaces
+    - Remove ".0" suffix if present
+    - Remove all non-digit characters
+    - Validate length = 10 digits
+    - Return cleaned number
+    - Else return None
+    """
+    if pd.isna(value):
+        return None
+
+    # Convert to string and strip spaces
+    s = str(value).strip()
+
+    # Handle common placeholders for missing data
+    if s.lower() in ["n/a", "na", "null", "none", "nil", "-", "."]:
+        return None
+
+    # Remove ".0" suffix (often from Pandas reading float)
+    if s.endswith(".0"):
+        s = s[:-2]
+
+    # Keep only digits
+    digits = re.sub(r"\D", "", s)
+
+    # Validate length
+    if len(digits) == 10:
+        return digits
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -201,15 +243,15 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
         taluka   = (_safe_str(row[col_taluka])   if col_taluka   else None) or ""
         district = (_safe_str(row[col_district]) if col_district else None)
         mantri_name   = (_safe_str(row[col_mantri_name])   if col_mantri_name   else None)
-        mantri_mobile = (_safe_str(row[col_mantri_mobile]) if col_mantri_mobile else None)
+        raw_mobile_value = row[col_mantri_mobile] if col_mantri_mobile else None
+        mantri_mobile = clean_phone(raw_mobile_value)
 
-        # Normalise mobile: keep only digits, set None if empty / non-numeric
-        if mantri_mobile:
-            digits = re.sub(r"\D", "", mantri_mobile)
-            mantri_mobile = digits if digits else None
+        # 📞 DEBUG LOGS
+        print(f"📞 RAW PHONE: {raw_mobile_value}")
+        print(f"📞 CLEANED PHONE: {mantri_mobile}")
 
-        sabhasad_morning = _safe_int(row[col_morning]) if col_morning else 0
-        sabhasad_evening = _safe_int(row[col_evening]) if col_evening else 0
+        sabhasad_morning = _safe_int(row[col_morning]) if col_morning else None
+        sabhasad_evening = _safe_int(row[col_evening]) if col_evening else None
 
         # Construct canonical name
         v_upper = village.upper().strip()

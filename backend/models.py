@@ -146,6 +146,8 @@ class Distributor(BaseModel):
     mantri_name: Optional[str] = None
     mantri_mobile: Optional[str] = None
     sabhasad_count: int = 0
+    sabhasad_morning: int = 0
+    sabhasad_evening: int = 0
     contact_in_group: int = 0
     status: str = "Active"
 
