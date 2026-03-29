@@ -48,6 +48,7 @@ import {
   ArrowUpward as NextStatusIcon,
   Cancel as CancelIcon,
   Print as PrintIcon,
+  Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { customerAPI, salesAPI, paymentAPI } from "../services/api";
@@ -111,6 +112,8 @@ export default function OrderManagement() {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedMenuOrder, setSelectedMenuOrder] = useState<Order | null>(null);
   const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]); // New state for items
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -395,6 +398,31 @@ export default function OrderManagement() {
     }
   };
 
+  const handleEditOrder = () => {
+    if (!selectedMenuOrder) return;
+    handleMenuClose();
+    handleUpdateStatus(selectedMenuOrder);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!selectedMenuOrder) return;
+    setOrderToDelete(selectedMenuOrder);
+    setDeleteConfirmOpen(true);
+    handleMenuClose();
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!orderToDelete) return;
+    try {
+      await salesAPI.delete(orderToDelete.sale_id);
+      setDeleteConfirmOpen(false);
+      setOrderToDelete(null);
+      fetchData();
+    } catch (error) {
+      console.error("Error deleting order:", error);
+    }
+  };
+
   const handleNextStatus = () => {
     const next = getNextStatus(orderUpdate.order_status);
     if (next) {
@@ -553,7 +581,7 @@ export default function OrderManagement() {
                   transform: "rotate(15deg)",
                 }}
               >
-                                <ShippingIcon sx={{ fontSize: { xs: 50, md: 100 }, color: "warning.main" }} />
+                <ShippingIcon sx={{ fontSize: { xs: 50, md: 100 }, color: "warning.main" }} />
               </Box>
               <Typography color="textSecondary" variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
                 {t("orderManagement.pending", "Pending")}
@@ -1020,7 +1048,39 @@ export default function OrderManagement() {
             Cancel Order
           </MenuItem>
         )}
+        <MenuItem onClick={handleEditOrder}>
+          <EditIcon sx={{ mr: 1 }} fontSize="small" color="secondary" />
+          Edit Order
+        </MenuItem>
+        <MenuItem onClick={handleDeleteConfirm} sx={{ color: 'error.main' }}>
+          <DeleteIcon sx={{ mr: 1 }} fontSize="small" color="error" />
+          Delete Order
+        </MenuItem>
       </Menu>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+      >
+        <DialogTitle>Delete Order</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete order <strong>{orderToDelete?.invoice_no}</strong>?
+            This will permanently remove the order and all its items.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleDeleteOrder}
+            variant="contained"
+            color="error"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

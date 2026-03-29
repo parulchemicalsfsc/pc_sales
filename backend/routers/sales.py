@@ -517,7 +517,8 @@ def get_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
 
 @router.put("/{sale_id}", dependencies=[Depends(verify_permission("edit_sale"))])
 def update_sale(
-    sale_id: int, sale_data: dict, db: SupabaseClient = Depends(get_supabase)
+    sale_id: int, sale_data: dict, db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """Update a sale"""
     try:
@@ -553,10 +554,24 @@ def update_sale(
         
         print(f"Error updating sale {sale_id}: {error_msg}")
         raise HTTPException(status_code=500, detail=f"Error updating sale: {error_msg}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update(
+                    user_email=user_email,
+                    entity_type="sale",
+                    entity_name=f"Sale #{sale_id}",
+                    entity_id=sale_id,
+                )
+            except Exception:
+                pass
 
 
 @router.delete("/{sale_id}", dependencies=[Depends(verify_permission("delete_sale"))])
-def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
+def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
     """Delete a sale and its items"""
     try:
         # Delete sale items first
@@ -573,6 +588,18 @@ def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting sale: {str(e)}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_delete(
+                    user_email=user_email,
+                    entity_type="sale",
+                    entity_name=f"Sale #{sale_id}",
+                    entity_id=sale_id,
+                )
+            except Exception:
+                pass
 
 
 @router.get("/{sale_id}/invoice-pdf", dependencies=[Depends(verify_permission("download_invoice"))])
