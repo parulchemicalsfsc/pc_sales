@@ -128,21 +128,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => subscription.unsubscribe();
   }, [loadPermissions]);
 
-  // ── Midnight IST auto-logout (no activity log) ──────────────────────────────
+  // ── Scheduled IST auto-logout (no activity log) ──────────────────────────────
   useEffect(() => {
-    const msUntilMidnightIST = () => {
+    const msUntilTargetIST = () => {
       const now = new Date();
       const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      const midnight = new Date(ist);
-      midnight.setHours(24, 0, 0, 0);
-      return midnight.getTime() - ist.getTime();
+      const target = new Date(ist);
+      target.setHours(12, 7, 0, 0); // 12:07 PM IST
+
+      let ms = target.getTime() - ist.getTime();
+      if (ms <= 0) {
+        // If 12:07 PM has already passed today, schedule for tomorrow
+        target.setDate(target.getDate() + 1);
+        ms = target.getTime() - ist.getTime();
+      }
+      return ms;
     };
 
     const scheduleLogout = () => {
-      const ms = msUntilMidnightIST();
-      console.log(`[Auth] Auto-logout scheduled in ${Math.round(ms / 60000)} minutes`);
+      const ms = msUntilTargetIST();
+      console.log(`[Auth] Auto-logout scheduled in ${Math.round(ms / 60000)} minutes (12:07 PM IST)`);
       return setTimeout(async () => {
-        console.log("[Auth] Midnight IST — auto-logging out all users");
+        console.log("[Auth] 12:07 PM IST — auto-logging out all users");
         await supabase.auth.signOut();
         setPermissions(new Set());
         setPermissionsLoaded(false);
