@@ -206,7 +206,7 @@ export default function Sales() {
 
   const handleMenuClose = () => {
     setMenuAnchor(null);
-    setSelectedActionSale(null);
+    // Do not clear selectedActionSale here, keep it for dialogs
   };
 
   const handleDeleteClick = () => {
@@ -240,7 +240,9 @@ export default function Sales() {
       try {
         setLoading(true);
         // Fetch full sale details to get items
-        const saleDetails = await salesAPI.getById(saleId);
+        const responseData = await salesAPI.getById(saleId);
+        const sale = responseData.sale;
+        const fetchedItems = responseData.items;
 
         setEditingSaleId(saleId);
         setCustomerMode("existing");
@@ -248,35 +250,35 @@ export default function Sales() {
 
         // Safe Date Parsing
         let safeDateString = new Date().toISOString().split("T")[0];
-        if (saleDetails.sale_date) {
-          const d = new Date(saleDetails.sale_date);
+        if (sale && sale.sale_date) {
+          const d = new Date(sale.sale_date);
           if (!isNaN(d.getTime())) {
             safeDateString = d.toISOString().split("T")[0];
-          } else if (typeof saleDetails.sale_date === 'string' && saleDetails.sale_date.length >= 10) {
-            safeDateString = saleDetails.sale_date.substring(0, 10); // fallback for YYYY-MM-DD
+          } else if (typeof sale.sale_date === 'string' && sale.sale_date.length >= 10) {
+            safeDateString = sale.sale_date.substring(0, 10); // fallback for YYYY-MM-DD
           }
         }
 
         setFormData({
-          customer_id: saleDetails.customer_id,
-          invoice_no: saleDetails.invoice_no || "",
+          customer_id: sale ? sale.customer_id : 0,
+          invoice_no: (sale && sale.invoice_no) ? sale.invoice_no : "",
           sale_date: safeDateString,
-          notes: saleDetails.notes || "",
+          notes: (sale && sale.notes) ? sale.notes : "",
           paid_amount: 0, // Paid amount tracking might be decoupled in payments
         });
 
-        if (saleDetails.payment_terms) {
+        if (sale && sale.payment_terms) {
           try {
-            const terms = JSON.parse(saleDetails.payment_terms);
-            setPaymentTerms({
-              ...paymentTerms,
+            const terms = JSON.parse(sale.payment_terms);
+            setPaymentTerms(prev => ({
+              ...prev,
               ...terms
-            });
+            }));
           } catch (e) { }
         }
 
-        if (saleDetails.items && saleDetails.items.length > 0) {
-          setItems(saleDetails.items.map((item: any) => ({
+        if (fetchedItems && fetchedItems.length > 0) {
+          setItems(fetchedItems.map((item: any) => ({
             product_id: item.product_id,
             quantity: item.quantity,
             rate: item.rate,
