@@ -623,6 +623,12 @@ export const activityAPI = {
     });
     return response.data;
   },
+  logAuth: async (action: "LOGIN" | "LOGOUT") => {
+    const response = await apiClient.post("/api/user-sessions/log-auth", {
+      action,
+    });
+    return response.data;
+  },
 };
 
 // Export the axios instance for direct use if needed

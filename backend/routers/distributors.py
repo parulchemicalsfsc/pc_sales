@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, Header, HTTPException
 from models import Distributor
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
+from activity_logger import get_activity_logger
 
 router = APIRouter()
 
@@ -31,6 +33,7 @@ def get_distributors(db: SupabaseClient = Depends(get_supabase)):
 def create_distributor(
     distributor: Distributor,
     db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """Create a new distributor"""
     try:
@@ -61,6 +64,17 @@ def create_distributor(
         raise HTTPException(
             status_code=500, detail=f"Error creating distributor: {str(e)}"
         )
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_create(
+                    user_email=user_email,
+                    entity_type="distributor",
+                    entity_name=distributor.name,
+                )
+            except Exception:
+                pass
 
 
 @router.put("/{distributor_id}", dependencies=[Depends(verify_permission("edit_distributor"))])
@@ -68,6 +82,7 @@ def update_distributor(
     distributor_id: int,
     distributor: Distributor,
     db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """Update an existing distributor"""
     try:
@@ -112,3 +127,15 @@ def update_distributor(
         raise HTTPException(
             status_code=500, detail=f"Error updating distributor: {str(e)}"
         )
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update(
+                    user_email=user_email,
+                    entity_type="distributor",
+                    entity_name=distributor.name,
+                    entity_id=distributor_id,
+                )
+            except Exception:
+                pass

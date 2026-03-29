@@ -110,3 +110,35 @@ def get_today_session(
         if "user_sessions" in error_msg and ("404" in error_msg or "relation" in error_msg):
             return {"total_seconds": 0, "date": today, "error": "Table not created yet"}
         raise HTTPException(status_code=500, detail=f"Failed to get session: {error_msg}")
+
+
+class AuthLogRequest(BaseModel):
+    action: str  # "LOGIN" or "LOGOUT"
+
+
+@router.post("/log-auth")
+def log_auth_event(
+    body: AuthLogRequest,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Log a LOGIN or LOGOUT event to the activity_logs table."""
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    action = body.action.upper()
+    if action not in ("LOGIN", "LOGOUT"):
+        raise HTTPException(status_code=400, detail="action must be LOGIN or LOGOUT")
+
+    try:
+        from activity_logger import get_activity_logger
+        logger = get_activity_logger(db)
+        if action == "LOGIN":
+            logger.log_login(user_email)
+        else:
+            logger.log_logout(user_email)
+        return {"ok": True, "action": action}
+    except Exception as e:
+        # Don't block the user if logging fails
+        print(f"[WARN] Failed to log auth event: {e}")
+        return {"ok": False, "error": str(e)}

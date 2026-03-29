@@ -1,7 +1,9 @@
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from psycopg2.extensions import connection
 
 from supabase_db import get_db
@@ -50,6 +52,7 @@ def save_uploaded_file(file: UploadFile) -> str:
 def import_excel(
     file: UploadFile = File(...),
     conn: connection = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """
     Smart Excel importer:
@@ -122,3 +125,17 @@ def import_excel(
             status_code=500,
             detail=f"Import failed: {str(e)}. Please verify the Excel file format.",
         )
+    finally:
+        if user_email:
+            try:
+                from activity_logger import get_activity_logger
+                from supabase_db import get_supabase_client
+                db = get_supabase_client()
+                logger = get_activity_logger(db)
+                logger.log_import(
+                    user_email=user_email,
+                    file_name=file.filename or "unknown",
+                    records_count=0,
+                )
+            except Exception:
+                pass

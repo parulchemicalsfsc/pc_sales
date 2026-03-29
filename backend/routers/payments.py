@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from models import Payment
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
+from activity_logger import get_activity_logger
 
 from routers.notifications import create_notification_helper
 
@@ -363,6 +364,19 @@ def create_payment(
 
         # Notification creation removed as per user request
 
+        # Log activity
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_create(
+                    user_email=user_email,
+                    entity_type="payment",
+                    entity_name=f"Payment #{created_payment.get('payment_id')} for Sale #{payment.sale_id}",
+                    entity_id=created_payment.get("payment_id"),
+                    metadata={"amount": float(payment.amount), "sale_id": int(payment.sale_id)},
+                )
+            except Exception:
+                pass
 
         return response_data
 
@@ -384,7 +398,8 @@ def create_payment(
 
 @router.put("/{payment_id}", dependencies=[Depends(verify_permission("edit_payment"))])
 def update_payment(
-    payment_id: int, payment_data: dict, db: SupabaseClient = Depends(get_supabase)
+    payment_id: int, payment_data: dict, db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """Update a payment"""
     try:
@@ -446,10 +461,24 @@ def update_payment(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating payment: {str(e)}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update(
+                    user_email=user_email,
+                    entity_type="payment",
+                    entity_name=f"Payment #{payment_id}",
+                    entity_id=payment_id,
+                )
+            except Exception:
+                pass
 
 
 @router.delete("/{payment_id}", dependencies=[Depends(verify_permission("delete_payment"))])
-def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase)):
+def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
     """Delete a payment and update sale payment status"""
     try:
         # Get payment to get sale_id before deleting
@@ -507,3 +536,15 @@ def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting payment: {str(e)}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_delete(
+                    user_email=user_email,
+                    entity_type="payment",
+                    entity_name=f"Payment #{payment_id}",
+                    entity_id=payment_id,
+                )
+            except Exception:
+                pass

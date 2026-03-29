@@ -4,9 +4,11 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
+import { activityAPI } from "../services/api";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -126,6 +128,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => subscription.unsubscribe();
   }, [loadPermissions]);
 
+  // ── Midnight IST auto-logout (no activity log) ──────────────────────────────
+  useEffect(() => {
+    const msUntilMidnightIST = () => {
+      const now = new Date();
+      const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+      const midnight = new Date(ist);
+      midnight.setHours(24, 0, 0, 0);
+      return midnight.getTime() - ist.getTime();
+    };
+
+    const scheduleLogout = () => {
+      const ms = msUntilMidnightIST();
+      console.log(`[Auth] Auto-logout scheduled in ${Math.round(ms / 60000)} minutes`);
+      return setTimeout(async () => {
+        console.log("[Auth] Midnight IST — auto-logging out all users");
+        await supabase.auth.signOut();
+        setPermissions(new Set());
+        setPermissionsLoaded(false);
+        localStorage.removeItem("user_email");
+        window.location.href = "/login";
+      }, ms);
+    };
+
+    const tid = scheduleLogout();
+    return () => clearTimeout(tid);
+  }, []);
+
   // ── hasPermission: pure JS, instant ─────────────────────────────────────────
   const hasPermission = useCallback(
     (permission: string): boolean => {
@@ -159,11 +188,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setSession(data.session);
       setRole(normalizeRole(data.user.user_metadata?.role));
       await loadPermissions(data.user);
+
+      // Log LOGIN event (fire-and-forget, only on explicit user sign-in)
+      activityAPI.logAuth("LOGIN").catch(() => { });
     }
   };
 
   // ── Sign out ─────────────────────────────────────────────────────────────────
   const signOut = async () => {
+    // Log LOGOUT event first (silent fail ok — don't block actual logout)
+    await activityAPI.logAuth("LOGOUT").catch(() => { });
     await supabase.auth.signOut();
     setPermissions(new Set());
     setPermissionsLoaded(false);

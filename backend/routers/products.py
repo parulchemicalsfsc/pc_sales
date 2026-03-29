@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, Header, HTTPException
 from models import Product
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
+from activity_logger import get_activity_logger
 
 router = APIRouter()
 
@@ -49,7 +51,9 @@ def get_product(product_id: int, db: SupabaseClient = Depends(get_db)):
 
 
 @router.post("/", dependencies=[Depends(verify_permission("manage_products"))])
-def create_product(product: Product, db: SupabaseClient = Depends(get_db)):
+def create_product(product: Product, db: SupabaseClient = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
     """Create a new product"""
     try:
         product_data = {
@@ -83,6 +87,17 @@ def create_product(product: Product, db: SupabaseClient = Depends(get_db)):
         response = db.table("products").insert(product_data).execute()
 
         if response.data and len(response.data) > 0:
+            if user_email:
+                try:
+                    logger = get_activity_logger(db)
+                    logger.log_create(
+                        user_email=user_email,
+                        entity_type="product",
+                        entity_name=product.product_name,
+                        entity_id=response.data[0].get("product_id"),
+                    )
+                except Exception:
+                    pass
             return {"message": "Product created", "data": response.data[0]}
         else:
             return {"message": "Product created"}
@@ -92,7 +107,8 @@ def create_product(product: Product, db: SupabaseClient = Depends(get_db)):
 
 @router.put("/{product_id}", dependencies=[Depends(verify_permission("manage_products"))])
 def update_product(
-    product_id: int, product: Product, db: SupabaseClient = Depends(get_db)
+    product_id: int, product: Product, db: SupabaseClient = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
     """Update an existing product"""
     try:
@@ -139,10 +155,24 @@ def update_product(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating product: {str(e)}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update(
+                    user_email=user_email,
+                    entity_type="product",
+                    entity_name=product.product_name,
+                    entity_id=product_id,
+                )
+            except Exception:
+                pass
 
 
 @router.delete("/{product_id}", dependencies=[Depends(verify_permission("manage_products"))])
-def delete_product(product_id: int, db: SupabaseClient = Depends(get_db)):
+def delete_product(product_id: int, db: SupabaseClient = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
     """Delete a product (soft delete by setting is_active to 0)"""
     try:
         # Hard delete - permanently remove record
@@ -168,5 +198,16 @@ def delete_product(product_id: int, db: SupabaseClient = Depends(get_db)):
         raise
     except Exception as e:
         print(f"[ERROR] Exception in delete_product: {str(e)}")
-        # Return the actual error message for debugging
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
+    finally:
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_delete(
+                    user_email=user_email,
+                    entity_type="product",
+                    entity_name=f"Product #{product_id}",
+                    entity_id=product_id,
+                )
+            except Exception:
+                pass
