@@ -51,6 +51,38 @@ export default function Distributors() {
   const [editingDistributor, setEditingDistributor] =
     useState<Distributor | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [columnNames, setColumnNames] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem("distributorColumnNames");
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem("distributorColumnNames", JSON.stringify(columnNames));
+  }, [columnNames]);
+
+  const [renameField, setRenameField] = useState<string | null>(null);
+  const [newColumnName, setNewColumnName] = useState("");
+
+  const handleRenameClick = (field: string) => {
+    setRenameField(field);
+    setNewColumnName(columnNames[field] || "");
+  };
+
+  const handleSaveRename = () => {
+    if (renameField) {
+      setColumnNames((prev) => ({
+        ...prev,
+        [renameField]: newColumnName,
+      }));
+      setRenameField(null);
+    }
+  };
+
+  const handleCloseRename = () => {
+    setRenameField(null);
+    setNewColumnName("");
+  };
+  
   const [formData, setFormData] = useState<Partial<Distributor>>({
     village: "",
     taluka: "",
@@ -266,7 +298,29 @@ export default function Distributors() {
     );
   };
 
-  const columns: GridColDef[] = [
+  const baseColumns: GridColDef[] = [
+    {
+      field: "actions",
+      headerName: t("common.actions"),
+      width: 120,
+      sortable: false,
+      headerAlign: "center",
+      align: "center",
+      headerClassName: "multi-line-header",
+      renderCell: (params) => (
+        <Box>
+          <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
+            <IconButton
+              size="small"
+              onClick={() => handleOpenDialog(params.row)}
+              color="primary"
+            >
+              <EditIcon fontSize="small" />
+            </IconButton>
+          </PermissionGate>
+        </Box>
+      ),
+    },
     // 1. Mantri (Moved to start)
     {
       field: "mantri_name",
@@ -589,29 +643,30 @@ export default function Distributors() {
         />
       ),
     },
-    {
-      field: "actions",
-      headerName: t("common.actions"),
-      width: 120,
-      sortable: false,
-      headerAlign: "center",
-      align: "center",
-      headerClassName: "multi-line-header",
-      renderCell: (params) => (
-        <Box>
-          <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
-            <IconButton
-              size="small"
-              onClick={() => handleOpenDialog(params.row)}
-              color="primary"
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </PermissionGate>
-        </Box>
-      ),
-    },
   ];
+
+  const columns: GridColDef[] = baseColumns.map((col) => ({
+    ...col,
+    headerName: columnNames[col.field] || col.headerName,
+    renderHeader: (params: any) => (
+      <Tooltip title="Double click to rename">
+        <Box
+          onDoubleClick={() => handleRenameClick(params.field)}
+          sx={{
+            width: "100%",
+            cursor: "pointer",
+            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: "100%",
+          }}
+        >
+          {columnNames[params.field] || params.colDef.headerName}
+        </Box>
+      </Tooltip>
+    ),
+  }));
 
   const filteredDistributors = distributors.filter((distributor) =>
     Object.values(distributor).some((value) =>
@@ -1112,6 +1167,32 @@ export default function Distributors() {
           <Button onClick={handleCloseDialog}>{t("common.cancel")}</Button>
           <Button onClick={handleSubmit} variant="contained">
             {t("common.save")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Rename Column Dialog */}
+      <Dialog open={Boolean(renameField)} onClose={handleCloseRename} maxWidth="xs" fullWidth>
+        <DialogTitle>{t("common.renameColumn", "Rename Column")}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              label={t("common.newColumnName", "New Column Name")}
+              value={newColumnName}
+              onChange={(e) => setNewColumnName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveRename();
+              }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRename}>{t("common.cancel", "Cancel")}</Button>
+          <Button onClick={handleSaveRename} variant="contained" color="primary">
+            {t("common.save", "Save")}
           </Button>
         </DialogActions>
       </Dialog>
