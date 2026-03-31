@@ -197,7 +197,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
                     </MenuItem>
                     {distributors.map((distributor) => (
                       <MenuItem key={distributor.distributor_id} value={distributor.distributor_id}>
-                        {distributor.name} {distributor.village && `- ${distributor.village}`}
+                        {`${distributor.village} - ${distributor.taluka}`}
                       </MenuItem>
                     ))}
                   </Select>
