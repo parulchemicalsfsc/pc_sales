@@ -11,7 +11,61 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from supabase_db import SupabaseClient, get_db, get_supabase, get_supabase_admin
 from models import UserCreate
 from rbac_utils import verify_admin_role, verify_permission
+router = APIRouter()
 
+# Legacy admin verify replaced by dynamic RBAC — kept for reference
+# ADMIN_EMAIL = "admin@gmail.com"
+
+@router.get("/my-logs")
+def get_my_activity_logs(
+    date: Optional[str] = None,
+    limit: int = 100,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Get activity logs for the requesting user.
+    """
+    try:
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        target_date = date or datetime.now().strftime("%Y-%m-%d")
+        
+        # Convert IST to UTC range for Supabase filtering
+        ist = timezone(timedelta(hours=5, minutes=30))
+        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+        start_ist = target_dt.replace(tzinfo=ist, hour=0, minute=0, second=0, microsecond=0)
+        end_ist = target_dt.replace(tzinfo=ist, hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Use .isoformat() which includes to exact timezone offset (e.g. +00:00) so Supabase does not evaluate in local time
+        normalized_start = start_ist.astimezone(timezone.utc).isoformat()
+        normalized_end = end_ist.astimezone(timezone.utc).isoformat()
+
+        query = (
+            db.table("activity_logs")
+            .select("*")
+            .eq("user_email", user_email)
+            .gte("created_at", normalized_start)
+            .lte("created_at", normalized_end)
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        response = query.execute()
+
+        return {
+            "logs": response.data or [],
+            "date": target_date,
+            "total": len(response.data or [])
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching activity logs: {str(e)}")
+
+@router.get("/health")
+def health():
+    """Health check endpoint"""
     return {"status": "ok"}
 
 
@@ -43,8 +97,10 @@ def get_activity_logs(
             selected_dt = datetime.strptime(selected_date, "%Y-%m-%d")
             start_ist = selected_dt.replace(tzinfo=ist, hour=0, minute=0, second=0, microsecond=0)
             end_ist = selected_dt.replace(tzinfo=ist, hour=23, minute=59, second=59, microsecond=999999)
-            normalized_start = start_ist.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-            normalized_end = end_ist.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
+            
+            # Use .isoformat() which includes to exact timezone offset (e.g. +00:00) so Supabase does not evaluate in local time
+            normalized_start = start_ist.astimezone(timezone.utc).isoformat()
+            normalized_end = end_ist.astimezone(timezone.utc).isoformat()
             print(f"[DEBUG] Date filter: {selected_date} IST -> UTC range: {normalized_start} to {normalized_end}")
         elif start_date:
             normalized_start = f"{start_date}T00:00:00" if len(start_date) == 10 else start_date
@@ -265,6 +321,26 @@ def get_all_users(
             set(
                 [item["user_email"] for item in response.data if item.get("user_email")]
             )
+        )
+
+        # Get user activity counts
+        user_details = []
+        for user_email in users:
+            user_activities = (
+                db.table("activity_logs")
+                .select("*")
+                .eq("user_email", user_email)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            last_activity = user_activities.data[0] if user_activities.data else None
+
+            # Count total activities
+            count_response = (
+                db.table("activity_logs")
+                .select("id", count="exact")
                 .eq("user_email", user_email)
                 .execute()
             )
