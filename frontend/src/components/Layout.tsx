@@ -523,7 +523,10 @@ export default function Layout({
                       primary={t(item.labelKey)}
                       primaryTypographyProps={{
                         fontWeight: active ? 600 : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -587,7 +590,10 @@ export default function Layout({
                       primary={t("nav.callDistribution", "Call Distribution")}
                       primaryTypographyProps={{
                         fontWeight: isActive("/call-distribution") ? 600 : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -637,7 +643,10 @@ export default function Layout({
                       primary={t("nav.activityLogs", "Activity Logs")}
                       primaryTypographyProps={{
                         fontWeight: isActive("/admin") ? 600 : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -691,7 +700,10 @@ export default function Layout({
                       primary={t("nav.userManagement", "User Management")}
                       primaryTypographyProps={{
                         fontWeight: isActive("/user-management") ? 600 : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -745,7 +757,10 @@ export default function Layout({
                       primary={t("nav.productPricing", "Product Pricing")}
                       primaryTypographyProps={{
                         fontWeight: isActive("/product-pricing") ? 600 : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -804,7 +819,10 @@ export default function Layout({
                         fontWeight: isActive(roleManagementNavItem.path)
                           ? 600
                           : 500,
-                        fontSize: "0.95rem",
+                        fontSize: "0.875rem",
+                        noWrap: true,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     />
                   )}
@@ -815,47 +833,46 @@ export default function Layout({
         )}
       </List>
 
+      {/* Collapse / Expand toggle */}
       <Box
+        onClick={toggleSidebar}
         sx={{
-          px: 1,
-          pb: 1.5,
-          pt: 0.5,
           display: "flex",
+          alignItems: "center",
           justifyContent: "center",
+          py: 1,
+          cursor: "pointer",
+          borderTop: `1px solid ${theme.palette.divider}`,
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          "&:hover": {
+            bgcolor: theme.palette.action.hover,
+          },
+          transition: "background-color 0.2s",
         }}
       >
-        <Tooltip title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}>
-          <IconButton
-            onClick={toggleSidebar}
-            sx={{
-              border: `1px solid ${theme.palette.divider}`,
-              bgcolor: theme.palette.background.paper,
-              boxShadow: theme.shadows[2],
-              "&:hover": {
-                bgcolor: theme.palette.action.hover,
-              },
-            }}
-          >
-            {sidebarExpanded ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      <Divider />
-
-      {/* Footer */}
-      <Box sx={{ p: 2, textAlign: "center" }}>
-        {sidebarExpanded && (
-          <>
-            <Typography variant="caption" color="text.secondary">
-              {t("common.version")} 1.0.0
+        {sidebarExpanded ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <ChevronLeftIcon sx={{ fontSize: 20, color: "text.secondary" }} />
+            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, userSelect: "none" }}>
+              Collapse
             </Typography>
-            <Typography variant="caption" display="block" color="text.secondary">
-              {t("common.copyright")}
-            </Typography>
-          </>
+          </Box>
+        ) : (
+          <ChevronRightIcon sx={{ fontSize: 20, color: "text.secondary" }} />
         )}
       </Box>
+
+      {/* Footer */}
+      {sidebarExpanded && (
+        <Box sx={{ py: 1, px: 2, textAlign: "center" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+            {t("common.version")} 1.0.0
+          </Typography>
+          <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+            {t("common.copyright")}
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 
@@ -1079,7 +1096,9 @@ export default function Layout({
         <Toolbar /> {/* Spacer for AppBar */}
         <Box
           sx={{
-            p: location.pathname === "/chat" ? 0 : { xs: 1.5, sm: 2.5, md: 4 },
+            p: location.pathname === "/chat" ? 0
+              : location.pathname === "/calling-list" ? { xs: 1, sm: 1.5, md: 2 }
+              : { xs: 1.5, sm: 2.5, md: 3 },
             maxWidth: "100%",
             overflowX: "hidden",
             height: location.pathname === "/chat" ? "calc(100vh - 64px)" : "auto",
