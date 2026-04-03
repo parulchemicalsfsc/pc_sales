@@ -125,6 +125,8 @@ export default function AdminLogs() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterUserEmail, setFilterUserEmail] = useState("");
   const [filterActionType, setFilterActionType] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [activeTab, setActiveTab] = useState(0);
@@ -138,6 +140,8 @@ export default function AdminLogs() {
       const params: any = { limit: rowsPerPage, offset: page * rowsPerPage };
       if (filterUserEmail) params.user_email = filterUserEmail;
       if (filterActionType) params.action_type = filterActionType;
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
 
       const response = await axios.get(`${API_BASE_URL}/api/admin/activity-logs`, {
         params,
@@ -156,7 +160,7 @@ export default function AdminLogs() {
     if (user && hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS)) {
       loadActivities();
     }
-  }, [user, page, rowsPerPage, filterUserEmail, filterActionType]);
+  }, [user, page, rowsPerPage, filterUserEmail, filterActionType, startDate, endDate]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return "-";
@@ -180,6 +184,12 @@ export default function AdminLogs() {
 
   const uniqueUsers = Array.from(new Set(activities.map(a => a.user_email).filter(Boolean)));
   const uniqueActionTypes = Array.from(new Set(activities.map(a => a.action_type).filter(Boolean)));
+
+  const clearDateFilters = () => {
+    setStartDate("");
+    setEndDate("");
+    setPage(0);
+  };
 
   if (!user || !hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS)) {
     return (
@@ -234,19 +244,57 @@ export default function AdminLogs() {
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
             />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <TextField fullWidth label={t("admin.filterByUser", "Filter by User")} variant="outlined" size="small" select
               value={filterUserEmail} onChange={e => setFilterUserEmail(e.target.value)}>
               <MenuItem value="">{t("admin.allUsers", "All Users")}</MenuItem>
               {uniqueUsers.map(email => <MenuItem key={email} value={email}>{email}</MenuItem>)}
             </TextField>
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <TextField fullWidth label={t("admin.filterByAction", "Filter by Action Type")} variant="outlined" size="small" select
               value={filterActionType} onChange={e => setFilterActionType(e.target.value)}>
               <MenuItem value="">{t("admin.allActions", "All Actions")}</MenuItem>
               {uniqueActionTypes.map(type => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </TextField>
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              size="small"
+              type="date"
+              label={t("reports.from", "From")}
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(0);
+              }}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <TextField
+              fullWidth
+              size="small"
+              type="date"
+              label={t("reports.to", "To")}
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(0);
+              }}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <Button
+              fullWidth
+              variant="outlined"
+              onClick={clearDateFilters}
+              disabled={!startDate && !endDate}
+            >
+              {t("common.clear", "Clear")}
+            </Button>
           </Grid>
         </Grid>
 

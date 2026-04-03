@@ -26,6 +26,7 @@ import {
   Alert,
   Slide,
   Paper,
+  Button,
 } from "@mui/material";
 
 import {
@@ -54,6 +55,9 @@ import {
   ManageAccounts as ManageAccountsIcon,
   Chat as ChatIcon,
   History as HistoryIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -65,7 +69,30 @@ import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
 import { useChat } from "../hooks/useChat";
 
-const drawerWidth = 260;
+const EXPANDED_DRAWER_WIDTH = 240;
+const COLLAPSED_DRAWER_WIDTH = 72;
+const SIDEBAR_STORAGE_KEY = "layout_sidebar_expanded";
+const TOP_LEVEL_ROUTES = new Set([
+  "/dashboard",
+  "/customers",
+  "/sales",
+  "/payments",
+  "/demos",
+  "/distributors",
+  "/reports",
+  "/import",
+  "/calling-list",
+  "/activity",
+  "/orders",
+  "/admin",
+  "/call-distribution",
+  "/user-management",
+  "/product-pricing",
+  "/role-management",
+  "/algorithm",
+  "/notifications",
+  "/chat",
+]);
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -192,6 +219,10 @@ export default function Layout({
   const location = useLocation();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  });
   const [languageAnchorEl, setLanguageAnchorEl] = useState<null | HTMLElement>(
     null,
   );
@@ -207,9 +238,25 @@ export default function Layout({
   useSessionTracker({ userEmail: user?.email });
   const [unreadCount, setUnreadCount] = useState(0);
   const { totalUnread: chatUnread } = useChat(user?.email);
+  const desktopDrawerWidth = sidebarExpanded
+    ? EXPANDED_DRAWER_WIDTH
+    : COLLAPSED_DRAWER_WIDTH;
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const showBackButton =
+    location.pathname !== "/" &&
+    !TOP_LEVEL_ROUTES.has(location.pathname) &&
+    pathSegments.length > 0;
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarExpanded));
+  }, [sidebarExpanded]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
+  };
+
+  const toggleSidebar = () => {
+    setSidebarExpanded((prev) => !prev);
   };
 
   const handleNavigation = (path: string) => {
@@ -375,11 +422,16 @@ export default function Layout({
       <Box
         sx={{
           p: 3,
+          px: sidebarExpanded ? 3 : 1.5,
           display: "flex",
           alignItems: "center",
           gap: 2,
+          justifyContent: sidebarExpanded ? "flex-start" : "center",
           background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
           color: "white",
+          transition: theme.transitions.create(["padding"], {
+            duration: theme.transitions.duration.shorter,
+          }),
         }}
       >
         <Avatar
@@ -391,17 +443,19 @@ export default function Layout({
             bgcolor: "rgba(255, 255, 255, 0.2)",
           }}
         />
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-            {t("common.salesManagementSystem").split(" ")[0]}
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{ opacity: 0.9, fontSize: "0.85rem" }}
-          >
-            {t("common.salesManagementSystem").split(" ").slice(1).join(" ")}
-          </Typography>
-        </Box>
+        {sidebarExpanded && (
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+              {t("common.salesManagementSystem").split(" ")[0]}
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ opacity: 0.9, fontSize: "0.85rem" }}
+            >
+              {t("common.salesManagementSystem").split(" ").slice(1).join(" ")}
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       <Divider />
@@ -443,9 +497,10 @@ export default function Layout({
                   }}
                 >
                   <ListItemIcon
-                    sx={{
+                  sx={{
                       color: active ? theme.palette.primary.main : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     {badgeCount ? (
@@ -456,13 +511,15 @@ export default function Layout({
                       item.icon
                     )}
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t(item.labelKey)}
-                    primaryTypographyProps={{
-                      fontWeight: active ? 600 : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t(item.labelKey)}
+                      primaryTypographyProps={{
+                        fontWeight: active ? 600 : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             );
@@ -505,18 +562,21 @@ export default function Layout({
                       color: isActive("/call-distribution")
                         ? "error.main"
                         : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     <AdminIcon />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t("nav.callDistribution", "Call Distribution")}
-                    primaryTypographyProps={{
-                      fontWeight: isActive("/call-distribution") ? 600 : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t("nav.callDistribution", "Call Distribution")}
+                      primaryTypographyProps={{
+                        fontWeight: isActive("/call-distribution") ? 600 : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             )}
@@ -545,18 +605,21 @@ export default function Layout({
                   <ListItemIcon
                     sx={{
                       color: isActive("/admin") ? "error.main" : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     <HistoryIcon />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t("nav.activityLogs", "Activity Logs")}
-                    primaryTypographyProps={{
-                      fontWeight: isActive("/admin") ? 600 : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t("nav.activityLogs", "Activity Logs")}
+                      primaryTypographyProps={{
+                        fontWeight: isActive("/admin") ? 600 : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             )}
@@ -589,18 +652,21 @@ export default function Layout({
                       color: isActive("/user-management")
                         ? "error.main"
                         : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     <ManageAccountsIcon />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t("nav.userManagement", "User Management")}
-                    primaryTypographyProps={{
-                      fontWeight: isActive("/user-management") ? 600 : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t("nav.userManagement", "User Management")}
+                      primaryTypographyProps={{
+                        fontWeight: isActive("/user-management") ? 600 : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             )}
@@ -633,18 +699,21 @@ export default function Layout({
                       color: isActive("/product-pricing")
                         ? "error.main"
                         : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     <MoneyIcon />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t("nav.productPricing", "Product Pricing")}
-                    primaryTypographyProps={{
-                      fontWeight: isActive("/product-pricing") ? 600 : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t("nav.productPricing", "Product Pricing")}
+                      primaryTypographyProps={{
+                        fontWeight: isActive("/product-pricing") ? 600 : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             )}
@@ -677,23 +746,26 @@ export default function Layout({
                       color: isActive(roleManagementNavItem.path)
                         ? "error.main"
                         : "inherit",
-                      minWidth: 40,
+                      minWidth: sidebarExpanded ? 40 : "auto",
+                      justifyContent: "center",
                     }}
                   >
                     <ShieldIcon />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t(
-                      roleManagementNavItem.labelKey,
-                      "Role Management",
-                    )}
-                    primaryTypographyProps={{
-                      fontWeight: isActive(roleManagementNavItem.path)
-                        ? 600
-                        : 500,
-                      fontSize: "0.95rem",
-                    }}
-                  />
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary={t(
+                        roleManagementNavItem.labelKey,
+                        "Role Management",
+                      )}
+                      primaryTypographyProps={{
+                        fontWeight: isActive(roleManagementNavItem.path)
+                          ? 600
+                          : 500,
+                        fontSize: "0.95rem",
+                      }}
+                    />
+                  )}
                 </ListItemButton>
               </ListItem>
             )}
@@ -705,12 +777,16 @@ export default function Layout({
 
       {/* Footer */}
       <Box sx={{ p: 2, textAlign: "center" }}>
-        <Typography variant="caption" color="text.secondary">
-          {t("common.version")} 1.0.0
-        </Typography>
-        <Typography variant="caption" display="block" color="text.secondary">
-          {t("common.copyright")}
-        </Typography>
+        {sidebarExpanded && (
+          <>
+            <Typography variant="caption" color="text.secondary">
+              {t("common.version")} 1.0.0
+            </Typography>
+            <Typography variant="caption" display="block" color="text.secondary">
+              {t("common.copyright")}
+            </Typography>
+          </>
+        )}
       </Box>
     </Box>
   );
@@ -721,11 +797,14 @@ export default function Layout({
       <AppBar
         position="fixed"
         sx={{
-          width: { md: `calc(100% - ${drawerWidth}px)` },
-          ml: { md: `${drawerWidth}px` },
+          width: { md: `calc(100% - ${desktopDrawerWidth}px)` },
+          ml: { md: `${desktopDrawerWidth}px` },
           boxShadow: theme.palette.mode === "dark" ? 1 : 2,
           bgcolor: theme.palette.background.paper,
           color: theme.palette.text.primary,
+          transition: theme.transitions.create(["width", "margin-left"], {
+            duration: theme.transitions.duration.standard,
+          }),
         }}
         elevation={0}
       >
@@ -873,7 +952,7 @@ export default function Layout({
       {/* Drawer */}
       <Box
         component="nav"
-        sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
+        sx={{ width: { md: desktopDrawerWidth }, flexShrink: { md: 0 } }}
         aria-label="navigation"
       >
         {/* Mobile drawer */}
@@ -888,7 +967,7 @@ export default function Layout({
             display: { xs: "block", md: "none" },
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
-              width: drawerWidth,
+              width: EXPANDED_DRAWER_WIDTH,
             },
           }}
         >
@@ -902,13 +981,36 @@ export default function Layout({
             display: { xs: "none", md: "block" },
             "& .MuiDrawer-paper": {
               boxSizing: "border-box",
-              width: drawerWidth,
+              width: desktopDrawerWidth,
               borderRight: `1px solid ${theme.palette.divider}`,
+              overflowX: "hidden",
+              transition: theme.transitions.create("width", {
+                duration: theme.transitions.duration.standard,
+              }),
             },
           }}
           open
         >
           {drawer}
+          <Tooltip title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}>
+            <IconButton
+              onClick={toggleSidebar}
+              sx={{
+                position: "absolute",
+                left: "50%",
+                bottom: 88,
+                transform: "translateX(-50%)",
+                border: `1px solid ${theme.palette.divider}`,
+                bgcolor: theme.palette.background.paper,
+                boxShadow: theme.shadows[2],
+                "&:hover": {
+                  bgcolor: theme.palette.action.hover,
+                },
+              }}
+            >
+              {sidebarExpanded ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+            </IconButton>
+          </Tooltip>
         </Drawer>
       </Box>
 
@@ -917,9 +1019,12 @@ export default function Layout({
         component="main"
         sx={{
           flexGrow: 1,
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          width: { md: `calc(100% - ${desktopDrawerWidth}px)` },
           minHeight: "100vh",
           bgcolor: theme.palette.background.default,
+          transition: theme.transitions.create("width", {
+            duration: theme.transitions.duration.standard,
+          }),
         }}
       >
         <Toolbar /> {/* Spacer for AppBar */}
@@ -933,6 +1038,24 @@ export default function Layout({
             flexDirection: "column"
           }}
         >
+          {showBackButton && (
+            <Box sx={{ mb: 2 }}>
+              <Button
+                variant="text"
+                startIcon={<ArrowBackIcon />}
+                onClick={() => navigate(-1)}
+                sx={{
+                  alignSelf: "flex-start",
+                  textTransform: "none",
+                  color: "text.secondary",
+                  px: 0.5,
+                  minWidth: 0,
+                }}
+              >
+                Back
+              </Button>
+            </Box>
+          )}
           {children}
         </Box>
       </Box>

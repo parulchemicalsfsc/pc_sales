@@ -35,7 +35,6 @@ import {
   PersonAdd as PersonAddIcon,
   People as PeopleIcon,
   Download as DownloadIcon,
-  CheckCircle as CheckCircleIcon,
   Search as SearchIcon,
   MoreVert as MoreVertIcon,
   Edit as EditIcon,
@@ -62,9 +61,6 @@ export default function Sales() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [openDialog, setOpenDialog] = useState(false);
-  const [openInvoiceDialog, setOpenInvoiceDialog] = useState(false);
-  const [createdSaleId, setCreatedSaleId] = useState<number | null>(null);
-  const [downloadingPDF, setDownloadingPDF] = useState(false);
   const [customerMode, setCustomerMode] = useState<"existing" | "new">(
     "existing",
   );
@@ -500,13 +496,6 @@ export default function Sales() {
       } else {
         response = await salesAPI.create(saleData);
         console.log("Sale created:", response);
-      }
-
-      // Store sale ID and show invoice dialog (only on create)
-      const saleId = response.sale?.sale_id;
-      if (saleId && !editingSaleId) {
-        setCreatedSaleId(saleId);
-        setOpenInvoiceDialog(true);
       }
 
       handleCloseDialog();
@@ -1355,98 +1344,6 @@ export default function Sales() {
           </DialogActions>
         </Dialog>
 
-        {/* Invoice Download Dialog */}
-        <Dialog
-          open={openInvoiceDialog}
-          onClose={() => setOpenInvoiceDialog(false)}
-          maxWidth="sm"
-          fullWidth
-          fullScreen={isMobile}
-        >
-          <DialogTitle>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <CheckCircleIcon sx={{ color: "success.main", fontSize: 32 }} />
-              <Typography variant="h6">Sale Created Successfully!</Typography>
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Typography variant="body1" sx={{ mb: 2 }}>
-              Would you like to download the invoice PDF for this sale?
-            </Typography>
-            {error && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {error}
-              </Alert>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                setOpenInvoiceDialog(false);
-                setCreatedSaleId(null);
-              }}
-              disabled={downloadingPDF}
-            >
-              Skip
-            </Button>
-            <Button
-              onClick={async () => {
-                try {
-                  setDownloadingPDF(true);
-                  setError(null);
-
-                  const API_BASE_URL =
-                    import.meta.env.VITE_API_BASE_URL ||
-                    "http://127.0.0.1:8000";
-
-                  const response = await fetch(
-                    `${API_BASE_URL}/api/sales/${createdSaleId}/invoice-pdf`,
-                    {
-                      headers: {
-                        "x-user-email": localStorage.getItem("user_email") || "",
-                      },
-                    }
-                  );
-
-                  if (!response.ok) {
-                    throw new Error("Failed to generate PDF");
-                  }
-
-                  // Create blob from response
-                  const blob = await response.blob();
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `invoice_${createdSaleId}.pdf`;
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-
-                  // Close dialog after successful download
-                  setOpenInvoiceDialog(false);
-                  setCreatedSaleId(null);
-                } catch (err: any) {
-                  console.error("Error downloading PDF:", err);
-                  setError("Failed to download invoice PDF. Please try again.");
-                } finally {
-                  setDownloadingPDF(false);
-                }
-              }}
-              variant="contained"
-              startIcon={
-                downloadingPDF ? (
-                  <CircularProgress size={20} color="inherit" />
-                ) : (
-                  <DownloadIcon />
-                )
-              }
-              disabled={downloadingPDF}
-            >
-              {downloadingPDF ? "Downloading..." : "Download PDF"}
-            </Button>
-          </DialogActions>
-        </Dialog>
       </Box>
     </PermissionGate>
   );

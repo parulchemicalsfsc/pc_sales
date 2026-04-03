@@ -84,6 +84,13 @@ def get_activity_logs(
     try:
         print(f"[DEBUG] Admin activity logs request - limit: {limit}, offset: {offset}")
 
+        normalized_start = start_date
+        normalized_end = end_date
+        if start_date and len(start_date) == 10:
+            normalized_start = f"{start_date}T00:00:00"
+        if end_date and len(end_date) == 10:
+            normalized_end = f"{end_date}T23:59:59.999999"
+
         # Start with base query - exclude admin's VIEW activities
         query = db.table("activity_logs").select("*")
         # Filter out admin viewing activity logs
@@ -110,13 +117,13 @@ def get_activity_logs(
             query = query.eq("entity_type", entity_type)
             count_query = count_query.eq("entity_type", entity_type)
 
-        if start_date:
-            query = query.gte("created_at", start_date)
-            count_query = count_query.gte("created_at", start_date)
+        if normalized_start:
+            query = query.gte("created_at", normalized_start)
+            count_query = count_query.gte("created_at", normalized_start)
 
-        if end_date:
-            query = query.lte("created_at", end_date)
-            count_query = count_query.lte("created_at", end_date)
+        if normalized_end:
+            query = query.lte("created_at", normalized_end)
+            count_query = count_query.lte("created_at", normalized_end)
 
         # Order by most recent first
         query = query.order("created_at", desc=True)

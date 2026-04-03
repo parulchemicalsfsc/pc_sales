@@ -216,7 +216,7 @@ export default function CallingList() {
   const border = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: "auto" }}>
+    <Box sx={{ width: "100%", maxWidth: "none", mx: 0 }}>
       {/* ── Header ── */}
       <Box sx={{ mb: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -268,7 +268,7 @@ export default function CallingList() {
       </Stack>
 
       {/* ── Tabs + List ── */}
-      <Paper sx={{ borderRadius: 3, border: `1px solid ${border}`, bgcolor: surface, overflow: "hidden" }}>
+      <Paper sx={{ borderRadius: 3, border: `1px solid ${border}`, bgcolor: surface, overflow: "hidden", width: "100%" }}>
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
@@ -283,7 +283,7 @@ export default function CallingList() {
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
         </Tabs>
 
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
           {loading ? (
             <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
           ) : error ? (
@@ -299,7 +299,7 @@ export default function CallingList() {
             </Box>
           ) : (
             <>
-              <Stack spacing={1}>
+              <Stack spacing={1} sx={{ minWidth: 0 }}>
                 {assignments.map(item => {
                   const chip = STATUS_CHIP[item.status] || STATUS_CHIP.Pending;
                   const dotColor = PRIORITY_DOT[item.priority] || "#eab308";
