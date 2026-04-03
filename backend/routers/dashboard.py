@@ -279,9 +279,48 @@ def upcoming_demos(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
                     "conversion_status": demo.get("conversion_status"),
                 }
             )
-
         return result
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error fetching upcoming demos: {str(e)}"
         )
+
+
+# ======================
+# System Start Date
+# ======================
+@router.get("/system-start-date", dependencies=[Depends(verify_permission("view_dashboard"))])
+def system_start_date(db: SupabaseClient = Depends(get_supabase)):
+    """Get the oldest date from sales and payments to use as default date filter"""
+    try:
+        oldest_date = "2024-01-01" # Default fallback
+        
+        # Check oldest sale
+        sales_resp = db.table("sales").select("sale_date").order("sale_date", desc=False).limit(1).execute()
+        sale_date_str = None
+        if sales_resp.data and sales_resp.data[0].get("sale_date"):
+            sale_date_str = sales_resp.data[0].get("sale_date")
+
+        # Check oldest payment
+        payments_resp = db.table("payments").select("payment_date").order("payment_date", desc=False).limit(1).execute()
+        payment_date_str = None
+        if payments_resp.data and payments_resp.data[0].get("payment_date"):
+            payment_date_str = payments_resp.data[0].get("payment_date")
+
+        # Find the oldest valid date
+        dates = []
+        for d in [sale_date_str, payment_date_str]:
+            if d:
+                try:
+                    datetime.strptime(d, "%Y-%m-%d")
+                    dates.append(d)
+                except ValueError:
+                    pass
+        
+        if dates:
+            oldest_date = min(dates)
+
+        return {"start_date": oldest_date}
+    except Exception as e:
+        print(f"Error fetching system start date: {e}")
+        return {"start_date": "2024-01-01"}

@@ -94,6 +94,10 @@ export const dashboardAPI = {
     const response = await apiClient.get(url);
     return response.data;
   },
+  getSystemStartDate: async () => {
+    const response = await apiClient.get("/api/dashboard/system-start-date");
+    return response.data;
+  },
   getRecentSales: async (limit?: number) => {
     const response = await apiClient.get("/api/dashboard/recent-sales", {
       params: limit ? { limit } : undefined,

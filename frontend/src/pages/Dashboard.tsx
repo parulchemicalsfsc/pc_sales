@@ -153,14 +153,31 @@ export default function Dashboard() {
     };
 
     const [salesDateRange, setSalesDateRange] = useState({
-        start: "2024-09-02",
+        start: "",
         end: getLocalISODate(new Date()),
     });
 
     const [collectedPaymentRange, setCollectedPaymentRange] = useState({
-        start: "2024-09-02",
+        start: "",
         end: getLocalISODate(new Date()),
     });
+
+    useEffect(() => {
+        const fetchStartDate = async () => {
+            try {
+                const data = await dashboardAPI.getSystemStartDate();
+                const startDate = data?.start_date || "2024-01-01";
+                setSalesDateRange(prev => ({ ...prev, start: startDate }));
+                setCollectedPaymentRange(prev => ({ ...prev, start: startDate }));
+            } catch (err) {
+                console.error("Failed to fetch system start date", err);
+                const fallback = "2024-01-01";
+                setSalesDateRange(prev => ({ ...prev, start: fallback }));
+                setCollectedPaymentRange(prev => ({ ...prev, start: fallback }));
+            }
+        };
+        fetchStartDate();
+    }, []);
 
     // Fetch collected payments — only if user has permission (skip API, not UI)
     useEffect(() => {

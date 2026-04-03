@@ -1053,38 +1053,34 @@ export default function Layout({
           {drawer}
         </Drawer>
 
-        {/* Fixed sidebar toggle - creative gradient pill on sidebar edge */}
-        <Box
+        {/* Fixed sidebar toggle - simple plain circle at bottom 10% */}
+        <IconButton
           onClick={toggleSidebar}
           sx={{
             position: "fixed",
-            left: desktopDrawerWidth - 12,
-            top: "50%",
-            transform: "translateY(-50%)",
+            left: desktopDrawerWidth - 14,
+            bottom: "10%",
             zIndex: 1201,
-            width: 24,
-            height: 48,
-            borderRadius: "0 12px 12px 0",
-            background: "linear-gradient(180deg, #667eea 0%, #764ba2 100%)",
-            cursor: "pointer",
+            width: 28,
+            height: 28,
+            bgcolor: theme.palette.background.paper,
+            border: `1px solid ${theme.palette.divider}`,
+            boxShadow: theme.shadows[2],
             display: { xs: "none", md: "flex" },
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "2px 0 8px rgba(102, 126, 234, 0.3)",
             transition: theme.transitions.create(["left"], {
               duration: theme.transitions.duration.standard,
             }),
             "&:hover": {
-              background: "linear-gradient(180deg, #667eea 0%, #764ba2 100%)",
+              bgcolor: theme.palette.background.paper,
             },
           }}
         >
           {sidebarExpanded ? (
-            <ChevronLeftIcon sx={{ fontSize: 18, color: "#fff", transition: "transform 0.3s ease" }} />
+            <ChevronLeftIcon sx={{ fontSize: 18, color: "text.secondary" }} />
           ) : (
-            <ChevronRightIcon sx={{ fontSize: 18, color: "#fff", transition: "transform 0.3s ease" }} />
+            <ChevronRightIcon sx={{ fontSize: 18, color: "text.secondary" }} />
           )}
-        </Box>
+        </IconButton>
       </Box>
 
       {/* Main content */}
