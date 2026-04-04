@@ -1,1 +1,36 @@
-backend/.env.example
+# ── Environment Variables ─────────────────
+.env
+.env.*
+!.env.example
+
+# ── Dependencies ──────────────────────────
+node_modules/
+venv/
+env/
+ENV/
+
+# ── Build Outputs ─────────────────────────
+dist/
+build/
+coverage/
+
+# ── Python / Backend ──────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+uploads/
+data/*.xlsx
+data/*.xls
+
+# ── OS / Editor ───────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

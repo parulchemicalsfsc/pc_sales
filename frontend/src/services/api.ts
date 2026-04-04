@@ -1,35 +1,26 @@
 import axios, { AxiosError } from "axios";
-console.log("API BASE:", import.meta.env.VITE_API_BASE_URL);
-// Resolve API base URL with multiple fallbacks and optional window override
+
+// Resolve API base URL from the single canonical env var: VITE_API_BASE_URL
+// Set this in:
+//   .env              → http://127.0.0.1:8000        (local dev)
+//   .env.production   → https://your-backend.onrender.com  (prod build)
+// Vercel dashboard → Environment Variable VITE_API_BASE_URL
 const resolveApiBaseUrl = (): string => {
-  // 1) Runtime override from window (if provided via script tag or inline config)
-  const windowOverride =
-    typeof window !== "undefined"
-      ? (window as any).__API_BASE_URL__
-      : undefined;
+  const url =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
 
-  // 2) Vite env vars (support both names)
-  const envBase =
-    (import.meta as any)?.env?.VITE_API_BASE_URL ||
-    (import.meta as any)?.env?.VITE_API_URL;
+  if (!url) {
+    console.warn(
+      "[API] VITE_API_BASE_URL is not set. " +
+        "Add it to your .env file (local) or Vercel/Render dashboard (prod)."
+    );
+  }
 
-  // 3) Default fallback (Production URL)
-  const fallback = "https://pc-sales-8phu.onrender.com";
-
-  const chosen = (windowOverride || envBase || fallback) as string;
-
-  // Normalize trailing slashes
-  return chosen.replace(/\/+$/, "");
+  return url.replace(/\/+$/, ""); // strip trailing slash
 };
 
-// Create axios instance with base configuration
 const API_BASE_URL = resolveApiBaseUrl();
-
-// Log the chosen API base URL once at startup (useful for debugging mismatches)
-if (typeof console !== "undefined") {
-  // eslint-disable-next-line no-console
-  console.info(`[API] Using base URL: ${API_BASE_URL}`);
-}
+console.info(`[API] Using base URL: ${API_BASE_URL || "(not set)"}`);
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -238,6 +229,83 @@ export const reportsAPI = {
     return response.data;
   },
 
+  // Phase 1 + 2: Unified filter analytics
+  getFilterOptions: async () => {
+    const response = await apiClient.get("/api/reports/filter-options");
+    return response.data;
+  },
+
+  getAnalyticsSummary: async (params: {
+    start_date?: string;
+    end_date?: string;
+    district?: string;
+    village?: string;
+    product_id?: number;
+  }) => {
+    const response = await apiClient.get("/api/reports/analytics-summary", { params });
+    return response.data;
+  },
+
+  getDimensionBreakdown: async (params: {
+    dimension: "district" | "village" | "product" | "customer";
+    start_date?: string;
+    end_date?: string;
+    district?: string;
+    village?: string;
+    product_id?: number;
+  }) => {
+    const response = await apiClient.get("/api/reports/dimension-breakdown", { params });
+    return response.data;
+  },
+
+  // Phase 4: Filter-aware enhanced downloads
+  getSalesAnalyticsPdf: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string; product_id?: number;
+  }) => {
+    const response = await apiClient.get("/api/reports/sales-analytics-pdf", { params, responseType: "blob" });
+    return response.data;
+  },
+
+  getSalesAnalyticsExcel: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string; product_id?: number;
+  }) => {
+    const response = await apiClient.get("/api/reports/sales-analytics-excel", { params, responseType: "blob" });
+    return response.data;
+  },
+
+  getProductReportPdf: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/product-report-pdf", { params, responseType: "blob" });
+    return response.data;
+  },
+
+  getProductReportExcel: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/product-report-excel", { params, responseType: "blob" });
+    return response.data;
+  },
+
+  getCustomerAnalyticsPdf: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/customer-analytics-pdf", { params, responseType: "blob" });
+    return response.data;
+  },
+
+  getCustomerAnalyticsExcel: async (params: {
+    start_date?: string; end_date?: string;
+    district?: string; village?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/customer-analytics-excel", { params, responseType: "blob" });
+    return response.data;
+  },
 };
 
 // Distributor API

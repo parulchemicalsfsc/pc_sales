@@ -230,7 +230,7 @@ export function useSessionTracker({ userEmail }: UseSessionTrackerOptions) {
       const delta = Math.floor((Date.now() - lastHeartbeatRef.current) / 1000);
       if (delta > 0 && delta <= 120) {
         try {
-          const url = `${(import.meta as any)?.env?.VITE_API_BASE_URL || "https://pc-sales-8phu.onrender.com"}/api/user-sessions/heartbeat`;
+          const url = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ""}/api/user-sessions/heartbeat`;
           const xhr = new XMLHttpRequest();
           xhr.open("POST", url, false); // synchronous
           xhr.setRequestHeader("Content-Type", "application/json");

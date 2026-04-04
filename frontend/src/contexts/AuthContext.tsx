@@ -47,8 +47,7 @@ const fetchPermissionsFromBackend = async (
   email: string
 ): Promise<Set<string>> => {
   try {
-    const API_BASE =
-      import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
     const res = await fetch(`${API_BASE}/api/rbac/my-permissions`, {
       headers: { "x-user-email": email },
     });

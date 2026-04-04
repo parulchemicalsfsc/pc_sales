@@ -1,8 +1,11 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_API_URL?: string;
-  // add more env variables as needed
+  readonly VITE_API_BASE_URL: string;   // canonical backend URL — set in .env / Vercel dashboard
+  readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_ANON_KEY?: string;
+  readonly VITE_APP_NAME?: string;
+  readonly VITE_APP_VERSION?: string;
 }
 
 interface ImportMeta {

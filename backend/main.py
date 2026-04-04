@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -34,15 +35,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Sales Management API", lifespan=lifespan)
 
+# Build CORS origin list from env — always include local dev origins
+_frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+_allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+if _frontend_url:
+    _allowed_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "https://pc-sales.vercel.app"  # Add Vercel production origin
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
