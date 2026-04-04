@@ -1051,3 +1051,298 @@ class ReportGenerator:
         doc.build(elements)
         buffer.seek(0)
         return buffer.getvalue()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PHASE 4 — ENHANCED FILTER-AWARE REPORTS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def _make_kpi_table(self, kpi: Dict) -> Table:
+        """Render a 2-row KPI summary table."""
+        labels = ["Total Revenue", "Total Volume", "Total Orders", "Avg Order Value", "Top District", "Top Product"]
+        values = [
+            f"Rs.{kpi.get('total_revenue', 0):,.0f}",
+            f"{kpi.get('total_liters', 0):,.1f} L",
+            str(kpi.get("total_orders", 0)),
+            f"Rs.{kpi.get('avg_order_value', 0):,.0f}",
+            kpi.get("top_district") or "—",
+            kpi.get("top_product") or "—",
+        ]
+        data = [labels, values]
+        t = Table(data, hAlign="LEFT")
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e40af")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 1), (-1, 1), 10),
+            ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#eff6ff")),
+            ("TEXTCOLOR", (0, 1), (-1, 1), colors.HexColor("#1e40af")),
+            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#1e40af")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#93c5fd")),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        return t
+
+    def _make_ranked_table(self, rows: List[Dict], headers: List[str], col_keys: List[str]) -> Table:
+        """Build a ranked breakdown table from dimension rows."""
+        if not rows:
+            return Paragraph("No data available.", self.styles["Normal"])
+        data = [headers]
+        for i, row in enumerate(rows[:200], 1):
+            data.append([str(row.get(k, "—")) for k in col_keys])
+        t = Table(data, repeatRows=1, hAlign="LEFT")
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e40af")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 1), (-1, -1), 8),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "LEFT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f9ff")]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return t
+
+    def generate_sales_analytics_pdf(
+        self,
+        kpi: Dict,
+        district_rows: List[Dict],
+        village_rows: List[Dict],
+        product_rows: List[Dict],
+        customer_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        district_filter: Optional[str] = None,
+        village_filter: Optional[str] = None,
+    ) -> bytes:
+        """
+        Phase 4: Sales Analytics Report PDF.
+        Contains: KPI block, District breakdown, Village breakdown,
+        Product breakdown, Top 20 customers.
+        All data reflects the same filters active in the UI.
+        """
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5 * inch,
+                                leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+        elements = []
+
+        # Build filter description
+        period_str = f"{start_date or 'All'} to {end_date or 'All'}"
+        filter_parts = [f"Period: {period_str}"]
+        if district_filter:
+            filter_parts.append(f"District: {district_filter}")
+        if village_filter:
+            filter_parts.append(f"Village: {village_filter}")
+        date_range = " | ".join(filter_parts)
+
+        self._add_header(elements, "Sales Analytics Report", date_range)
+
+        # ── KPI block ──────────────────────────────────────────────────────────
+        elements.append(Paragraph("Key Performance Indicators", self.styles["CustomSubtitle"]))
+        elements.append(self._make_kpi_table(kpi))
+        elements.append(Spacer(1, 0.35 * inch))
+
+        # ── District breakdown ─────────────────────────────────────────────────
+        elements.append(Paragraph("Sales by District", self.styles["CustomSubtitle"]))
+        dist_headers = ["#", "District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+        dist_keys = ["rank", "label", "orders", "revenue", "liters", "pct"]
+        elements.append(self._make_ranked_table(district_rows, dist_headers, dist_keys))
+        elements.append(Spacer(1, 0.35 * inch))
+
+        # ── Village breakdown ─────────────────────────────────────────────────
+        elements.append(Paragraph("Sales by Village", self.styles["CustomSubtitle"]))
+        vil_headers = ["#", "Village", "District", "Orders", "Revenue (Rs.)", "Volume (L)"]
+        vil_keys = ["rank", "label", "secondary_label", "orders", "revenue", "liters"]
+        elements.append(self._make_ranked_table(village_rows[:50], vil_headers, vil_keys))
+        elements.append(PageBreak())
+
+        # ── Product breakdown ─────────────────────────────────────────────────
+        elements.append(Paragraph("Sales by Product / Packing", self.styles["CustomSubtitle"]))
+        prod_headers = ["#", "Product", "Packing", "Orders", "Revenue (Rs.)", "Qty Sold", "Share %"]
+        prod_keys = ["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]
+        elements.append(self._make_ranked_table(product_rows, prod_headers, prod_keys))
+        elements.append(Spacer(1, 0.35 * inch))
+
+        # ── Top 20 customers ──────────────────────────────────────────────────
+        elements.append(Paragraph("Top 20 Customers", self.styles["CustomSubtitle"]))
+        cust_headers = ["#", "Customer", "Location", "Orders", "Revenue (Rs.)", "Volume (L)"]
+        cust_keys = ["rank", "label", "secondary_label", "orders", "revenue", "liters"]
+        elements.append(self._make_ranked_table(customer_rows[:20], cust_headers, cust_keys))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_sales_analytics_excel(
+        self,
+        kpi: Dict,
+        district_rows: List[Dict],
+        village_rows: List[Dict],
+        product_rows: List[Dict],
+        customer_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> bytes:
+        """Phase 4: Sales Analytics Report Excel — all dimensions in separate sheets."""
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            # Summary / KPI sheet
+            kpi_df = pd.DataFrame([
+                {"Metric": "Period", "Value": f"{start_date or 'All'} to {end_date or 'All'}"},
+                {"Metric": "Total Revenue (Rs.)", "Value": kpi.get("total_revenue", 0)},
+                {"Metric": "Total Volume (L)", "Value": kpi.get("total_liters", 0)},
+                {"Metric": "Total Orders", "Value": kpi.get("total_orders", 0)},
+                {"Metric": "Avg Order Value (Rs.)", "Value": kpi.get("avg_order_value", 0)},
+                {"Metric": "Top District", "Value": kpi.get("top_district", "")},
+                {"Metric": "Top District Revenue (Rs.)", "Value": kpi.get("top_district_amount", 0)},
+                {"Metric": "Top Product", "Value": kpi.get("top_product", "")},
+                {"Metric": "Top Product Revenue (Rs.)", "Value": kpi.get("top_product_amount", 0)},
+                {"Metric": "Report Generated", "Value": self._get_ist_time_str()},
+            ])
+            kpi_df.to_excel(writer, sheet_name="KPI Summary", index=False)
+
+            # District sheet
+            if district_rows:
+                dist_df = pd.DataFrame(district_rows)[["rank", "label", "orders", "revenue", "liters", "pct"]]
+                dist_df.columns = ["Rank", "District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+                dist_df.to_excel(writer, sheet_name="By District", index=False)
+
+            # Village sheet
+            if village_rows:
+                vil_df = pd.DataFrame(village_rows)[["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]]
+                vil_df.columns = ["Rank", "Village", "District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+                vil_df.to_excel(writer, sheet_name="By Village", index=False)
+
+            # Product sheet
+            if product_rows:
+                prod_df = pd.DataFrame(product_rows)[["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]]
+                prod_df.columns = ["Rank", "Product", "Packing", "Orders", "Revenue (Rs.)", "Qty Sold", "Share %"]
+                prod_df.to_excel(writer, sheet_name="By Product", index=False)
+
+            # Customer sheet
+            if customer_rows:
+                cust_df = pd.DataFrame(customer_rows)[["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]]
+                cust_df.columns = ["Rank", "Customer", "Village/District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+                cust_df.to_excel(writer, sheet_name="Top Customers", index=False)
+
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_product_report_pdf(
+        self,
+        product_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> bytes:
+        """Phase 4: Product / Packing breakdown PDF."""
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5 * inch,
+                                leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+        elements = []
+
+        period_str = f"Period: {start_date or 'All'} to {end_date or 'All'}"
+        self._add_header(elements, "Product Performance Report", period_str)
+
+        # Summary totals
+        total_revenue = sum(r.get("revenue", 0) for r in product_rows)
+        total_qty = sum(r.get("liters", 0) for r in product_rows)
+        summary_data = [
+            ["Total Products", str(len(product_rows))],
+            ["Total Revenue", f"Rs.{total_revenue:,.0f}"],
+            ["Total Qty Sold", f"{total_qty:,.0f}"],
+        ]
+        elements.append(Paragraph("Summary", self.styles["CustomSubtitle"]))
+        elements.append(self._create_summary_table(summary_data, ["Metric", "Value"]))
+        elements.append(Spacer(1, 0.3 * inch))
+
+        # Product table
+        elements.append(Paragraph("Product-wise Breakdown", self.styles["CustomSubtitle"]))
+        headers = ["#", "Product", "Packing", "Orders", "Qty Sold", "Revenue (Rs.)", "Share %"]
+        keys = ["rank", "label", "secondary_label", "orders", "liters", "revenue", "pct"]
+        elements.append(self._make_ranked_table(product_rows, headers, keys))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_product_report_excel(
+        self,
+        product_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> bytes:
+        """Phase 4: Product report Excel."""
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            if product_rows:
+                df = pd.DataFrame(product_rows)[["rank", "label", "secondary_label", "orders", "liters", "revenue", "pct"]]
+                df.columns = ["Rank", "Product", "Packing", "Orders", "Qty Sold", "Revenue (Rs.)", "Share %"]
+                df.to_excel(writer, sheet_name="Product Report", index=False)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_customer_analytics_pdf(
+        self,
+        customer_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        district_filter: Optional[str] = None,
+        village_filter: Optional[str] = None,
+    ) -> bytes:
+        """Phase 4: Customer Analytics PDF — ranked by revenue with sales stats per customer."""
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5 * inch,
+                                leftMargin=0.6 * inch, rightMargin=0.6 * inch)
+        elements = []
+
+        filter_parts = [f"Period: {start_date or 'All'} to {end_date or 'All'}"]
+        if district_filter:
+            filter_parts.append(f"District: {district_filter}")
+        if village_filter:
+            filter_parts.append(f"Village: {village_filter}")
+        self._add_header(elements, "Customer Analytics Report", " | ".join(filter_parts))
+
+        # Summary
+        total_customers = len(customer_rows)
+        total_rev = sum(r.get("revenue", 0) for r in customer_rows)
+        top_customer = customer_rows[0].get("label", "—") if customer_rows else "—"
+        summary_data = [
+            ["Total Customers", str(total_customers)],
+            ["Total Revenue", f"Rs.{total_rev:,.0f}"],
+            ["Top Customer", top_customer],
+        ]
+        elements.append(Paragraph("Summary", self.styles["CustomSubtitle"]))
+        elements.append(self._create_summary_table(summary_data, ["Metric", "Value"]))
+        elements.append(Spacer(1, 0.3 * inch))
+
+        elements.append(Paragraph("Customer Rankings (by Revenue)", self.styles["CustomSubtitle"]))
+        headers = ["#", "Sabhasad", "Village / District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+        keys = ["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]
+        elements.append(self._make_ranked_table(customer_rows, headers, keys))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_customer_analytics_excel(
+        self,
+        customer_rows: List[Dict],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> bytes:
+        """Phase 4: Customer analytics Excel."""
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            if customer_rows:
+                df = pd.DataFrame(customer_rows)[["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]]
+                df.columns = ["Rank", "Customer", "Village/District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
+                df.to_excel(writer, sheet_name="Customer Report", index=False)
+        buffer.seek(0)
+        return buffer.getvalue()

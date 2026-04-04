@@ -12,6 +12,8 @@ services:
         value: 8000
       - key: RENDER
         value: true
+      - key: FRONTEND_URL
+        value: https://pc-sales.vercel.app
     disk:
       name: sales-data
       mountPath: /opt/render/project/data

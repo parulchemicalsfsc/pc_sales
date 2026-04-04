@@ -108,12 +108,356 @@ def get_sales_trend(
 
 
 
+@router.get("/analytics-summary", dependencies=[Depends(verify_permission("view_reports"))])
+def get_analytics_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    product_id: Optional[int] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Get KPI summary: total sales amount, liters, orders, avg order value,
+    top district, top product. Supports filtering by date, district, village, product.
+    """
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+        # Fetch all sales with customer info
+        sales_resp = db.table("sales").select("sale_id, sale_date, total_amount, total_liters, customer_id").execute()
+        all_sales = sales_resp.data or []
+
+        # Fetch all customers (for district/village filter)
+        customers_resp = db.table("customers").select("customer_id, name, village, district").execute()
+        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+
+        # Fetch all sale_items with product info (for product filter + top product)
+        items_resp = db.table("sale_items").select("sale_id, product_id, quantity, amount").execute()
+        all_items = items_resp.data or []
+
+        # Fetch products
+        products_resp = db.table("products").select("product_id, product_name, packing_type, capacity_ltr").execute()
+        products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
+
+        # Build set of sale_ids that match the product_id filter
+        filtered_sale_ids_by_product = None
+        if product_id is not None:
+            filtered_sale_ids_by_product = {
+                item["sale_id"] for item in all_items if item.get("product_id") == product_id
+            }
+
+        # Filter sales
+        filtered_sales = []
+        for sale in all_sales:
+            date_str = sale.get("sale_date")
+            if not date_str:
+                continue
+            try:
+                sale_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if not (start_dt <= sale_date <= end_dt):
+                continue
+
+            customer = customers_dict.get(sale.get("customer_id"), {})
+            if district and customer.get("district", "").strip() != district.strip():
+                continue
+            if village and customer.get("village", "").strip() != village.strip():
+                continue
+            if filtered_sale_ids_by_product is not None and sale.get("sale_id") not in filtered_sale_ids_by_product:
+                continue
+
+            filtered_sales.append({**sale, "customer": customer})
+
+        # Compute KPIs
+        total_orders = len(filtered_sales)
+        total_revenue = sum(s.get("total_amount") or 0 for s in filtered_sales)
+        total_liters = sum(s.get("total_liters") or 0 for s in filtered_sales)
+        avg_order_value = round(total_revenue / total_orders, 2) if total_orders > 0 else 0
+
+        # Top district
+        district_revenue: dict = {}
+        for s in filtered_sales:
+            d = s["customer"].get("district") or "Unknown"
+            district_revenue[d] = district_revenue.get(d, 0) + (s.get("total_amount") or 0)
+        top_district = max(district_revenue, key=district_revenue.get) if district_revenue else None
+        top_district_amount = district_revenue.get(top_district, 0) if top_district else 0
+
+        # Top product (from sale_items for filtered sale_ids)
+        filtered_sale_id_set = {s["sale_id"] for s in filtered_sales}
+        product_revenue: dict = {}
+        for item in all_items:
+            if item.get("sale_id") not in filtered_sale_id_set:
+                continue
+            pid = item.get("product_id")
+            if pid is None:
+                continue
+            product_revenue[pid] = product_revenue.get(pid, 0) + (item.get("amount") or 0)
+
+        top_product_id = max(product_revenue, key=product_revenue.get) if product_revenue else None
+        top_product_name = None
+        top_product_amount = 0
+        if top_product_id:
+            prod = products_dict.get(top_product_id, {})
+            top_product_name = prod.get("product_name")
+            top_product_amount = product_revenue.get(top_product_id, 0)
+
+        return {
+            "total_orders": total_orders,
+            "total_revenue": round(total_revenue, 2),
+            "total_liters": round(total_liters, 2),
+            "avg_order_value": avg_order_value,
+            "top_district": top_district,
+            "top_district_amount": round(top_district_amount, 2),
+            "top_product": top_product_name,
+            "top_product_amount": round(top_product_amount, 2),
+            "filters": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "district": district,
+                "village": village,
+                "product_id": product_id,
+            }
+        }
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generating sales trend: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error fetching analytics summary: {str(e)}")
+
+
+@router.get("/dimension-breakdown", dependencies=[Depends(verify_permission("view_reports"))])
+def get_dimension_breakdown(
+    dimension: str = "district",  # district | village | product | customer
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    product_id: Optional[int] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Returns a ranked breakdown table by dimension (district/village/product/customer).
+    Supports the same filters as analytics-summary.
+    """
+    try:
+        if dimension not in ("district", "village", "product", "customer"):
+            raise HTTPException(status_code=400, detail="Invalid dimension. Use: district, village, product, customer")
+
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+        # Fetch all data
+        sales_resp = db.table("sales").select("sale_id, sale_date, total_amount, total_liters, customer_id").execute()
+        all_sales = sales_resp.data or []
+
+        customers_resp = db.table("customers").select("customer_id, name, village, district").execute()
+        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+
+        items_resp = db.table("sale_items").select("sale_id, product_id, quantity, amount").execute()
+        all_items = items_resp.data or []
+
+        products_resp = db.table("products").select("product_id, product_name, packing_type, capacity_ltr").execute()
+        products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
+
+        # Product filter — build allowed sale_ids
+        filtered_by_product = None
+        if product_id is not None:
+            filtered_by_product = {item["sale_id"] for item in all_items if item.get("product_id") == product_id}
+
+        # Filter sales
+        filtered_sales = []
+        for sale in all_sales:
+            date_str = sale.get("sale_date")
+            if not date_str:
+                continue
+            try:
+                sale_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if not (start_dt <= sale_date <= end_dt):
+                continue
+
+            customer = customers_dict.get(sale.get("customer_id"), {})
+            if district and customer.get("district", "").strip() != district.strip():
+                continue
+            if village and customer.get("village", "").strip() != village.strip():
+                continue
+            if filtered_by_product is not None and sale.get("sale_id") not in filtered_by_product:
+                continue
+
+            filtered_sales.append({**sale, "customer": customer})
+
+        total_revenue = sum(s.get("total_amount") or 0 for s in filtered_sales)
+        total_liters_all = sum(s.get("total_liters") or 0 for s in filtered_sales)
+        filtered_sale_ids = {s["sale_id"] for s in filtered_sales}
+
+        rows = []
+
+        if dimension == "district":
+            groups: dict = {}
+            for s in filtered_sales:
+                key = s["customer"].get("district") or "Unknown"
+                if key not in groups:
+                    groups[key] = {"orders": 0, "revenue": 0, "liters": 0}
+                groups[key]["orders"] += 1
+                groups[key]["revenue"] += s.get("total_amount") or 0
+                groups[key]["liters"] += s.get("total_liters") or 0
+
+            for key, vals in groups.items():
+                rows.append({
+                    "label": key,
+                    "orders": vals["orders"],
+                    "revenue": round(vals["revenue"], 2),
+                    "liters": round(vals["liters"], 2),
+                    "pct": round(vals["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+                    "secondary_label": None,
+                })
+
+        elif dimension == "village":
+            groups: dict = {}
+            for s in filtered_sales:
+                key = s["customer"].get("village") or "Unknown"
+                dist = s["customer"].get("district") or ""
+                if key not in groups:
+                    groups[key] = {"orders": 0, "revenue": 0, "liters": 0, "district": dist}
+                groups[key]["orders"] += 1
+                groups[key]["revenue"] += s.get("total_amount") or 0
+                groups[key]["liters"] += s.get("total_liters") or 0
+
+            for key, vals in groups.items():
+                rows.append({
+                    "label": key,
+                    "secondary_label": vals["district"],
+                    "orders": vals["orders"],
+                    "revenue": round(vals["revenue"], 2),
+                    "liters": round(vals["liters"], 2),
+                    "pct": round(vals["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+                })
+
+        elif dimension == "product":
+            product_groups: dict = {}
+            for item in all_items:
+                if item.get("sale_id") not in filtered_sale_ids:
+                    continue
+                pid = item.get("product_id")
+                if pid is None:
+                    continue
+                prod = products_dict.get(pid, {})
+                label = prod.get("product_name", "Unknown")
+                packing = prod.get("packing_type") or ""
+                key = pid
+                if key not in product_groups:
+                    product_groups[key] = {"label": label, "packing": packing, "orders": 0, "qty": 0, "revenue": 0}
+                product_groups[key]["orders"] += 1
+                product_groups[key]["qty"] += item.get("quantity") or 0
+                product_groups[key]["revenue"] += item.get("amount") or 0
+
+            product_total = sum(v["revenue"] for v in product_groups.values())
+            for vals in product_groups.values():
+                rows.append({
+                    "label": vals["label"],
+                    "secondary_label": vals["packing"],
+                    "orders": vals["orders"],
+                    "revenue": round(vals["revenue"], 2),
+                    "liters": round(vals["qty"], 2),  # qty for products
+                    "pct": round(vals["revenue"] / product_total * 100, 1) if product_total > 0 else 0,
+                })
+
+        elif dimension == "customer":
+            customer_groups: dict = {}
+            for s in filtered_sales:
+                cid = s.get("customer_id")
+                customer = s["customer"]
+                name = customer.get("name") or f"ID:{cid}"
+                vill = customer.get("village") or ""
+                dist = customer.get("district") or ""
+                if cid not in customer_groups:
+                    customer_groups[cid] = {"label": name, "village": vill, "district": dist, "orders": 0, "revenue": 0, "liters": 0}
+                customer_groups[cid]["orders"] += 1
+                customer_groups[cid]["revenue"] += s.get("total_amount") or 0
+                customer_groups[cid]["liters"] += s.get("total_liters") or 0
+
+            for vals in customer_groups.values():
+                rows.append({
+                    "label": vals["label"],
+                    "secondary_label": f"{vals['village']}, {vals['district']}".strip(", "),
+                    "orders": vals["orders"],
+                    "revenue": round(vals["revenue"], 2),
+                    "liters": round(vals["liters"], 2),
+                    "pct": round(vals["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+                })
+
+        # Sort by revenue descending
+        rows.sort(key=lambda x: x["revenue"], reverse=True)
+
+        # Add rank
+        for i, row in enumerate(rows):
+            row["rank"] = i + 1
+
+        return {
+            "dimension": dimension,
+            "total_revenue": round(total_revenue, 2),
+            "total_liters": round(total_liters_all, 2),
+            "rows": rows,
+            "filters": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "district": district,
+                "village": village,
+                "product_id": product_id,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching dimension breakdown: {str(e)}")
+
+
+@router.get("/filter-options", dependencies=[Depends(verify_permission("view_reports"))])
+def get_filter_options(
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Get available distinct values for filter dropdowns: districts, villages, products."""
+    try:
+        customers_resp = db.table("customers").select("village, district").execute()
+        customers_data = customers_resp.data or []
+
+        districts = sorted(list({c["district"] for c in customers_data if c.get("district")}))
+        villages = sorted(list({c["village"] for c in customers_data if c.get("village")}))
+
+        products_resp = db.table("products").select("product_id, product_name, packing_type").eq("is_active", 1).execute()
+        products = [
+            {"product_id": p["product_id"], "label": f"{p.get('product_name', '')} ({p.get('packing_type', '')})"}
+            for p in (products_resp.data or [])
+        ]
+
+        return {"districts": districts, "villages": villages, "products": products}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching filter options: {str(e)}")
 
 
 @router.get("/payment-trend", dependencies=[Depends(verify_permission("view_reports"))])
@@ -540,3 +884,251 @@ def generate_calling_list_pdf(
          # Fallback if import fails or other error
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating PDF: {str(e)}")
+
+
+# ── Shared helper: run all 4 dimension breakdowns in one call ─────────────────
+def _run_all_dimensions(
+    db: SupabaseClient,
+    start_date: str,
+    end_date: str,
+    district: Optional[str],
+    village: Optional[str],
+    product_id: Optional[int],
+):
+    """Fetch KPI + all 4 dimension rows by calling the analytics functions directly."""
+    common = dict(start_date=start_date, end_date=end_date,
+                  district=district, village=village, product_id=product_id,
+                  user_email="system", db=db)
+
+    kpi = get_analytics_summary(**common)
+    dist = get_dimension_breakdown(dimension="district", **common)
+    vil = get_dimension_breakdown(dimension="village", **common)
+    prod = get_dimension_breakdown(dimension="product", **common)
+    cust = get_dimension_breakdown(dimension="customer", **common)
+
+    return kpi, dist["rows"], vil["rows"], prod["rows"], cust["rows"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4 ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/sales-analytics-pdf", dependencies=[Depends(verify_permission("view_reports"))])
+def get_sales_analytics_pdf(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    product_id: Optional[int] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Sales Analytics PDF — mirrors exactly what the UI shows."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        kpi, dist_rows, vil_rows, prod_rows, cust_rows = _run_all_dimensions(
+            db, start_date, end_date, district, village, product_id)
+
+        pdf_bytes = report_generator.generate_sales_analytics_pdf(
+            kpi=kpi,
+            district_rows=dist_rows,
+            village_rows=vil_rows,
+            product_rows=prod_rows,
+            customer_rows=cust_rows,
+            start_date=start_date,
+            end_date=end_date,
+            district_filter=district,
+            village_filter=village,
+        )
+        fname = f"sales_analytics_{start_date}_{end_date}.pdf"
+        return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                                 headers={"Content-Disposition": f"attachment; filename={fname}"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating sales analytics PDF: {str(e)}")
+
+
+@router.get("/sales-analytics-excel", dependencies=[Depends(verify_permission("view_reports"))])
+def get_sales_analytics_excel(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    product_id: Optional[int] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Sales Analytics Excel — KPI + 4 dimension sheets."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        kpi, dist_rows, vil_rows, prod_rows, cust_rows = _run_all_dimensions(
+            db, start_date, end_date, district, village, product_id)
+
+        excel_bytes = report_generator.generate_sales_analytics_excel(
+            kpi=kpi,
+            district_rows=dist_rows,
+            village_rows=vil_rows,
+            product_rows=prod_rows,
+            customer_rows=cust_rows,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        fname = f"sales_analytics_{start_date}_{end_date}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={fname}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating sales analytics Excel: {str(e)}")
+
+
+@router.get("/product-report-pdf", dependencies=[Depends(verify_permission("view_reports"))])
+def get_product_report_pdf(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Product / Packing breakdown PDF."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        from routers.reports import get_dimension_breakdown
+        prod_data = get_dimension_breakdown(
+            dimension="product", start_date=start_date, end_date=end_date,
+            district=district, village=village, product_id=None,
+            user_email=user_email, db=db)
+
+        pdf_bytes = report_generator.generate_product_report_pdf(
+            product_rows=prod_data["rows"],
+            start_date=start_date,
+            end_date=end_date,
+        )
+        fname = f"product_report_{start_date}_{end_date}.pdf"
+        return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                                 headers={"Content-Disposition": f"attachment; filename={fname}"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating product PDF: {str(e)}")
+
+
+@router.get("/product-report-excel", dependencies=[Depends(verify_permission("view_reports"))])
+def get_product_report_excel(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Product / Packing breakdown Excel."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        from routers.reports import get_dimension_breakdown
+        prod_data = get_dimension_breakdown(
+            dimension="product", start_date=start_date, end_date=end_date,
+            district=district, village=village, product_id=None,
+            user_email=user_email, db=db)
+
+        excel_bytes = report_generator.generate_product_report_excel(
+            product_rows=prod_data["rows"],
+            start_date=start_date,
+            end_date=end_date,
+        )
+        fname = f"product_report_{start_date}_{end_date}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={fname}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating product Excel: {str(e)}")
+
+
+@router.get("/customer-analytics-pdf", dependencies=[Depends(verify_permission("view_reports"))])
+def get_customer_analytics_pdf(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Customer Analytics PDF — ranked by revenue with sales stats."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        from routers.reports import get_dimension_breakdown
+        cust_data = get_dimension_breakdown(
+            dimension="customer", start_date=start_date, end_date=end_date,
+            district=district, village=village, product_id=None,
+            user_email=user_email, db=db)
+
+        pdf_bytes = report_generator.generate_customer_analytics_pdf(
+            customer_rows=cust_data["rows"],
+            start_date=start_date,
+            end_date=end_date,
+            district_filter=district,
+            village_filter=village,
+        )
+        fname = f"customer_analytics_{start_date}_{end_date}.pdf"
+        return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
+                                 headers={"Content-Disposition": f"attachment; filename={fname}"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating customer PDF: {str(e)}")
+
+
+@router.get("/customer-analytics-excel", dependencies=[Depends(verify_permission("view_reports"))])
+def get_customer_analytics_excel(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Phase 4: Download Customer Analytics Excel."""
+    try:
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        from routers.reports import get_dimension_breakdown
+        cust_data = get_dimension_breakdown(
+            dimension="customer", start_date=start_date, end_date=end_date,
+            district=district, village=village, product_id=None,
+            user_email=user_email, db=db)
+
+        excel_bytes = report_generator.generate_customer_analytics_excel(
+            customer_rows=cust_data["rows"],
+            start_date=start_date,
+            end_date=end_date,
+        )
+        fname = f"customer_analytics_{start_date}_{end_date}.xlsx"
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={fname}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating customer Excel: {str(e)}")
