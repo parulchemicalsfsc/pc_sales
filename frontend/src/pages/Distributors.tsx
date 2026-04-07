@@ -1174,11 +1174,16 @@ export default function Distributors() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog}>{t("common.cancel")}</Button>
-          <Button onClick={handleSubmit} variant="contained">
-            {t("common.save")}
-          </Button>
-        </DialogActions>
+            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+            >
+              {submitting ? "Saving..." : t("common.save")}
+            </Button>
+          </DialogActions>
       </Dialog>
 
       {/* Rename Column Dialog */}
