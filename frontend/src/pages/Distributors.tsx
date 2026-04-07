@@ -1213,14 +1213,17 @@ export default function Distributors() {
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                multiline
-                rows={2}
+                select
                 label={t("distributors.businessStatus", "Current Status of Business")}
                 value={formData.current_status_of_business || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, current_status_of_business: e.target.value })
                 }
-              />
+              >
+                <MenuItem value="YES">YES</MenuItem>
+                <MenuItem value="MIDDLE STAGE">MIDDLE STAGE</MenuItem>
+                <MenuItem value="NO">NO</MenuItem>
+              </TextField>
             </Grid>
           </Grid>
         </DialogContent>
