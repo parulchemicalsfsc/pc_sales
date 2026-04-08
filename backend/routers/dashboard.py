@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 import json
 from typing import Optional
 
+import requests as http_requests
+
 from fastapi import APIRouter, Depends, HTTPException
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
@@ -32,15 +34,20 @@ def dashboard_metrics(db: SupabaseClient = Depends(get_supabase)):
         active_customers = len([c for c in customers_data if str(c.get("status")).lower() == "active"])
 
         # 3. Demo Conversion Rate
-        demos_response = db.table("demos").select("conversion_status").execute()
-        demos_data = demos_response.data or []
-        
-        total_demos = len(demos_data)
-        converted_demos = len([d for d in demos_data if str(d.get("conversion_status")).lower() == "converted"])
-        
         demo_conversion_rate = 0
-        if total_demos > 0:
-            demo_conversion_rate = round((converted_demos / total_demos) * 100, 2)
+        try:
+            demos_response = db.table("demos").select("conversion_status").execute()
+            demos_data = demos_response.data or []
+            
+            total_demos = len(demos_data)
+            converted_demos = len([d for d in demos_data if str(d.get("conversion_status")).lower() == "converted"])
+            
+            if total_demos > 0:
+                demo_conversion_rate = round((converted_demos / total_demos) * 100, 2)
+        except http_requests.exceptions.HTTPError as demo_err:
+            print(f"Warning: Could not fetch demos data (table may not exist): {demo_err}")
+        except Exception as demo_err:
+            print(f"Warning: Could not fetch demos data: {demo_err}")
 
         # 4. Payment Method Distribution
         payments_response = db.table("payments").select("payment_method, amount").execute()
@@ -225,17 +232,23 @@ def upcoming_demos(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
         # Get current date
         today = datetime.now().strftime("%Y-%m-%d")
 
-        # Get upcoming demos
-        demos_response = (
-            db.table("demos")
-            .select("*")
-            .gte("demo_date", today)
-            .eq("conversion_status", "Scheduled")
-            .order("demo_date")
-            .order("demo_time")
-            .limit(limit)
-            .execute()
-        )
+        # Get upcoming demos - handle case where demos table doesn't exist yet
+        try:
+            demos_response = (
+                db.table("demos")
+                .select("*")
+                .gte("demo_date", today)
+                .eq("conversion_status", "Scheduled")
+                .order("demo_date")
+                .limit(limit)
+                .execute()
+            )
+        except http_requests.exceptions.HTTPError as table_err:
+            print(f"Warning: Could not fetch demos (table may not exist): {table_err}")
+            return []
+        except Exception as table_err:
+            print(f"Warning: Could not fetch demos: {table_err}")
+            return []
 
         if not demos_response.data:
             return []
