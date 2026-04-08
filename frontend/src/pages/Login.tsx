@@ -50,7 +50,11 @@ export default function Login() {
       console.error("Login error:", err);
 
       // Handle specific error messages
-      if (err.message?.includes("Invalid login credentials")) {
+      if (err.message?.includes("ACCOUNT_DEACTIVATED")) {
+        setError(
+          "Your account has been deactivated. Please contact your administrator."
+        );
+      } else if (err.message?.includes("Invalid login credentials")) {
         setError("Invalid email or password. Please try again.");
       } else if (err.message?.includes("Email not confirmed")) {
         setError("Please verify your email address before logging in.");

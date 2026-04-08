@@ -180,6 +180,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       localStorage.setItem("user_email", data.user.email);
     }
 
+    // ── Phase 2: Check if the app_users account is active ───────────────────
+    // Supabase Auth has no concept of our is_active flag, so we check ourselves.
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+      const statusRes = await fetch(
+        `${API_BASE}/api/admin/check-status?email=${encodeURIComponent(email)}`
+      );
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (!statusData.is_active) {
+          // Revoke the Supabase session immediately — deactivated users must not proceed
+          await supabase.auth.signOut();
+          localStorage.removeItem("user_email");
+          throw new Error("ACCOUNT_DEACTIVATED");
+        }
+      }
+    } catch (statusErr: any) {
+      // Only re-throw if it's our deactivation error
+      if (statusErr?.message === "ACCOUNT_DEACTIVATED") throw statusErr;
+      // Other fetch errors (network, DB) — fail open so a backend issue doesn't lock everyone out
+      console.warn("[Auth] Could not verify account status:", statusErr);
+    }
+
     // Load permissions NOW so the caller can navigate immediately after.
     // This avoids a race where navigate fires before permissionsLoaded is true.
     if (data.user) {

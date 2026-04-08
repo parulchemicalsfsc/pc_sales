@@ -197,3 +197,4 @@ class UserCreate(BaseModel):
     email: str
     password: str
     role: str
+    name: Optional[str] = None

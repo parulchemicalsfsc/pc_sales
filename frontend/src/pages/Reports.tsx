@@ -336,7 +336,7 @@ export default function Reports() {
   const [customerRows, setCustomerRows] = useState<DimensionRow[]>([]);
   const [tablesLoading, setTablesLoading] = useState(false);
 
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -415,7 +415,7 @@ export default function Reports() {
   
   const handleDownload = async (type: DownloadType) => {
     try {
-      setPdfLoading(true);
+      setPdfLoading(type);
       setError(null);
       const params = toFilterParams(filters);
       let blob: Blob;
@@ -450,7 +450,7 @@ export default function Reports() {
     } catch (e: any) {
       setError(e?.message || "Failed to download report");
     } finally {
-      setPdfLoading(false);
+      setPdfLoading(null);
     }
   };
 
@@ -768,10 +768,10 @@ export default function Reports() {
                   variant="outlined"
                   color={item.color}
                   startIcon={
-                    pdfLoading ? <CircularProgress size={16} color="inherit" /> : item.icon
+                    pdfLoading === item.key ? <CircularProgress size={16} color="inherit" /> : item.icon
                   }
                   onClick={() => handleDownload(item.key as any)}
-                  disabled={pdfLoading}
+                  disabled={pdfLoading !== null}
                   sx={{ fontWeight: 600, py: 1 }}
                 >
                   {item.label}

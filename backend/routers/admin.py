@@ -10,7 +10,7 @@ from activity_logger import get_activity_logger
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from supabase_db import SupabaseClient, get_db, get_supabase, get_supabase_admin
 from models import UserCreate
-from rbac_utils import verify_admin_role, verify_permission
+from rbac_utils import verify_admin_role, verify_permission, clear_user_permission_cache
 router = APIRouter()
 
 # Legacy admin verify replaced by dynamic RBAC — kept for reference
@@ -67,6 +67,29 @@ def get_my_activity_logs(
 def health():
     """Health check endpoint"""
     return {"status": "ok"}
+
+
+@router.get("/check-status")
+def check_user_status(
+    email: str,
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Lightweight active-status check for login enforcement.
+    Called immediately after Supabase Auth sign-in succeeds on the frontend.
+    No permission guard — the caller just authenticated with Supabase.
+    Returns whether this user's app_users record is active.
+    """
+    try:
+        res = db.table("app_users").select("is_active, name").eq("email", email).execute()
+        if not res.data:
+            # User not yet in app_users — treat as inactive (shouldn't happen in normal flow)
+            return {"is_active": False, "reason": "user_not_found"}
+        return {"is_active": res.data[0].get("is_active", True)}
+    except Exception as e:
+        # Fail open so a DB error doesn't permanently lock everyone out
+        print(f"[WARN] check-status error for {email}: {e}")
+        return {"is_active": True}
 
 
 @router.get("/activity-logs", dependencies=[Depends(verify_permission("view_activity_logs"))])
@@ -382,20 +405,28 @@ def get_all_users(
 
 @router.get("/app-users", dependencies=[Depends(verify_permission("view_users"))])
 def get_app_users(
+    status: Optional[str] = "all",
     admin_email: Optional[str] = Header(None, alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get all users from the app_users table with their roles.
+    Get users from the app_users table with their roles.
     Requires 'view_users' permission.
+    Optional ?status=active|inactive|all (default: all)
     """
     try:
-        response = db.table("app_users").select("*").order("created_at", desc=True).execute()
+        query = db.table("app_users").select("*").order("created_at", desc=True)
+        if status == "active":
+            query = query.eq("is_active", True)
+        elif status == "inactive":
+            query = query.eq("is_active", False)
+
+        response = query.execute()
 
         users = []
         for u in (response.data or []):
             users.append({
-                "id": u.get("id"),
+                "id": u.get("user_id"),
                 "email": u.get("email", ""),
                 "name": u.get("name", ""),
                 "role": u.get("role", ""),
@@ -662,7 +693,7 @@ def update_product_prices_bulk(
         )
 
 
-@router.post("/users", dependencies=[Depends(verify_permission("manage_users"))])
+@router.post("/users", dependencies=[Depends(verify_permission("create_user"))])
 def create_user(
     user: UserCreate,
     admin_email: Optional[str] = Header(None, alias="x-user-email"),
@@ -670,9 +701,20 @@ def create_user(
 ):
     """
     Create a new user with a specific role.
-    Only accessible by admin users.
+    Only accessible by users with 'create_user' permission.
+    Cannot create users with the 'admin' role.
     """
     try:
+        # Normalize role key
+        normalized_role = user.role.lower().replace(" ", "_")
+
+        # Block creation of admin accounts
+        if normalized_role == "admin":
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot create users with the 'admin' role."
+            )
+
         # Use the official supabase-py client (has .auth.admin) — NOT our custom REST client
         from supabase_db import get_supabase_admin
         supabase_admin = get_supabase_admin()
@@ -688,14 +730,14 @@ def create_user(
         if not result or not result.user:
             raise HTTPException(status_code=500, detail="Failed to create user in Supabase Auth")
 
-        # Look up the role_key in the roles table so we store the canonical key
-        normalized_role = user.role.lower().replace(" ", "_")
+        # Display name: use provided name, fall back to email
+        display_name = (user.name or "").strip() or user.email
 
         # Register in app_users table (source of truth for RBAC)
         try:
             db.table("app_users").insert({
                 "email": user.email,
-                "name": user.email,   # default name until they update profile
+                "name": display_name,
                 "role": normalized_role,
                 "is_active": True,
             }).execute()
@@ -707,19 +749,219 @@ def create_user(
         logger.log_activity(
             user_email=admin_email or "system",
             action_type="CREATE_USER",
-            action_description=f"Created new user {user.email} with role {user.role}",
+            action_description=f"Created new user {user.email} ({display_name}) with role {normalized_role}",
             entity_type="user",
             entity_id=None,
-            metadata={"new_user_email": user.email, "role": user.role}
+            metadata={"new_user_email": user.email, "name": display_name, "role": normalized_role}
         )
 
-        return {"message": "User created successfully", "user": {"email": user.email, "role": user.role}}
+        return {"message": "User created successfully", "user": {"email": user.email, "name": display_name, "role": normalized_role}}
 
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error creating user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# User Management — Activate / Deactivate / Edit / Password / Role
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.patch("/users/{target_email}/status", dependencies=[Depends(verify_permission("manage_users"))])
+def set_user_status(
+    target_email: str,
+    body: dict,
+    admin_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Activate or deactivate a user account.
+    Requires 'manage_users' permission. Cannot deactivate yourself.
+    """
+    try:
+        if target_email == admin_email:
+            raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+
+        is_active = body.get("is_active")
+        if is_active is None:
+            raise HTTPException(status_code=400, detail="'is_active' field is required.")
+
+        response = db.table("app_users").eq("email", target_email).update({"is_active": is_active}).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        # Evict target user's permission cache — their next request re-fetches from DB
+        clear_user_permission_cache(target_email)
+
+        action_word = "Activated" if is_active else "Deactivated"
+        logger = get_activity_logger(db)
+        logger.log_activity(
+            user_email=admin_email or "system",
+            action_type="UPDATE",
+            action_description=f"{action_word} user account: {target_email}",
+            entity_type="user",
+            entity_name=target_email,
+            metadata={"action": "activate" if is_active else "deactivate", "target_email": target_email}
+        )
+
+        return {"message": f"User account {action_word.lower()} successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating user status: {str(e)}")
+
+
+@router.patch("/users/{target_email}/profile", dependencies=[Depends(verify_permission("manage_users"))])
+def update_user_profile(
+    target_email: str,
+    body: dict,
+    admin_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Update a user's display name.
+    Requires 'manage_users' permission.
+    """
+    try:
+        name = (body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="'name' field is required and cannot be empty.")
+
+        response = db.table("app_users").eq("email", target_email).update({"name": name}).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        logger = get_activity_logger(db)
+        logger.log_activity(
+            user_email=admin_email or "system",
+            action_type="UPDATE",
+            action_description=f"Updated display name for user {target_email}",
+            entity_type="user",
+            entity_name=target_email,
+            metadata={"field": "name", "new_name": name, "target_email": target_email}
+        )
+
+        return {"message": "User name updated successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating user profile: {str(e)}")
+
+
+@router.patch("/users/{target_email}/password", dependencies=[Depends(verify_permission("manage_users"))])
+def reset_user_password(
+    target_email: str,
+    body: dict,
+    admin_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Reset a user's password directly via Supabase Auth Admin API.
+    Requires 'manage_users' permission.
+    """
+    try:
+        new_password = (body.get("new_password") or "").strip()
+        if len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+
+        supabase_admin = get_supabase_admin()
+
+        # Find the Supabase Auth UID by iterating pages of users
+        auth_uid = None
+        page = 1
+        while True:
+            page_result = supabase_admin.auth.admin.list_users(page=page, per_page=1000)
+            users_list = page_result if isinstance(page_result, list) else getattr(page_result, "users", [])
+            if not users_list:
+                break
+            for u in users_list:
+                if getattr(u, "email", None) == target_email:
+                    auth_uid = str(u.id)
+                    break
+            if auth_uid or len(users_list) < 1000:
+                break
+            page += 1
+
+        if not auth_uid:
+            raise HTTPException(status_code=404, detail=f"User '{target_email}' not found in Supabase Auth.")
+
+        supabase_admin.auth.admin.update_user_by_id(auth_uid, {"password": new_password})
+
+        logger = get_activity_logger(db)
+        logger.log_activity(
+            user_email=admin_email or "system",
+            action_type="UPDATE",
+            action_description=f"Reset password for user {target_email}",
+            entity_type="user",
+            entity_name=target_email,
+            metadata={"action": "password_reset", "target_email": target_email}
+        )
+
+        return {"message": "Password reset successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resetting password: {str(e)}")
+
+
+@router.patch("/users/{target_email}/role", dependencies=[Depends(verify_permission("manage_users"))])
+def update_user_role(
+    target_email: str,
+    body: dict,
+    admin_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Change a user's role. Cannot assign 'admin' or 'developer' roles.
+    Requires 'manage_users' permission. Cache-invalidates the target user.
+    """
+    try:
+        new_role = (body.get("role") or "").strip().lower().replace(" ", "_")
+        if not new_role:
+            raise HTTPException(status_code=400, detail="'role' field is required.")
+
+        if new_role in ("admin", "developer"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot assign the '{new_role}' role via user management."
+            )
+
+        # Verify target role exists in DB
+        role_res = db.table("roles").select("role_key").eq("role_key", new_role).execute()
+        if not role_res.data:
+            raise HTTPException(status_code=400, detail=f"Role '{new_role}' does not exist.")
+
+        # Get current role for the activity log
+        current_res = db.table("app_users").select("role").eq("email", target_email).execute()
+        if not current_res.data:
+            raise HTTPException(status_code=404, detail="User not found.")
+        old_role = current_res.data[0].get("role", "unknown")
+
+        db.table("app_users").eq("email", target_email).update({"role": new_role}).execute()
+
+        # Invalidate the user's permission cache — their next API call re-fetches
+        clear_user_permission_cache(target_email)
+
+        logger = get_activity_logger(db)
+        logger.log_activity(
+            user_email=admin_email or "system",
+            action_type="UPDATE",
+            action_description=f"Changed role for {target_email}: {old_role} → {new_role}",
+            entity_type="user",
+            entity_name=target_email,
+            metadata={"old_role": old_role, "new_role": new_role, "target_email": target_email}
+        )
+
+        return {"message": f"User role updated to '{new_role}' successfully."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating user role: {str(e)}")
 
 
 @router.get("/user-sessions", dependencies=[Depends(verify_permission("view_activity_logs"))])

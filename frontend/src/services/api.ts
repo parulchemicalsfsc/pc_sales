@@ -568,6 +568,58 @@ export const adminAPI = {
     });
     return response.data;
   },
+
+  // ─── User Management ──────────────────────────────────────────────────────
+
+  /** Get all app users, optionally filtered by status */
+  getAppUsers: async (status: "active" | "inactive" | "all" = "all") => {
+    const response = await apiClient.get("/api/admin/app-users", {
+      params: { status },
+    });
+    return response.data;
+  },
+
+  /** Create a new user via Supabase Auth (requires create_user permission) */
+  createUser: async (data: { name: string; email: string; password: string; role: string }) => {
+    const response = await apiClient.post("/api/admin/users", data);
+    return response.data;
+  },
+
+  /** Activate or deactivate a user (requires manage_users permission) */
+  setUserStatus: async (email: string, isActive: boolean) => {
+    const response = await apiClient.patch(
+      `/api/admin/users/${encodeURIComponent(email)}/status`,
+      { is_active: isActive },
+    );
+    return response.data;
+  },
+
+  /** Update an active user's display name (requires manage_users permission) */
+  updateUserProfile: async (email: string, name: string) => {
+    const response = await apiClient.patch(
+      `/api/admin/users/${encodeURIComponent(email)}/profile`,
+      { name },
+    );
+    return response.data;
+  },
+
+  /** Reset a user's password via Supabase Auth Admin API (requires manage_users permission) */
+  resetUserPassword: async (email: string, newPassword: string) => {
+    const response = await apiClient.patch(
+      `/api/admin/users/${encodeURIComponent(email)}/password`,
+      { new_password: newPassword },
+    );
+    return response.data;
+  },
+
+  /** Change a user's role — admin/developer cannot be assigned (requires manage_users permission) */
+  updateUserRole: async (email: string, role: string) => {
+    const response = await apiClient.patch(
+      `/api/admin/users/${encodeURIComponent(email)}/role`,
+      { role },
+    );
+    return response.data;
+  },
 };
 
 // Notifications API

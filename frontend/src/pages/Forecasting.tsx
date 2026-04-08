@@ -64,7 +64,7 @@ function CustomTabPanel(props: TabPanelProps) {
 
 export default function Forecasting() {
   const [tabIndex, setTabIndex] = useState(0);
-  
+
   // Custom timeframe states
   const [historyMonths, setHistoryMonths] = useState<number>(12);
   const [forecastMonths, setForecastMonths] = useState<number>(6);
@@ -78,7 +78,7 @@ export default function Forecasting() {
       keys.join(","),
       ...data.map(row => keys.map(k => `"${(row[k] !== null && row[k] !== undefined) ? String(row[k]).replace(/"/g, '""') : ''}"`).join(","))
     ].join("\n");
-    
+
     const blob = new Blob([csvStr], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -94,7 +94,7 @@ export default function Forecasting() {
     const doc = new jsPDF();
     const keys = Object.keys(data[0]);
     const rows = data.map(item => keys.map(k => item[k]));
-    
+
     autoTable(doc, {
       head: [keys],
       body: rows,
@@ -102,7 +102,7 @@ export default function Forecasting() {
       styles: { fontSize: 8 },
       headStyles: { fillColor: [41, 128, 185], textColor: 255 }
     });
-    
+
     doc.save(`${filename}.pdf`);
   };
 
@@ -231,15 +231,15 @@ export default function Forecasting() {
                     <Button variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={() => handleExportPDF(monthlyData?.series || [], "monthly_trend_forecast")}>PDF</Button>
                   </Stack>
                 </Box>
-                
+
                 <Box sx={{ height: 400, width: "100%", mb: 4 }}>
                   <ResponsiveContainer>
                     <ComposedChart data={monthlyData?.series || []} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
-                      <YAxis yAxisId="left" tickFormatter={(val) => `₹${(val/1000).toFixed(0)}k`} />
+                      <YAxis yAxisId="left" tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`} />
                       <YAxis yAxisId="right" orientation="right" tickFormatter={(val) => `${val}L`} />
-                      <RechartsTooltip 
+                      <RechartsTooltip
                         formatter={(value: any, name: string) => {
                           if (name === "Revenue (Actual)" || name === "Revenue (Forecast)") return [`₹${value.toLocaleString()}`, name];
                           if (name === "Liters") return [`${value.toLocaleString()} L`, name];
@@ -343,8 +343,8 @@ export default function Forecasting() {
                       {(districtData?.rows || []).map((row: any) => (
                         <TableRow key={row.district}>
                           <TableCell>
-                            <Box sx={{ 
-                              width: 28, height: 28, borderRadius: '50%', 
+                            <Box sx={{
+                              width: 28, height: 28, borderRadius: '50%',
                               bgcolor: row.rank <= 3 ? 'secondary.main' : 'grey.200',
                               color: row.rank <= 3 ? 'white' : 'text.primary',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -374,7 +374,7 @@ export default function Forecasting() {
 
         {/* =============== VILLAGE FORECAST =============== */}
         <CustomTabPanel value={tabIndex} index={2}>
-        {villageLoading ? <CircularProgress /> : villageError ? <Alert severity="error">Failed to load village data</Alert> : (
+          {villageLoading ? <CircularProgress /> : villageError ? <Alert severity="error">Failed to load village data</Alert> : (
             <Card elevation={0}>
               <CardContent>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
