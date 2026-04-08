@@ -39,6 +39,7 @@ def create_distributor(
     """Create a new distributor"""
     try:
         distributor_data = {
+            "name": distributor.name,
             "village": distributor.village,
             "taluka": distributor.taluka,
             "district": distributor.district,
@@ -67,7 +68,19 @@ def create_distributor(
             "current_status_of_business": distributor.current_status_of_business,
         }
 
-        response = db.table("distributors").insert(distributor_data).execute()
+        # Convert empty strings to None — Supabase rejects "" for typed columns
+        # (e.g. time, integer) and will return 400 Bad Request
+        cleaned_data = {}
+        for k, v in distributor_data.items():
+            if v == "" or v == " ":
+                cleaned_data[k] = None
+            else:
+                cleaned_data[k] = v
+
+        # Remove keys with None values to let DB defaults apply
+        cleaned_data = {k: v for k, v in cleaned_data.items() if v is not None}
+
+        response = db.table("distributors").insert(cleaned_data).execute()
 
         if not response.data:
             raise HTTPException(status_code=400, detail="Failed to create distributor")
@@ -76,6 +89,8 @@ def create_distributor(
             "message": "Distributor created successfully",
             "distributor": response.data[0],
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error creating distributor: {str(e)}"
@@ -137,6 +152,11 @@ async def update_distributor(
             "high_holder_to_low_holder_villages": distributor.high_holder_to_low_holder_villages,
             "current_status_of_business": distributor.current_status_of_business,
         }
+
+        # Convert empty strings to None — Supabase rejects "" for typed columns
+        for k, v in update_data.items():
+            if v == "" or v == " ":
+                update_data[k] = None
 
         # Remove None values to avoid overwriting with null
         update_data = {k: v for k, v in update_data.items() if v is not None}

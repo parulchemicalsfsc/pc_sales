@@ -1012,10 +1012,6 @@ export default function Sales() {
                     )}
                     isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
                     noOptionsText={`No ${customerCategory} found`}
-                    filterOptions={(options: any[], { inputValue }: any) => {
-                      const query = inputValue.toLowerCase();
-                      return options.filter((o: any) => o.label.toLowerCase().includes(query));
-                    }}
                   />
                 </Grid>
               )}
