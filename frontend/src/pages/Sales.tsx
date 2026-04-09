@@ -25,6 +25,7 @@ import {
   useMediaQuery,
   useTheme,
   Menu,
+  Autocomplete,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -41,7 +42,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -57,7 +58,9 @@ export default function Sales() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [distributors, setDistributors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [openDialog, setOpenDialog] = useState(false);
@@ -126,10 +129,11 @@ export default function Sales() {
       setError(null);
 
       // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult] = await Promise.allSettled([
+      const [salesResult, customersResult, productsResult, distributorsResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
+        distributorAPI.getAll({ limit: 1000 }),
       ]);
 
       if (salesResult.status === "fulfilled") {
@@ -150,6 +154,12 @@ export default function Sales() {
       } else {
         console.warn("Could not load products (user may lack view_products permission):", productsResult.reason?.message);
       }
+      if (distributorsResult.status === "fulfilled") {
+        const distData = distributorsResult.value;
+        setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+      } else {
+        console.warn("Could not load distributors:", distributorsResult.reason?.message);
+      }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
       const errorMessage =
@@ -160,7 +170,26 @@ export default function Sales() {
     }
   };
 
+  const fetchDropdownData = async () => {
+    try {
+      const [customersResult, distributorsResult] = await Promise.allSettled([
+        customerAPI.getAll({ limit: 1000 }),
+        distributorAPI.getAll({ limit: 1000 }),
+      ]);
+      if (customersResult.status === "fulfilled") {
+        setCustomers(customersResult.value.data || []);
+      }
+      if (distributorsResult.status === "fulfilled") {
+        const distData = distributorsResult.value;
+        setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+      }
+    } catch (e) {
+      console.warn("Background fetch failed", e);
+    }
+  };
+
   const handleOpenDialog = () => {
+    fetchDropdownData(); // Fire and forget
     setEditingSaleId(null);
     setFormData({
       customer_id: 0,
@@ -233,6 +262,7 @@ export default function Sales() {
 
     // Use timeout to prevent MUI Dialog and Menu focus trap race conditions
     setTimeout(async () => {
+      fetchDropdownData(); // refresh dropdown items
       try {
         setLoading(true);
         // Fetch full sale details to get items
@@ -375,7 +405,45 @@ export default function Sales() {
     setItems(updatedItems);
   };
 
+
+  // Build the entity options list based on selected category
+  const getEntityOptions = () => {
+    if (customerCategory === "Mantri") {
+      const mantriMap = new Map<string, any>();
+      distributors.forEach((d: any) => {
+        if (d.mantri_name) {
+          const key = `${d.mantri_name}-${d.mantri_mobile || ''}`;
+          if (!mantriMap.has(key)) {
+            mantriMap.set(key, {
+              id: d.distributor_id,
+              label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
+              name: d.mantri_name,
+              village: d.village || '',
+            });
+          }
+        }
+      });
+      return Array.from(mantriMap.values());
+    } else if (customerCategory === "Distributor") {
+      return distributors.map((d: any) => ({
+        id: d.distributor_id,
+        label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
+        name: d.name || '',
+        village: d.village || '',
+      }));
+    } else {
+      return customers.map((c) => ({
+        id: c.customer_id,
+        label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
+        name: c.name,
+        village: c.village || '',
+      }));
+    }
+  };
+
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       let customerId = formData.customer_id;
 
@@ -426,8 +494,8 @@ export default function Sales() {
             const newCustomer = await customerAPI.create(
               newCustomerData as Customer,
             );
-            customerId = newCustomer.customer_id;
-            // Reload customers list
+            customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
+            // Reload customers list synchronously so autocomplete reflects it if needed later
             const customersData = await customerAPI.getAll({ limit: 1000 });
             setCustomers(customersData.data || []);
           }
@@ -499,12 +567,24 @@ export default function Sales() {
       }
 
       handleCloseDialog();
+      // Fast optimistic update
+      setSubmitting(false);
 
       // OPTIMISTIC UPDATE: Add/Update sale in list immediately if possible
       if (response.sale) {
         try {
           const newSale = response.sale;
-          const customer = customers.find(c => c.customer_id === newSale.customer_id);
+          let customer = customers.find(c => c.customer_id === newSale.customer_id);
+          
+          if (!customer && customerMode === "new") {
+            customer = {
+              customer_id: customerId,
+              name: newCustomerData.name,
+              village: newCustomerData.village,
+              mobile: newCustomerData.mobile
+            } as any;
+          }
+
           if (customer) {
             const enrichedSale = {
               ...newSale,
@@ -529,7 +609,6 @@ export default function Sales() {
       setError(null);
     } catch (err: any) {
       console.error("Error creating sale:", err);
-      console.error("Error creating sale:", err);
       let errorMessage = t("sales.createError", "Failed to create sale");
 
       if (err?.response?.data?.detail) {
@@ -548,6 +627,8 @@ export default function Sales() {
       }
 
       setError(errorMessage);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -906,35 +987,32 @@ export default function Sales() {
                 </TextField>
               </Grid>
 
-              {/* Existing Customer Selection */}
+              {/* Existing Customer/Entity Selection - Searchable */}
               {customerMode === "existing" && (
                 <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    select
-                    label={`${t("customers.customerName")} *`}
-                    value={formData.customer_id}
-                    onChange={(e) => {
-                      const newCustomerId = Number(e.target.value);
+                  <Autocomplete
+                    options={getEntityOptions()}
+                    getOptionLabel={(option: any) => option.label || ''}
+                    value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
+                    onChange={(_e: any, newValue: any) => {
+                      const newId = newValue ? newValue.id : 0;
                       setFormData({
                         ...formData,
-                        customer_id: newCustomerId,
+                        customer_id: newId,
                       });
-                      recalculateRates(customerCategory, "existing", newCustomerId, newCustomerData.state);
+                      recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
                     }}
-                  >
-                    <MenuItem value={0}>
-                      {t("sales.selectCustomer", "Select Sabhasad")}
-                    </MenuItem>
-                    {customers.map((customer) => (
-                      <MenuItem
-                        key={customer.customer_id}
-                        value={customer.customer_id}
-                      >
-                        {customer.name} - {customer.village}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    renderInput={(params: any) => (
+                      <TextField
+                        {...params}
+                        fullWidth
+                        label={`${customerCategory === "Sabhasad" || customerCategory === "Field Officer" ? t("customers.customerName") : customerCategory} *`}
+                        placeholder={`Search ${customerCategory}...`}
+                      />
+                    )}
+                    isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
+                    noOptionsText={`No ${customerCategory} found`}
+                  />
                 </Grid>
               )}
 
@@ -1297,9 +1375,14 @@ export default function Sales() {
             </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseDialog}>{t("common.cancel")}</Button>
-            <Button onClick={handleSubmit} variant="contained">
-              {editingSaleId ? "Save Changes" : t("sales.addSale")}
+            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+            >
+              {submitting ? "Saving..." : (editingSaleId ? "Save Changes" : t("sales.addSale"))}
             </Button>
           </DialogActions>
         </Dialog>

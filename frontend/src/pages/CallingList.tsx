@@ -65,6 +65,8 @@ interface Assignment {
   village: string;
   taluka?: string;
   district?: string;
+  priority_label?: string;
+  priority_score?: number;
 }
 
 interface Pagination { page: number; limit: number; total: number; total_pages: number; }
@@ -89,6 +91,14 @@ const STATUS_CHIP: Record<string, { bg: string; fg: string }> = {
 };
 
 const PRIORITY_DOT: Record<string, string> = { High: "#dc2626", Medium: "#eab308", Low: "#16a34a" };
+
+// Priority colour map based on priority_label from backend
+const PRIORITY_COLORS: Record<string, { bg: string; bgDark: string; border: string; fg: string }> = {
+  URGENT: { bg: "rgba(22,163,74,0.08)",  bgDark: "rgba(22,163,74,0.15)",  border: "#16a34a", fg: "#16a34a" },
+  HIGH:   { bg: "rgba(22,163,74,0.06)",  bgDark: "rgba(22,163,74,0.12)",  border: "#22c55e", fg: "#16a34a" },
+  MEDIUM: { bg: "rgba(234,179,8,0.08)",  bgDark: "rgba(234,179,8,0.15)",  border: "#eab308", fg: "#a16207" },
+  LOW:    { bg: "rgba(220,38,38,0.06)",  bgDark: "rgba(220,38,38,0.12)",  border: "#dc2626", fg: "#dc2626" },
+};
 
 // ── Live Timer Hook ────────────────────────────────────
 
@@ -303,6 +313,8 @@ export default function CallingList() {
                 {assignments.map(item => {
                   const chip = STATUS_CHIP[item.status] || STATUS_CHIP.Pending;
                   const dotColor = PRIORITY_DOT[item.priority] || "#eab308";
+                  const pLabel = (item.priority_label || "LOW").toUpperCase();
+                  const pColor = PRIORITY_COLORS[pLabel] || PRIORITY_COLORS.LOW;
                   return (
                     <Box
                       key={item.assignment_id}
@@ -312,7 +324,8 @@ export default function CallingList() {
                         borderRadius: 2,
                         cursor: "pointer",
                         border: `1px solid ${border}`,
-                        bgcolor: surfaceMuted,
+                        borderLeft: `4px solid ${pColor.border}`,
+                        bgcolor: isDark ? pColor.bgDark : pColor.bg,
                         display: "flex",
                         alignItems: "center",
                         gap: 2,
@@ -321,15 +334,31 @@ export default function CallingList() {
                       }}
                     >
                       {/* Priority dot */}
-                      <Tooltip title={`${item.priority} Priority`}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: dotColor, flexShrink: 0 }} />
+                      <Tooltip title={`${pLabel} Priority`}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: pColor.border, flexShrink: 0 }} />
                       </Tooltip>
 
                       {/* Info */}
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {item.name || "Unknown"}
-                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.name || "Unknown"}
+                          </Typography>
+                          {/* Priority Badge */}
+                          <Chip
+                            size="small"
+                            label={pLabel}
+                            sx={{
+                              height: 20,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              letterSpacing: 0.5,
+                              bgcolor: alpha(pColor.border, 0.12),
+                              color: pColor.fg,
+                              border: `1px solid ${alpha(pColor.border, 0.3)}`,
+                            }}
+                          />
+                        </Stack>
                         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
                           {item.mobile && (
                             <Typography variant="caption" sx={{ color: "text.secondary", display: "flex", alignItems: "center", gap: 0.3 }}>

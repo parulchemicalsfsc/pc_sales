@@ -129,19 +129,20 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system") -> dict:
 
     emails = [t["email"] for t in telecallers]
 
-    # 3. Get customers to call (top 150 from customers table, or all pending)
+    # 3. Get distributors to call (top 150 by priority score)
     try:
-        customers_res = db.table("customers") \
-            .select("customer_id, name, mobile, village, taluka, district") \
+        dist_res = db.table("distributors") \
+            .select("*") \
             .eq("status", "Active") \
+            .order("priority_score", desc=True) \
             .limit(150) \
             .execute()
-        customers = customers_res.data or []
+        customers = dist_res.data or []
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch distributors: {e}")
 
     if not customers:
-        return {"message": "No customers to distribute", "status": "empty", "total_calls": 0}
+        return {"message": "No distributors to distribute", "status": "empty", "total_calls": 0}
 
     # 4. Load-aware distribution: fewer pending → more new calls
     pending_counts = _get_pending_counts(db, emails)
@@ -161,16 +162,17 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system") -> dict:
     assignments = []
     notifications_map = {}
     for i, cust in enumerate(customers):
-        assigned_email = affinity_map.get(cust["customer_id"])
+        dist_id = cust["distributor_id"]
+        assigned_email = affinity_map.get(dist_id)
         # Fallback to round-robin if no active affinity
         if not assigned_email or assigned_email not in emails:
             assigned_email = sorted_emails[i % len(sorted_emails)]
 
         assignments.append({
             "user_email": assigned_email,
-            "customer_id": cust["customer_id"],
-            "priority": "Medium",
-            "reason": "Auto-assigned" if assigned_email not in affinity_map else "Historical Affinity",
+            "customer_id": dist_id,
+            "priority": cust.get("priority_label", "Medium"),
+            "reason": "Auto-assigned" if dist_id not in affinity_map else "Historical Affinity",
             "assigned_date": today_str,
             "status": "Pending",
             "notes": "",
@@ -254,26 +256,28 @@ def get_my_assignments(
         count_res = count_query.execute()
         total = len(count_res.data or [])
 
-        # Enrich with customer details
-        cust_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
-        customers_map = {}
-        if cust_ids:
-            cust_res = db.table("customers") \
-                .select("customer_id, name, mobile, village, taluka, district") \
-                .in_("customer_id", cust_ids) \
+        # Enrich with distributor details
+        dist_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
+        distributors_map = {}
+        if dist_ids:
+            dist_res = db.table("distributors") \
+                .select("distributor_id, name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
+                .in_("distributor_id", dist_ids) \
                 .execute()
-            customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
+            distributors_map = {d["distributor_id"]: d for d in (dist_res.data or [])}
 
         enhanced = []
         for a in assignments:
-            c = customers_map.get(a["customer_id"], {})
+            d = distributors_map.get(a["customer_id"], {})
             enhanced.append({
                 **a,
-                "name": c.get("name", "Unknown"),
-                "mobile": c.get("mobile", ""),
-                "village": c.get("village", ""),
-                "taluka": c.get("taluka", ""),
-                "district": c.get("district", ""),
+                "name": d.get("name", "Unknown"),
+                "mobile": d.get("mantri_mobile", ""),
+                "village": d.get("village", ""),
+                "taluka": d.get("taluka", ""),
+                "district": d.get("district", ""),
+                "priority_score": d.get("priority_score", 0),
+                "priority_label": d.get("priority_label", "LOW"),
             })
 
         # Summary counts (all statuses for today)
@@ -371,6 +375,59 @@ def update_call_status(
                 "status": "Pending",
                 "notes": body.notes or "",
             }).execute()
+
+        # 5b. Score adjustments based on call outcome
+        customer_id = assignment["customer_id"]
+        try:
+            if body.call_outcome == "connected" and body.notes and "order" in (body.notes or "").lower():
+                # Connected + order mentioned → decrease score by 15 (min 0)
+                cust_res = db.table("customers").select("priority_score").eq("customer_id", customer_id).execute()
+                if cust_res.data:
+                    current_score = cust_res.data[0].get("priority_score", 0) or 0
+                    new_score = max(0, current_score - 15)
+                    from scoring_engine import priority_label as calc_label
+                    db.table("customers").eq("customer_id", customer_id).update({
+                        "priority_score": new_score,
+                        "priority_label": calc_label(new_score),
+                    })
+
+            elif body.call_outcome == "not_reachable":
+                # Not reachable → decrease score by 3 (min 0)
+                cust_res = db.table("customers").select("priority_score").eq("customer_id", customer_id).execute()
+                if cust_res.data:
+                    current_score = cust_res.data[0].get("priority_score", 0) or 0
+                    new_score = max(0, current_score - 3)
+                    from scoring_engine import priority_label as calc_label
+                    update_data = {
+                        "priority_score": new_score,
+                        "priority_label": calc_label(new_score),
+                    }
+                    # Check if 3+ not_reachable this week → force LOW
+                    from datetime import timedelta
+                    week_ago = (date.today() - timedelta(days=7)).isoformat()
+                    nr_res = db.table("call_logs") \
+                        .select("log_id") \
+                        .eq("customer_id", customer_id) \
+                        .eq("call_outcome", "not_reachable") \
+                        .gte("created_at", week_ago) \
+                        .execute()
+                    nr_count = len(nr_res.data or [])
+                    if nr_count >= 3:
+                        update_data["priority_label"] = "LOW"
+                        logger.info(f"Customer {customer_id} has {nr_count} not_reachable this week → forced LOW")
+
+                    db.table("customers").eq("customer_id", customer_id).update(update_data)
+
+            elif body.call_outcome == "callback":
+                # Callback → freeze score so nightly job skips this customer
+                db.table("customers").eq("customer_id", customer_id).update({
+                    "score_frozen": True,
+                })
+
+            # 'connected' without order → no score change (intentional)
+
+        except Exception as e:
+            logger.error(f"Score adjustment failed for customer {customer_id}: {e}")
 
         # 6. Log the activity for the floating toast
         try:

@@ -58,6 +58,7 @@ export default function Payments() {
     reference: "",
     notes: "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -130,6 +131,8 @@ export default function Payments() {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       // Validate required fields
       if (!formData.sale_id || formData.sale_id === 0) {
@@ -184,6 +187,8 @@ export default function Payments() {
         err?.message ||
         "Failed to record payment";
       setError(errorMessage);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -745,9 +750,9 @@ export default function Payments() {
             </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseDialog}>{t("common.cancel")}</Button>
-            <Button onClick={handleSubmit} variant="contained">
-              {t("payments.recordPayment", "Record Payment")}
+            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+            <Button onClick={handleSubmit} variant="contained" disabled={submitting} startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}>
+              {submitting ? "Processing..." : t("payments.recordPayment", "Record Payment")}
             </Button>
           </DialogActions>
         </Dialog>

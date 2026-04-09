@@ -520,14 +520,25 @@ def update_sale(
     sale_id: int, sale_data: dict, db: SupabaseClient = Depends(get_supabase),
     user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
-    """Update a sale"""
+    """Update a sale with items"""
     try:
         # Sanitize payload
         clean_data = sale_data.copy()
         
-        # Remove PK if present to avoid issues, though usually fine
-        if "sale_id" in clean_data:
-            del clean_data["sale_id"]
+        # Remove PK if present
+        clean_data.pop("sale_id", None)
+
+        # Extract fields that are NOT columns in the 'sales' table
+        items_data = clean_data.pop("items", None)
+        if isinstance(items_data, str):
+            import json
+            try:
+                items_data = json.loads(items_data)
+            except Exception:
+                pass
+                
+        paid_amount = clean_data.pop("paid_amount", None)
+        payment_method = clean_data.pop("payment_method", None)
             
         # Fix empty date strings causing SQL errors (e.g. "" -> None)
         date_fields = ["shipment_date", "dispatch_date", "delivery_date", "sale_date"]
@@ -535,13 +546,60 @@ def update_sale(
             if field in clean_data and clean_data[field] == "":
                 clean_data[field] = None
 
-        # Correct order: table -> eq -> update -> execute
+        # If items were provided, recalculate totals
+        if items_data and len(items_data) > 0:
+            total_amount = 0
+            total_liters = 0
+
+            # Get products for calculating liters
+            products_response = (
+                db.table("products").select("product_id, capacity_ltr").execute()
+            )
+            products_dict = (
+                {p["product_id"]: p for p in products_response.data}
+                if products_response.data
+                else {}
+            )
+
+            for item in items_data:
+                total_amount += item.get("amount", 0)
+                product = products_dict.get(item.get("product_id"), {})
+                capacity = product.get("capacity_ltr", 0) or 0
+                total_liters += capacity * item.get("quantity", 0)
+
+            clean_data["total_amount"] = total_amount
+            clean_data["total_liters"] = total_liters
+
+        # Update the sales record
         response = db.table("sales").eq("sale_id", sale_id).update(clean_data).execute()
 
         if not response.data:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        return {"message": "Sale updated successfully", "sale": response.data[0]}
+        updated_sale = response.data[0]
+
+        # If items were provided, delete old items and insert new ones
+        if items_data and len(items_data) > 0:
+            # Delete existing sale items
+            db.table("sale_items").eq("sale_id", sale_id).delete().execute()
+
+            # Insert new sale items
+            customer_id = updated_sale.get("customer_id")
+            sale_items_to_insert = []
+            for item in items_data:
+                sale_items_to_insert.append({
+                    "sale_id": sale_id,
+                    "customer_id": customer_id,
+                    "product_id": item.get("product_id"),
+                    "quantity": item.get("quantity"),
+                    "rate": item.get("rate"),
+                    "amount": item.get("amount"),
+                })
+
+            if sale_items_to_insert:
+                db.table("sale_items").insert(sale_items_to_insert).execute()
+
+        return {"message": "Sale updated successfully", "sale": updated_sale}
     except HTTPException:
         raise
     except Exception as e:

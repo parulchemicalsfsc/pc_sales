@@ -61,6 +61,7 @@ export default function Distributors() {
     localStorage.setItem("distributorColumnNames", JSON.stringify(columnNames));
   }, [columnNames]);
 
+  const [submitting, setSubmitting] = useState(false);
   const [renameField, setRenameField] = useState<string | null>(null);
   const [newColumnName, setNewColumnName] = useState("");
 
@@ -180,10 +181,13 @@ export default function Distributors() {
 
   const handleSubmit = async () => {
     if (submitLoading) return;
+    if (submitting) return;
+    setSubmitting(true);
     try {
       setSubmitLoading(true);
       if (!formData.village || !formData.taluka || !formData.mantri_name) {
         setError("Village, Taluka and Mantri Name are required");
+        setSubmitting(false);
         return;
       }
 
@@ -200,15 +204,20 @@ export default function Distributors() {
       handleCloseDialog();
       loadDistributors();
       setError(null);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : t("distributors.saveError", "Failed to save Mantri"),
-      );
+    } catch (err: any) {
+      if (err?.isNetworkError || err?.response?.status >= 500) {
+        setError("Network error or server error. Please check if distributor was saved before trying again.");
+      } else {
+        setError(
+          err instanceof Error
+            ? err.message
+            : t("distributors.saveError", "Failed to save Mantri"),
+        );
+      }
       console.error("Error saving distributor:", err);
     } finally {
       setSubmitLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -1228,23 +1237,16 @@ export default function Distributors() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDialog} disabled={submitLoading}>{t("common.cancel")}</Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained"
-            disabled={submitLoading}
-            sx={{ minWidth: 100 }}
-          >
-            {submitLoading ? (
-              <>
-                <CircularProgress size={20} color="inherit" sx={{ mr: 1 }} />
-                {t("common.saving", "Saving...")}
-              </>
-            ) : (
-              t("common.save", "Save")
-            )}
-          </Button>
-        </DialogActions>
+            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+            >
+              {submitting ? "Saving..." : t("common.save")}
+            </Button>
+          </DialogActions>
       </Dialog>
 
       {/* Rename Column Dialog */}

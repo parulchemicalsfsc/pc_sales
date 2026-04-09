@@ -180,28 +180,29 @@ def create_demo(
 
         demo_data = {
             "customer_id": demo.customer_id,
-            "distributor_id": demo.distributor_id
-            if hasattr(demo, "distributor_id") and demo.distributor_id
-            else None,
+            "distributor_id": getattr(demo, "distributor_id", None),
             "demo_date": demo.demo_date,
             "demo_time": demo.demo_time,
             "product_id": demo.product_id,
-            "quantity_provided": demo.quantity_provided
-            if hasattr(demo, "quantity_provided") and demo.quantity_provided
-            else 1,
-            "follow_up_date": demo.follow_up_date
-            if hasattr(demo, "follow_up_date") and demo.follow_up_date
-            else None,
-            "conversion_status": demo.conversion_status
-            if hasattr(demo, "conversion_status") and demo.conversion_status
-            else "Scheduled",
-            "notes": demo.notes if hasattr(demo, "notes") and demo.notes else None,
-            "demo_location": demo.demo_location
-            if hasattr(demo, "demo_location") and demo.demo_location
-            else None,
+            "quantity_provided": getattr(demo, "quantity_provided", 1),
+            "follow_up_date": getattr(demo, "follow_up_date", None),
+            "conversion_status": getattr(demo, "conversion_status", "Scheduled"),
+            "notes": getattr(demo, "notes", None),
+            "demo_location": getattr(demo, "demo_location", None),
         }
 
-        response = db.table("demos").insert(demo_data).execute()
+        # Convert empty strings to None to prevent Supabase 400s on constrained types
+        cleaned_data = {}
+        for k, v in demo_data.items():
+            if v == "" or v == " ":
+                cleaned_data[k] = None
+            else:
+                cleaned_data[k] = v
+
+        # Remove explicit None values so Database defaults naturally apply
+        cleaned_data = {k: v for k, v in cleaned_data.items() if v is not None}
+
+        response = db.table("demos").insert(cleaned_data).execute()
 
         if not response.data:
             raise HTTPException(status_code=400, detail="Failed to create demo")
@@ -233,7 +234,16 @@ def update_demo(
 ):
     """Update a demo"""
     try:
-        response = db.table("demos").eq("demo_id", demo_id).update(demo_data).execute()
+        # Clean data
+        cleaned_data = {}
+        for k, v in demo_data.items():
+            if v == "" or v == " ":
+                cleaned_data[k] = None
+            else:
+                cleaned_data[k] = v
+        cleaned_data = {k: v for k, v in cleaned_data.items() if v is not None}
+
+        response = db.table("demos").eq("demo_id", demo_id).update(cleaned_data).execute()
 
         if not response.data:
             raise HTTPException(status_code=404, detail="Demo not found")

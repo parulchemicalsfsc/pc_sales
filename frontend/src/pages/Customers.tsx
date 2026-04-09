@@ -47,6 +47,7 @@ export default function Customers() {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState<Partial<Customer>>({
     name: "",
     mobile: "",
@@ -114,9 +115,12 @@ export default function Customers() {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (!formData.name || !formData.mobile) {
         setError("Name and mobile are required");
+        setSubmitting(false);
         return;
       }
 
@@ -129,12 +133,19 @@ export default function Customers() {
         await customerAPI.create(formData as Customer);
       }
 
+      // Close dialog immediately to prevent duplicate clicks while API completes
       handleCloseDialog();
       loadCustomers();
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.saveError", "Failed to save Sabhasad"));
+    } catch (err: any) {
+      if (err?.isNetworkError || err?.response?.status >= 500) {
+        setError("Network error or server error. Please check if customer was saved before trying again.");
+      } else {
+        setError(err instanceof Error ? err.message : t("customers.saveError", "Failed to save Sabhasad"));
+      }
       console.error("Error saving Sabhasad:", err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -487,9 +498,14 @@ export default function Customers() {
             </Grid>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleCloseDialog}>{t("common.cancel")}</Button>
-            <Button onClick={handleSubmit} variant="contained">
-              {t("common.save")}
+            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={submitting}
+              startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+            >
+              {submitting ? "Saving..." : t("common.save")}
             </Button>
           </DialogActions>
         </Dialog>

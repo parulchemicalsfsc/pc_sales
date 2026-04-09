@@ -34,6 +34,103 @@ def midnight_refresh_job():
     except Exception as e:
         logger.error(f"Midnight refresh failed: {e}")
 
+def run_nightly_scoring():
+    """11:45 PM IST job: re-score all active distributors and bulk-update the DB."""
+    try:
+        from datetime import datetime, date
+        from scoring_engine import score_all_customers
+        db = get_supabase()
+        logger.info("🔄 Nightly scoring job started")
+
+        # ── Step 0: Unfreeze expired callbacks ─────────────────────
+        # Distributors with score_frozen=true whose callback date has passed
+        # should be unfrozen so they get re-scored tonight.
+        today_str = date.today().isoformat()
+        try:
+            frozen_res = db.table("distributors") \
+                .select("distributor_id") \
+                .eq("score_frozen", True) \
+                .execute()
+            frozen_ids = [r["distributor_id"] for r in (frozen_res.data or [])]
+            if frozen_ids:
+                for did in frozen_ids:
+                    cb_res = db.table("calling_assignments") \
+                        .select("assigned_date") \
+                        .eq("customer_id", did) \
+                        .eq("reason", "Scheduled Callback") \
+                        .eq("status", "Pending") \
+                        .execute()
+                    future_callbacks = [
+                        r for r in (cb_res.data or [])
+                        if r.get("assigned_date", "") >= today_str
+                    ]
+                    if not future_callbacks:
+                        db.table("distributors") \
+                            .eq("distributor_id", did) \
+                            .update({"score_frozen": False})
+                        logger.info(f"Unfroze distributor {did} — callback expired")
+        except Exception as e:
+            logger.warning(f"Callback unfreeze check failed (non-fatal): {e}")
+
+        # ── Step 1: Fetch all active, non-frozen distributors ──────
+        dist_res = db.table("distributors") \
+            .select("*") \
+            .eq("status", "Active") \
+            .eq("score_frozen", False) \
+            .execute()
+        distributors = dist_res.data or []
+
+        if not distributors:
+            logger.info("No active non-frozen distributors to score")
+            return
+
+        # ── Step 2: Map distributor columns → scoring keys ─────────
+        # Column mapping: distributors DB column → scoring_engine key
+        COLUMN_MAP = {
+            "animal_delivery_period":           "delivery_period",
+            "payment_recovery_demo":            "demo_days",
+            "payment_recovery_dispatch":        "dispatch_days",
+            "high_holder_to_low_holder_villages": "high_low_holder",
+            "current_status_of_business":       "current_business",
+            "nature_of_sabhasad":               "nature_sabhasad",
+            "support":                          "support",
+        }
+
+        mapped_list = []
+        for dist in distributors:
+            mapped = {"distributor_id": dist["distributor_id"]}
+            for db_col, score_key in COLUMN_MAP.items():
+                mapped[score_key] = dist.get(db_col)
+            mapped_list.append(mapped)
+
+        # ── Step 3: Score all distributors ──────────────────────────
+        scored = score_all_customers(mapped_list)
+
+        # ── Step 4: Single bulk upsert ─────────────────────────────
+        now_ts = datetime.utcnow().isoformat()
+        upsert_list = []
+        for item in scored:
+            upsert_list.append({
+                "distributor_id": item["distributor_id"],
+                "priority_score":  item["priority_score"],
+                "priority_label":  item["priority_label"],
+                "score_season":    item["score_season"],
+                "score_payment":   item["score_payment"],
+                "score_holder":    item["score_holder"],
+                "score_business":  item["score_business"],
+                "score_sabhasad":  item["score_sabhasad"],
+                "score_support":   item["score_support"],
+                "score_updated_at": now_ts,
+            })
+
+        db.table("distributors").upsert(upsert_list).execute()
+
+        logger.info(f"✅ Nightly scoring complete — {len(upsert_list)} distributors scored at {now_ts}")
+
+    except Exception as e:
+        logger.error(f"Nightly scoring failed: {e}")
+
+
 def start_scheduler():
     """
     Start APScheduler with single-worker guard.
@@ -58,8 +155,16 @@ def start_scheduler():
             name="Midnight Refresh — Clear Pending",
             replace_existing=True
         )
+        # 11:45 PM IST (UTC+5:30 = 6:15 PM UTC)
+        scheduler.add_job(
+            run_nightly_scoring,
+            trigger=CronTrigger(hour=18, minute=15),
+            id="nightly_scoring",
+            name="Nightly Priority Scoring at 11:45 PM IST",
+            replace_existing=True
+        )
         scheduler.start()
-        logger.info("✅ Scheduler ENABLED — midnight refresh + 10 AM distribution")
+        logger.info("✅ Scheduler ENABLED — midnight refresh + 10 AM distribution + 11:45 PM scoring")
     else:
         logger.info("⏸️ Scheduler DISABLED — set SCHEDULER_ENABLED=1 to enable")
 
