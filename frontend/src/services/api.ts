@@ -352,6 +352,54 @@ export const distributorAPI = {
   },
 };
 
+// Shopkeeper API
+export const shopkeeperAPI = {
+  getAll: async (params?: any) => {
+    const response = await apiClient.get("/api/shopkeepers", { params });
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await apiClient.get(`/api/shopkeepers/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await apiClient.post("/api/shopkeepers", data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await apiClient.put(`/api/shopkeepers/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await apiClient.delete(`/api/shopkeepers/${id}`);
+    return response.data;
+  },
+};
+
+// Doctor API
+export const doctorAPI = {
+  getAll: async (params?: any) => {
+    const response = await apiClient.get("/api/doctors", { params });
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await apiClient.get(`/api/doctors/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await apiClient.post("/api/doctors", data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await apiClient.put(`/api/doctors/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await apiClient.delete(`/api/doctors/${id}`);
+    return response.data;
+  },
+};
+
 // Sales API
 export const salesAPI = {
   getAll: async (params?: any) => {

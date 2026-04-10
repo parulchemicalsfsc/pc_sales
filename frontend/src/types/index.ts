@@ -150,6 +150,73 @@ export interface Distributor {
   updated_date?: string;
 }
 
+
+export interface Shopkeeper {
+  shopkeeper_id?: number;
+  record_date?: string;
+  state?: string;
+  village?: string;
+  taluka?: string;
+  district?: string;
+  mantri_name?: string;
+  mantri_mobile?: string;
+  sabhasad_count?: number;
+  sabhasad_morning?: number;
+  sabhasad_evening?: number;
+  dairy_type?: string;
+  dairy_time_morning?: string;
+  dairy_time_evening?: string;
+  milk_collection_morning?: number;
+  milk_collection_evening?: number;
+  nature_of_sabhasad?: string;
+  support?: string;
+  animal_delivery_period?: string;
+  payment_recovery_demo?: number;
+  payment_recovery_dispatch?: number;
+  decision_maker_availability_morning?: string;
+  decision_maker_availability_evening?: string;
+  high_holder_to_low_holder_villages?: string;
+  current_status_of_business?: string;
+  contact_in_group?: number;
+  status?: string;
+  created_date?: string;
+  updated_date?: string;
+}
+
+
+export interface Doctor {
+  doctor_id?: number;
+  record_date?: string;
+  state?: string;
+  village?: string;
+  taluka?: string;
+  district?: string;
+  mantri_name?: string;
+  mantri_mobile?: string;
+  sabhasad_count?: number;
+  sabhasad_morning?: number;
+  sabhasad_evening?: number;
+  dairy_type?: string;
+  dairy_time_morning?: string;
+  dairy_time_evening?: string;
+  milk_collection_morning?: number;
+  milk_collection_evening?: number;
+  nature_of_sabhasad?: string;
+  support?: string;
+  animal_delivery_period?: string;
+  payment_recovery_demo?: number;
+  payment_recovery_dispatch?: number;
+  decision_maker_availability_morning?: string;
+  decision_maker_availability_evening?: string;
+  high_holder_to_low_holder_villages?: string;
+  current_status_of_business?: string;
+  contact_in_group?: number;
+  status?: string;
+  created_date?: string;
+  updated_date?: string;
+}
+
+
 export interface DashboardMetrics {
   total_sales: number;
   total_payments: number;
