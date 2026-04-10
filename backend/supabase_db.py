@@ -438,6 +438,40 @@ def init_supabase_db():
     );
 
     -- ===================================
+    -- Shopkeepers Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS shopkeepers (
+        shopkeeper_id SERIAL PRIMARY KEY,
+        name TEXT,
+        village TEXT,
+        taluka TEXT,
+        district TEXT,
+        mantri_name TEXT,
+        mantri_mobile TEXT,
+        sabhasad_count INTEGER DEFAULT 0,
+        contact_in_group INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
+    -- Doctors Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS doctors (
+        doctor_id SERIAL PRIMARY KEY,
+        name TEXT,
+        village TEXT,
+        taluka TEXT,
+        district TEXT,
+        mantri_name TEXT,
+        mantri_mobile TEXT,
+        sabhasad_count INTEGER DEFAULT 0,
+        contact_in_group INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
     -- Sale Items Table
     -- ===================================
     CREATE TABLE IF NOT EXISTS sale_items (

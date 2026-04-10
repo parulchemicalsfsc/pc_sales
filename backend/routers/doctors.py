@@ -25,6 +25,10 @@ def get_doctors(db: SupabaseClient = Depends(get_supabase)):
         return response.data
     except Exception as e:
         print("❌ GET ERROR:", str(e))
+        # If the table doesn't exist yet, return empty list gracefully
+        if "404" in str(e) or "Not Found" in str(e):
+            print("Warning: doctors table might not exist yet.")
+            return []
         raise HTTPException(
             status_code=500, detail=f"Error fetching doctors: {str(e)}"
         )

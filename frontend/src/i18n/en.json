@@ -545,9 +545,9 @@
   },
   "shopkeepers": {
     "title": "Shopkeeper",
-    "addDistributor": "Add Shopkeeper",
-    "editDistributor": "Edit Shopkeeper",
-    "deleteDistributor": "Delete Shopkeeper",
+    "addShopkeeper": "Add Shopkeeper",
+    "editShopkeeper": "Edit Shopkeeper",
+    "deleteShopkeeper": "Delete Shopkeeper",
     "contactPerson": "Contact Person",
     "mobile": "Mobile",
     "area": "Area",
@@ -558,13 +558,13 @@
     "deletedSuccessfully": "Shopkeeper deleted successfully",
     "savedSuccessfully": "Shopkeeper saved successfully",
     "deleteError": "Failed to delete Shopkeeper",
-    "noDistributors": "No Shopkeeper found"
+    "noShopkeepers": "No Shopkeeper found"
   },
   "doctors": {
     "title": "Doctor",
-    "addDistributor": "Add Doctor",
-    "editDistributor": "Edit Doctor",
-    "deleteDistributor": "Delete Doctor",
+    "addDoctor": "Add Doctor",
+    "editDoctor": "Edit Doctor",
+    "deleteDoctor": "Delete Doctor",
     "contactPerson": "Contact Person",
     "mobile": "Mobile",
     "area": "Area",
@@ -575,6 +575,6 @@
     "deletedSuccessfully": "Doctor deleted successfully",
     "savedSuccessfully": "Doctor saved successfully",
     "deleteError": "Failed to delete Doctor",
-    "noDistributors": "No Doctor found"
+    "noDoctors": "No Doctor found"
   }
 }
