@@ -65,6 +65,7 @@ const MODULE_COLORS: Record<string, string> = {
     "Calling List": "#ec4899",
     "Products & Pricing": "#84cc16",
     "Data Import": "#64748b",
+    Chat: "#06b6d4",
     Admin: "#dc2626",
 };
 

@@ -581,296 +581,296 @@ export default function Layout({
           hasPermission(PERMISSIONS.VIEW_USERS) ||
           hasPermission(PERMISSIONS.MANAGE_PRICING) ||
           hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
-          <>
-            <Divider sx={{ my: 1 }} />
-            {hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) && (
-              <ListItem disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation("/call-distribution")}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: isActive("/call-distribution")
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(244, 67, 54, 0.16)"
-                        : "rgba(211, 47, 47, 0.08)"
-                      : "transparent",
-                    color: isActive("/call-distribution")
-                      ? "error.main"
-                      : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(244, 67, 54, 0.08)"
-                          : "rgba(211, 47, 47, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+            <>
+              <Divider sx={{ my: 1 }} />
+              {hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation("/call-distribution")}
                     sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive("/call-distribution")
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(244, 67, 54, 0.16)"
+                          : "rgba(211, 47, 47, 0.08)"
+                        : "transparent",
                       color: isActive("/call-distribution")
                         ? "error.main"
                         : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
-                      justifyContent: "center",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(244, 67, 54, 0.08)"
+                            : "rgba(211, 47, 47, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    <AdminIcon />
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t("nav.callDistribution", "Call Distribution")}
-                      primaryTypographyProps={{
-                        fontWeight: isActive("/call-distribution") ? 600 : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: isActive("/call-distribution")
+                          ? "error.main"
+                          : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            )}
-            {hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) && (
-              <ListItem disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation("/admin")}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: isActive("/admin")
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(244, 67, 54, 0.16)"
-                        : "rgba(211, 47, 47, 0.08)"
-                      : "transparent",
-                    color: isActive("/admin") ? "error.main" : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(244, 67, 54, 0.08)"
-                          : "rgba(211, 47, 47, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+                    >
+                      <AdminIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t("nav.callDistribution", "Call Distribution")}
+                        primaryTypographyProps={{
+                          fontWeight: isActive("/call-distribution") ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
+              {hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation("/admin")}
                     sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive("/admin")
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(244, 67, 54, 0.16)"
+                          : "rgba(211, 47, 47, 0.08)"
+                        : "transparent",
                       color: isActive("/admin") ? "error.main" : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
-                      justifyContent: "center",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(244, 67, 54, 0.08)"
+                            : "rgba(211, 47, 47, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    <HistoryIcon />
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t("nav.activityLogs", "Activity Logs")}
-                      primaryTypographyProps={{
-                        fontWeight: isActive("/admin") ? 600 : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: isActive("/admin") ? "error.main" : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            )}
-            {hasPermission(PERMISSIONS.VIEW_USERS) && (
-              <ListItem disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation("/user-management")}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: isActive("/user-management")
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(244, 67, 54, 0.16)"
-                        : "rgba(211, 47, 47, 0.08)"
-                      : "transparent",
-                    color: isActive("/user-management")
-                      ? "error.main"
-                      : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(244, 67, 54, 0.08)"
-                          : "rgba(211, 47, 47, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+                    >
+                      <HistoryIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t("nav.activityLogs", "Activity Logs")}
+                        primaryTypographyProps={{
+                          fontWeight: isActive("/admin") ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
+              {hasPermission(PERMISSIONS.VIEW_USERS) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation("/user-management")}
                     sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive("/user-management")
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(244, 67, 54, 0.16)"
+                          : "rgba(211, 47, 47, 0.08)"
+                        : "transparent",
                       color: isActive("/user-management")
                         ? "error.main"
                         : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
-                      justifyContent: "center",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(244, 67, 54, 0.08)"
+                            : "rgba(211, 47, 47, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    <ManageAccountsIcon />
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t("nav.userManagement", "User Management")}
-                      primaryTypographyProps={{
-                        fontWeight: isActive("/user-management") ? 600 : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: isActive("/user-management")
+                          ? "error.main"
+                          : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            )}
-            {hasPermission(PERMISSIONS.MANAGE_PRICING) && (
-              <ListItem disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation("/product-pricing")}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: isActive("/product-pricing")
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(244, 67, 54, 0.16)"
-                        : "rgba(211, 47, 47, 0.08)"
-                      : "transparent",
-                    color: isActive("/product-pricing")
-                      ? "error.main"
-                      : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(244, 67, 54, 0.08)"
-                          : "rgba(211, 47, 47, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+                    >
+                      <ManageAccountsIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t("nav.userManagement", "User Management")}
+                        primaryTypographyProps={{
+                          fontWeight: isActive("/user-management") ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
+              {hasPermission(PERMISSIONS.MANAGE_PRICING) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation("/product-pricing")}
                     sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive("/product-pricing")
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(244, 67, 54, 0.16)"
+                          : "rgba(211, 47, 47, 0.08)"
+                        : "transparent",
                       color: isActive("/product-pricing")
                         ? "error.main"
                         : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
-                      justifyContent: "center",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(244, 67, 54, 0.08)"
+                            : "rgba(211, 47, 47, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    <MoneyIcon />
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t("nav.productPricing", "Product Pricing")}
-                      primaryTypographyProps={{
-                        fontWeight: isActive("/product-pricing") ? 600 : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: isActive("/product-pricing")
+                          ? "error.main"
+                          : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            )}
-            {hasPermission(PERMISSIONS.MANAGE_ROLES) && (
-              <ListItem disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation(roleManagementNavItem.path)}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: isActive(roleManagementNavItem.path)
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(244, 67, 54, 0.16)"
-                        : "rgba(211, 47, 47, 0.08)"
-                      : "transparent",
-                    color: isActive(roleManagementNavItem.path)
-                      ? "error.main"
-                      : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(244, 67, 54, 0.08)"
-                          : "rgba(211, 47, 47, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+                    >
+                      <MoneyIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t("nav.productPricing", "Product Pricing")}
+                        primaryTypographyProps={{
+                          fontWeight: isActive("/product-pricing") ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
+              {hasPermission(PERMISSIONS.MANAGE_ROLES) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation(roleManagementNavItem.path)}
                     sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive(roleManagementNavItem.path)
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(244, 67, 54, 0.16)"
+                          : "rgba(211, 47, 47, 0.08)"
+                        : "transparent",
                       color: isActive(roleManagementNavItem.path)
                         ? "error.main"
                         : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
-                      justifyContent: "center",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(244, 67, 54, 0.08)"
+                            : "rgba(211, 47, 47, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    <ShieldIcon />
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t(
-                        roleManagementNavItem.labelKey,
-                        "Role Management",
-                      )}
-                      primaryTypographyProps={{
-                        fontWeight: isActive(roleManagementNavItem.path)
-                          ? 600
-                          : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: isActive(roleManagementNavItem.path)
+                          ? "error.main"
+                          : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            )}
-          </>
-        )}
+                    >
+                      <ShieldIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t(
+                          roleManagementNavItem.labelKey,
+                          "Role Management",
+                        )}
+                        primaryTypographyProps={{
+                          fontWeight: isActive(roleManagementNavItem.path)
+                            ? 600
+                            : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
+            </>
+          )}
       </List>
     </Box>
   );
@@ -918,13 +918,13 @@ export default function Layout({
               : location.pathname === "/product-pricing"
                 ? t("nav.productPricing", "Product Pricing")
                 : navigationItems.find(
-                      (item) => item.path === location.pathname,
-                    )
+                  (item) => item.path === location.pathname,
+                )
                   ? t(
-                      navigationItems.find(
-                        (item) => item.path === location.pathname,
-                      )?.labelKey || "nav.dashboard",
-                    )
+                    navigationItems.find(
+                      (item) => item.path === location.pathname,
+                    )?.labelKey || "nav.dashboard",
+                  )
                   : t("nav.dashboard")}
           </Typography>
 
@@ -1126,7 +1126,7 @@ export default function Layout({
           sx={{
             p: location.pathname === "/chat" ? 0
               : location.pathname === "/calling-list" ? { xs: 1, sm: 1.5, md: 2 }
-              : { xs: 1.5, sm: 2.5, md: 3 },
+                : { xs: 1.5, sm: 2.5, md: 3 },
             maxWidth: "100%",
             overflowX: "hidden",
             height: location.pathname === "/chat" ? "calc(100vh - 64px)" : "auto",
@@ -1173,11 +1173,10 @@ export default function Layout({
             p: 2,
             minWidth: 280,
             borderRadius: 3,
-            borderLeft: `6px solid ${
-              activityToast?.severity === "success"
+            borderLeft: `6px solid ${activityToast?.severity === "success"
                 ? theme.palette.success.main
                 : theme.palette.info.main
-            }`,
+              }`,
             bgcolor: theme.palette.background.paper,
             color: theme.palette.text.primary,
           }}

@@ -26,6 +26,7 @@ export interface ChatMessage {
   content: string;
   mentions: string[];
   is_deleted: boolean;
+  is_edited: boolean;
   created_at: string;
 }
 
@@ -93,8 +94,7 @@ export function useChat(currentUserEmail: string | null | undefined) {
       const { data: convs, error: cErr } = await supabase
         .from("chat_conversations")
         .select("*")
-        .in("conversation_id", convIds)
-        .eq("type", "group");
+        .in("conversation_id", convIds);
       if (cErr || !convs) return;
 
       const { data: allParticipants } = await supabase
@@ -102,56 +102,46 @@ export function useChat(currentUserEmail: string | null | undefined) {
         .select("conversation_id, user_email")
         .in("conversation_id", convIds);
 
-      const lastMsgResults = await Promise.allSettled(
-        convIds.map((id: number) =>
-          supabase
-            .from("chat_messages")
-            .select("content, created_at")
-            .eq("conversation_id", id)
-            .eq("is_deleted", false)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle()  // returns null (not error) when conversation has no messages
-        )
-      );
-
+      // 1. Fetch read receipts
       const { data: receipts } = await supabase
         .from("chat_read_receipts")
         .select("conversation_id, last_read_at")
         .eq("user_email", currentUserEmail)
         .in("conversation_id", convIds);
 
-      const unreadResults = await Promise.all(
-        convIds.map(async (id: number) => {
-          const receipt = receipts?.find((r: any) => r.conversation_id === id);
-          // If no read receipt exists yet, default to start of time so all messages count as unread until user opens chat
-          const since = receipt?.last_read_at || "1970-01-01T00:00:00.000Z";
-          const { data } = await supabase
-            .from("chat_messages")
-            .select("*")
-            .eq("conversation_id", id)
-            .eq("is_deleted", false)
-            .gt("created_at", since)
-            .neq("sender_email", currentUserEmail);
-            
-          // Client-side filtering for mentions to safely avoid PostgREST parsing errors
-          const filteredCount = (data || []).filter((msg: any) => {
-            const hasMentions = msg.mentions && msg.mentions.length > 0;
-            const isMentioned = hasMentions && msg.mentions.includes(currentUserEmail);
-            return !hasMentions || isMentioned;
-          }).length;
-          
-          return { id, count: filteredCount };
-        })
-      );
+      // 2. Fetch recent messages batched in ONE query to eliminate N+1 loops
+      const { data: recentMsgs } = await supabase
+        .from("chat_messages")
+        .select("conversation_id, content, created_at, sender_email, mentions")
+        .in("conversation_id", convIds)
+        .eq("is_deleted", false)
+        .order("created_at", { ascending: false })
+        .limit(3000);
+
+      const msgsData = recentMsgs || [];
+
+      // Process last msg and unreads locally per conversation
+      const convStats = convIds.map((id: number) => {
+        const convMsgs = msgsData.filter((m: any) => m.conversation_id === id);
+        const lastMsg = convMsgs.length > 0 ? convMsgs[0] : null;
+
+        const receipt = receipts?.find((r: any) => r.conversation_id === id);
+        const sinceDate = new Date(receipt?.last_read_at || "1970-01-01T00:00:00.000Z").getTime();
+
+        const unreads = convMsgs.filter((m: any) => {
+          if (m.sender_email === currentUserEmail) return false;
+          if (new Date(m.created_at).getTime() <= sinceDate) return false;
+          const hasMentions = m.mentions && m.mentions.length > 0;
+          return !hasMentions || m.mentions.includes(currentUserEmail);
+        });
+
+        return { id, lastMsg, unreadCount: unreads.length };
+      });
 
       const enriched: Conversation[] = convs.map((c: any) => {
-        const idx = convIds.indexOf(c.conversation_id);
-        const lastMsgResult = lastMsgResults[idx];
-        const lastMsg =
-          lastMsgResult.status === "fulfilled" && lastMsgResult.value.data
-            ? lastMsgResult.value.data : null;
-        const unread = unreadResults.find((u) => u.id === c.conversation_id);
+        const stats = convStats.find((s) => s.id === c.conversation_id);
+        const lastMsg = stats?.lastMsg || null;
+        const unreadCount = stats?.unreadCount || 0;
 
         let partner: AppUser | undefined;
         if (c.type === "direct" && allParticipants) {
@@ -170,7 +160,7 @@ export function useChat(currentUserEmail: string | null | undefined) {
           name: c.type === "group" ? c.name : null,
           partner,
           last_message_at: lastMsg?.created_at || c.created_at,
-          unread_count: unread?.count ?? 0,
+          unread_count: unreadCount ?? 0,
         };
       });
 
@@ -279,6 +269,33 @@ export function useChat(currentUserEmail: string | null | undefined) {
               };
             })
           );
+        }
+      )
+      // ── Handle edits & soft-deletes in real time ──────────────────────────
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "chat_messages",
+          filter: `conversation_id=eq.${convId}`,
+        },
+        (payload) => {
+          const updatedMsg = payload.new as any;
+          if (activeConvIdRef.current === convId) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.message_id === updatedMsg.message_id
+                  ? {
+                      ...m,
+                      content: updatedMsg.content,
+                      is_deleted: updatedMsg.is_deleted,
+                      is_edited: updatedMsg.is_edited,
+                    }
+                  : m
+              )
+            );
+          }
         }
       )
       .subscribe();
@@ -484,6 +501,36 @@ export function useChat(currentUserEmail: string | null | undefined) {
     loadConversations();
   }, [currentUserEmail, users, loadConversations]);
 
+  // ── Edit message ─────────────────────────────────────────────────────────
+  const editMessage = useCallback(
+    async (messageId: number, newContent: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const { chatAPI } = await import("../services/api");
+        await chatAPI.editMessage(messageId, newContent);
+        return { success: true };
+      } catch (err: any) {
+        const msg = err?.response?.data?.detail || "Failed to edit message.";
+        return { success: false, error: msg };
+      }
+    },
+    []
+  );
+
+  // ── Delete message ───────────────────────────────────────────────────────
+  const deleteMessage = useCallback(
+    async (messageId: number): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const { chatAPI } = await import("../services/api");
+        await chatAPI.deleteMessage(messageId);
+        return { success: true };
+      } catch (err: any) {
+        const msg = err?.response?.data?.detail || "Failed to delete message.";
+        return { success: false, error: msg };
+      }
+    },
+    []
+  );
+
   const totalUnread = conversations.reduce((sum, c) => sum + c.unread_count, 0);
 
   return {
@@ -497,6 +544,8 @@ export function useChat(currentUserEmail: string | null | undefined) {
     totalUnread,
     switchConversation,
     sendMessage,
+    editMessage,
+    deleteMessage,
     startDM,
     getUserName,
     reloadConversations: loadConversations,

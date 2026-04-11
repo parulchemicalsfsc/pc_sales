@@ -8,6 +8,7 @@ from routers import (
     algorithm,
     analytics,
     automation,
+    chat,
     customers,
     dashboard,
     demos,
@@ -82,3 +83,4 @@ app.include_router(notifications, prefix="/api/notifications")
 app.include_router(rbac, prefix="/api/rbac")
 app.include_router(sessions, prefix="/api/user-sessions")
 app.include_router(forecasting, prefix="/api/forecasting")
+app.include_router(chat, prefix="/api/chat")

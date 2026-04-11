@@ -80,6 +80,9 @@ export const PERMISSIONS = {
     // Algorithm
     RUN_ALGORITHM: "run_algorithm",
 
+    // Chat
+    DELETE_MESSAGE: "delete_message",
+
     // Admin
     VIEW_ACTIVITY_LOGS: "view_activity_logs",
     MANAGE_ACTIVITY_LOGS: "manage_activity_logs",
