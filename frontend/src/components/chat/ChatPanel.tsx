@@ -1,6 +1,8 @@
-import React, { useState } from "react";
-import { Box, Typography, useTheme } from "@mui/material";
+import React from "react";
+import { Box } from "@mui/material";
 import { useChat } from "../../hooks/useChat";
+import { useAuth } from "../../contexts/AuthContext";
+import { PERMISSIONS } from "../../config/permissions";
 
 import MessageThread from "./MessageThread";
 import MessageInput from "./MessageInput";
@@ -11,14 +13,13 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ currentUserEmail }: ChatPanelProps) {
-  const theme = useTheme();
+  const { hasPermission } = useAuth();
 
   React.useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, []);
-
 
   const {
     conversations,
@@ -30,9 +31,14 @@ export default function ChatPanel({ currentUserEmail }: ChatPanelProps) {
     sendingMsg,
     switchConversation,
     sendMessage,
+    editMessage,
+    deleteMessage,
   } = useChat(currentUserEmail);
 
   const activeConv = conversations.find((c) => c.conversation_id === activeConvId) ?? null;
+
+  /** True when the logged-in user holds the moderator delete permission */
+  const canDeleteAsAdmin = hasPermission(PERMISSIONS.DELETE_MESSAGE);
 
   return (
     <Box
@@ -51,6 +57,9 @@ export default function ChatPanel({ currentUserEmail }: ChatPanelProps) {
           loading={loadingMsgs}
           currentUserEmail={currentUserEmail}
           users={users}
+          canDeleteAsAdmin={canDeleteAsAdmin}
+          onEdit={editMessage}
+          onDelete={deleteMessage}
         />
         {activeConv && (
           <MessageInput

@@ -32,46 +32,44 @@ def get_sales_trend(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get sales trend analysis by interval (daily, weekly, monthly)
-    using optimized Database RPC
+    FIX-9: Get sales trend — filter at DB level, not in Python.
+    Previously fetched ALL sales across all time and filtered in Python.
+    Now sends date range to DB so only matching rows are returned.
     """
     try:
-        # Default date range (last 30 days)
         if not end_date:
             end_date = datetime.now().strftime("%Y-%m-%d")
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-        # Parse start/end dates
         try:
-            start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
-             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        print(f"=== SALES TREND API CALLED (PYTHON) ===")
+        print(f"=== SALES TREND API CALLED ===")
         print(f"Interval: {interval}, Start: {start_date}, End: {end_date}")
 
-        # Fetch ALL sales (since dataset is small and filtering TEXT dates in SQL is unreliable)
-        query = db.table("sales").select("sale_date, total_amount, total_liters")
-        response = query.execute()
+        # FIX-9: Filter at DB level — only fetch rows in the date range
+        response = (
+            db.table("sales")
+            .select("sale_date, total_amount, total_liters")
+            .gte("sale_date", start_date)
+            .lte("sale_date", end_date)
+            .execute()
+        )
         sales_data = response.data or []
 
-        # Aggregate data in Python
+        # Group by interval in Python — dataset is now small (only the date window)
         trends = {}
-        
         for sale in sales_data:
             date_str = sale.get("sale_date")
             if not date_str:
                 continue
-                
             try:
                 sale_date = datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
-                continue
-            
-            # Filter by date range
-            if not (start_date_dt <= sale_date <= end_date_dt):
                 continue
 
             if interval == "daily":
@@ -84,27 +82,20 @@ def get_sales_trend(
                 key = date_str
 
             if key not in trends:
-                trends[key] = {
-                    "period": key,
-                    "sales_count": 0,
-                    "total_amount": 0,
-                    "total_liters": 0
-                }
-            
-            trends[key]["sales_count"] += 1
-            trends[key]["total_amount"] += sale.get("total_amount", 0)
-            trends[key]["total_liters"] += sale.get("total_liters", 0)
+                trends[key] = {"period": key, "sales_count": 0, "total_amount": 0, "total_liters": 0}
 
-        # Convert to list and sort
+            trends[key]["sales_count"] += 1
+            trends[key]["total_amount"] += sale.get("total_amount", 0) or 0
+            trends[key]["total_liters"] += sale.get("total_liters", 0) or 0
+
         trends_list = sorted(trends.values(), key=lambda x: x["period"])
-        
         return {"trends": trends_list}
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in get_sales_trend: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching sales trend: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error fetching sales trend: {str(e)}")
 
 
 
@@ -119,8 +110,9 @@ def get_analytics_summary(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get KPI summary: total sales amount, liters, orders, avg order value,
-    top district, top product. Supports filtering by date, district, village, product.
+    FIX-10: Get KPI summary — use targeted queries with DB-level date filtering.
+    Previously: fetched ALL of 4 full tables, joined and filtered everything in Python.
+    Now: only fetches the date-window rows needed, with minimal columns.
     """
     try:
         if not end_date:
@@ -129,56 +121,57 @@ def get_analytics_summary(
             start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
 
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        # Fetch all sales with customer info
-        sales_resp = db.table("sales").select("sale_id, sale_date, total_amount, total_liters, customer_id").execute()
+        # FIX-10: Fetch only rows within the date range with minimal columns
+        sales_resp = (
+            db.table("sales")
+            .select("sale_id, total_amount, total_liters, customer_id")
+            .gte("sale_date", start_date)
+            .lte("sale_date", end_date)
+            .execute()
+        )
         all_sales = sales_resp.data or []
 
-        # Fetch all customers (for district/village filter)
-        customers_resp = db.table("customers").select("customer_id, name, village, district").execute()
-        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+        # Fetch only customers we actually need (by IDs in the filtered sales)
+        customer_ids = list({s["customer_id"] for s in all_sales if s.get("customer_id")})
+        customers_dict = {}
+        if customer_ids:
+            # PostgREST can filter by list using in_
+            customers_resp = (
+                db.table("customers")
+                .select("customer_id, name, village, district")
+                .in_("customer_id", customer_ids)
+                .execute()
+            )
+            customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
 
-        # Fetch all sale_items with product info (for product filter + top product)
-        items_resp = db.table("sale_items").select("sale_id, product_id, quantity, amount").execute()
-        all_items = items_resp.data or []
-
-        # Fetch products
-        products_resp = db.table("products").select("product_id, product_name, packing_type, capacity_ltr").execute()
-        products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
-
-        # Build set of sale_ids that match the product_id filter
-        filtered_sale_ids_by_product = None
-        if product_id is not None:
-            filtered_sale_ids_by_product = {
-                item["sale_id"] for item in all_items if item.get("product_id") == product_id
-            }
-
-        # Filter sales
+        # Apply district/village filters in Python (small dataset now)
         filtered_sales = []
         for sale in all_sales:
-            date_str = sale.get("sale_date")
-            if not date_str:
-                continue
-            try:
-                sale_date = datetime.strptime(date_str, "%Y-%m-%d")
-            except ValueError:
-                continue
-            if not (start_dt <= sale_date <= end_dt):
-                continue
-
             customer = customers_dict.get(sale.get("customer_id"), {})
             if district and customer.get("district", "").strip() != district.strip():
                 continue
             if village and customer.get("village", "").strip() != village.strip():
                 continue
-            if filtered_sale_ids_by_product is not None and sale.get("sale_id") not in filtered_sale_ids_by_product:
-                continue
-
             filtered_sales.append({**sale, "customer": customer})
+
+        # Product filter — only if specified
+        if product_id is not None:
+            filtered_sale_ids = {s["sale_id"] for s in filtered_sales}
+            if filtered_sale_ids:
+                items_resp = (
+                    db.table("sale_items")
+                    .select("sale_id")
+                    .eq("product_id", product_id)
+                    .in_("sale_id", list(filtered_sale_ids))
+                    .execute()
+                )
+                matching_ids = {item["sale_id"] for item in (items_resp.data or [])}
+                filtered_sales = [s for s in filtered_sales if s["sale_id"] in matching_ids]
 
         # Compute KPIs
         total_orders = len(filtered_sales)
@@ -194,24 +187,32 @@ def get_analytics_summary(
         top_district = max(district_revenue, key=district_revenue.get) if district_revenue else None
         top_district_amount = district_revenue.get(top_district, 0) if top_district else 0
 
-        # Top product (from sale_items for filtered sale_ids)
+        # Top product — fetch sale_items only for the filtered sale IDs
         filtered_sale_id_set = {s["sale_id"] for s in filtered_sales}
-        product_revenue: dict = {}
-        for item in all_items:
-            if item.get("sale_id") not in filtered_sale_id_set:
-                continue
-            pid = item.get("product_id")
-            if pid is None:
-                continue
-            product_revenue[pid] = product_revenue.get(pid, 0) + (item.get("amount") or 0)
-
-        top_product_id = max(product_revenue, key=product_revenue.get) if product_revenue else None
         top_product_name = None
         top_product_amount = 0
-        if top_product_id:
-            prod = products_dict.get(top_product_id, {})
-            top_product_name = prod.get("product_name")
-            top_product_amount = product_revenue.get(top_product_id, 0)
+        if filtered_sale_id_set:
+            items_resp = (
+                db.table("sale_items")
+                .select("sale_id, product_id, amount, products(product_name)")
+                .in_("sale_id", list(filtered_sale_id_set))
+                .execute()
+            )
+            product_revenue: dict = {}
+            product_names: dict = {}
+            for item in (items_resp.data or []):
+                pid = item.get("product_id")
+                if pid is None:
+                    continue
+                product_revenue[pid] = product_revenue.get(pid, 0) + (item.get("amount") or 0)
+                if pid not in product_names:
+                    prod = item.get("products") or {}
+                    product_names[pid] = prod.get("product_name", "Unknown")
+
+            if product_revenue:
+                top_product_id = max(product_revenue, key=product_revenue.get)
+                top_product_name = product_names.get(top_product_id)
+                top_product_amount = product_revenue.get(top_product_id, 0)
 
         return {
             "total_orders": total_orders,
@@ -228,7 +229,7 @@ def get_analytics_summary(
                 "district": district,
                 "village": village,
                 "product_id": product_id,
-            }
+            },
         }
 
     except HTTPException:
@@ -249,8 +250,9 @@ def get_dimension_breakdown(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Returns a ranked breakdown table by dimension (district/village/product/customer).
-    Supports the same filters as analytics-summary.
+    FIX-11: Returns ranked breakdown by dimension.
+    Previously: fetched ALL of 4 full tables regardless of date range.
+    Now: date filter applied at DB level; only needed customer IDs fetched.
     """
     try:
         if dimension not in ("district", "village", "product", "customer"):
@@ -262,52 +264,60 @@ def get_dimension_breakdown(
             start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
 
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        # Fetch all data
-        sales_resp = db.table("sales").select("sale_id, sale_date, total_amount, total_liters, customer_id").execute()
+        # FIX-11: Only fetch sales in the date window
+        sales_resp = (
+            db.table("sales")
+            .select("sale_id, total_amount, total_liters, customer_id")
+            .gte("sale_date", start_date)
+            .lte("sale_date", end_date)
+            .execute()
+        )
         all_sales = sales_resp.data or []
 
-        customers_resp = db.table("customers").select("customer_id, name, village, district").execute()
-        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+        # Fetch only customers referenced by those sales
+        customer_ids = list({s["customer_id"] for s in all_sales if s.get("customer_id")})
+        customers_dict = {}
+        if customer_ids:
+            customers_resp = (
+                db.table("customers")
+                .select("customer_id, name, village, district")
+                .in_("customer_id", customer_ids)
+                .execute()
+            )
+            customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
 
-        items_resp = db.table("sale_items").select("sale_id, product_id, quantity, amount").execute()
-        all_items = items_resp.data or []
-
-        products_resp = db.table("products").select("product_id, product_name, packing_type, capacity_ltr").execute()
-        products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
-
-        # Product filter — build allowed sale_ids
-        filtered_by_product = None
-        if product_id is not None:
-            filtered_by_product = {item["sale_id"] for item in all_items if item.get("product_id") == product_id}
-
-        # Filter sales
-        filtered_sales = []
+        # Apply district/village filters
+        all_sales_enriched = []
         for sale in all_sales:
-            date_str = sale.get("sale_date")
-            if not date_str:
-                continue
-            try:
-                sale_date = datetime.strptime(date_str, "%Y-%m-%d")
-            except ValueError:
-                continue
-            if not (start_dt <= sale_date <= end_dt):
-                continue
-
             customer = customers_dict.get(sale.get("customer_id"), {})
             if district and customer.get("district", "").strip() != district.strip():
                 continue
             if village and customer.get("village", "").strip() != village.strip():
                 continue
-            if filtered_by_product is not None and sale.get("sale_id") not in filtered_by_product:
-                continue
+            all_sales_enriched.append({**sale, "customer": customer})
 
-            filtered_sales.append({**sale, "customer": customer})
+        # Product filter
+        if product_id is not None:
+            sale_ids = {s["sale_id"] for s in all_sales_enriched}
+            if sale_ids:
+                items_resp = (
+                    db.table("sale_items")
+                    .select("sale_id")
+                    .eq("product_id", product_id)
+                    .in_("sale_id", list(sale_ids))
+                    .execute()
+                )
+                matching_ids = {item["sale_id"] for item in (items_resp.data or [])}
+                all_sales_enriched = [s for s in all_sales_enriched if s["sale_id"] in matching_ids]
+            else:
+                all_sales_enriched = []
 
+        filtered_sales = all_sales_enriched
         total_revenue = sum(s.get("total_amount") or 0 for s in filtered_sales)
         total_liters_all = sum(s.get("total_liters") or 0 for s in filtered_sales)
         filtered_sale_ids = {s["sale_id"] for s in filtered_sales}
@@ -356,22 +366,31 @@ def get_dimension_breakdown(
                 })
 
         elif dimension == "product":
+            # Fetch sale_items for only the filtered sale IDs
+            if filtered_sale_ids:
+                items_resp = (
+                    db.table("sale_items")
+                    .select("sale_id, product_id, quantity, amount, products(product_name, packing_type)")
+                    .in_("sale_id", list(filtered_sale_ids))
+                    .execute()
+                )
+                all_items = items_resp.data or []
+            else:
+                all_items = []
+
             product_groups: dict = {}
             for item in all_items:
-                if item.get("sale_id") not in filtered_sale_ids:
-                    continue
                 pid = item.get("product_id")
                 if pid is None:
                     continue
-                prod = products_dict.get(pid, {})
+                prod = item.get("products") or {}
                 label = prod.get("product_name", "Unknown")
                 packing = prod.get("packing_type") or ""
-                key = pid
-                if key not in product_groups:
-                    product_groups[key] = {"label": label, "packing": packing, "orders": 0, "qty": 0, "revenue": 0}
-                product_groups[key]["orders"] += 1
-                product_groups[key]["qty"] += item.get("quantity") or 0
-                product_groups[key]["revenue"] += item.get("amount") or 0
+                if pid not in product_groups:
+                    product_groups[pid] = {"label": label, "packing": packing, "orders": 0, "qty": 0, "revenue": 0}
+                product_groups[pid]["orders"] += 1
+                product_groups[pid]["qty"] += item.get("quantity") or 0
+                product_groups[pid]["revenue"] += item.get("amount") or 0
 
             product_total = sum(v["revenue"] for v in product_groups.values())
             for vals in product_groups.values():
@@ -380,7 +399,7 @@ def get_dimension_breakdown(
                     "secondary_label": vals["packing"],
                     "orders": vals["orders"],
                     "revenue": round(vals["revenue"], 2),
-                    "liters": round(vals["qty"], 2),  # qty for products
+                    "liters": round(vals["qty"], 2),
                     "pct": round(vals["revenue"] / product_total * 100, 1) if product_total > 0 else 0,
                 })
 
@@ -408,10 +427,7 @@ def get_dimension_breakdown(
                     "pct": round(vals["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
                 })
 
-        # Sort by revenue descending
         rows.sort(key=lambda x: x["revenue"], reverse=True)
-
-        # Add rank
         for i, row in enumerate(rows):
             row["rank"] = i + 1
 
@@ -426,7 +442,7 @@ def get_dimension_breakdown(
                 "district": district,
                 "village": village,
                 "product_id": product_id,
-            }
+            },
         }
 
     except HTTPException:
@@ -469,51 +485,48 @@ def get_payment_trend(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get payment records analysis by interval (daily, weekly, monthly)
+    FIX-12: Get payment trend — filter at DB level, not in Python.
+    Previously fetched ALL payments ever and filtered by date in Python.
+    Now sends date range so only matching rows are returned.
     """
     try:
-        # Default date range (last 30 days)
         if not end_date:
             end_date = datetime.now().strftime("%Y-%m-%d")
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-        # Parse start/end dates
         try:
             start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
             end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError:
-             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        # Fetch ALL payment data with sales info
+        # FIX-12: Filter at DB level — only fetch payments in the date range
         response = (
             db.table("payments")
-            .select("*, sales(invoice_no, customers(name))")
+            .select("payment_id, payment_date, amount, payment_method, sales(invoice_no, customers(name))")
+            .gte("payment_date", start_date)
+            .lte("payment_date", end_date)
             .order("payment_date", desc=False)
             .execute()
         )
 
         payments_data = response.data or []
 
-        # Group payments by interval
+        # Group by interval
         trends = {}
         payment_methods = {}
-        
+
         for payment in payments_data:
             date_str = payment.get("payment_date")
             if not date_str:
                 continue
-                
+
             try:
                 payment_date = datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
                 continue
-            
-            # Filter by date range
-            if not (start_date_dt <= payment_date <= end_date_dt):
-                continue
-            
-            # Determine the key based on interval
+
             if interval == "daily":
                 key = payment_date.strftime("%Y-%m-%d")
             elif interval == "weekly":
@@ -529,37 +542,34 @@ def get_payment_trend(
                     "payment_count": 0,
                     "total_amount": 0,
                     "payment_methods": {},
-                    "payments": []
+                    "payments": [],
                 }
 
             trends[key]["payment_count"] += 1
-            trends[key]["total_amount"] += payment.get("amount", 0)
-            
-            # Track payment methods
+            trends[key]["total_amount"] += payment.get("amount", 0) or 0
+
             method = payment.get("payment_method", "Unknown")
             trends[key]["payment_methods"][method] = trends[key]["payment_methods"].get(method, 0) + 1
-            
-            # Overall payment method tracking
+
             payment_methods[method] = payment_methods.get(method, {"count": 0, "amount": 0})
             payment_methods[method]["count"] += 1
-            payment_methods[method]["amount"] += payment.get("amount", 0)
-            
+            payment_methods[method]["amount"] += payment.get("amount", 0) or 0
+
+            sale = payment.get("sales") or {}
+            customer = sale.get("customers") or {}
             trends[key]["payments"].append({
                 "payment_id": payment.get("payment_id"),
-                "invoice_no": payment.get("sales", {}).get("invoice_no") if payment.get("sales") else None,
-                "customer_name": payment.get("sales", {}).get("customers", {}).get("name") if payment.get("sales") and payment.get("sales").get("customers") else None,
+                "invoice_no": sale.get("invoice_no"),
+                "customer_name": customer.get("name"),
                 "amount": payment.get("amount", 0),
                 "method": method,
-                "date": payment.get("payment_date")
+                "date": date_str,
             })
 
-        # Convert to list and sort
         trend_list = sorted(trends.values(), key=lambda x: x["period"])
 
-        # Calculate summary statistics
         total_payments = sum(t["payment_count"] for t in trend_list)
         total_amount = sum(t["total_amount"] for t in trend_list)
-        
         avg_payments_per_period = total_payments / len(trend_list) if trend_list else 0
         avg_amount_per_period = total_amount / len(trend_list) if trend_list else 0
 
@@ -581,9 +591,7 @@ def get_payment_trend(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generating payment trend: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error generating payment trend: {str(e)}")
 
 
 @router.get("/sales-order-summary-pdf", dependencies=[Depends(verify_permission("export_reports"))])
@@ -679,19 +687,17 @@ def sales_summary(
     user_email: str = Depends(get_user_email),
     db: SupabaseClient = Depends(get_db)
 ):
-    """Get overall sales summary"""
+    """FIX-13: Get overall sales summary — select only needed columns, not SELECT *"""
     try:
-        response = db.table("sales").select("*").execute()
+        response = db.table("sales").select("total_amount, payment_status").execute()
         sales_data = response.data or []
-        
+
         total_sales = len(sales_data)
-        total_amount = sum(sale.get("total_amount", 0) for sale in sales_data)
-        total_liters = sum(sale.get("total_liters", 0) for sale in sales_data)
-        
+        total_amount = sum(sale.get("total_amount", 0) or 0 for sale in sales_data)
+
         return {
             "total_sales": total_sales,
             "total_amount": total_amount,
-            "total_liters": total_liters,
             "average_sale": total_amount / total_sales if total_sales > 0 else 0,
         }
     except Exception as e:

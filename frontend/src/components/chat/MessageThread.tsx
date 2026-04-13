@@ -14,6 +14,9 @@ interface MessageThreadProps {
   loading: boolean;
   currentUserEmail: string;
   users: AppUser[];
+  canDeleteAsAdmin?: boolean;
+  onEdit?: (messageId: number, newContent: string) => Promise<{ success: boolean; error?: string }>;
+  onDelete?: (messageId: number) => Promise<{ success: boolean; error?: string }>;
 }
 
 function isSameDay(a: string, b: string): boolean {
@@ -26,6 +29,9 @@ export default function MessageThread({
   loading,
   currentUserEmail,
   users,
+  canDeleteAsAdmin = false,
+  onEdit,
+  onDelete,
 }: MessageThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -112,7 +118,6 @@ export default function MessageThread({
           py: 1,
           display: "flex",
           flexDirection: "column",
-          // Custom scrollbar
           "&::-webkit-scrollbar": { width: 6 },
           "&::-webkit-scrollbar-thumb": {
             borderRadius: 3,
@@ -146,8 +151,7 @@ export default function MessageThread({
         ) : (
           messages.map((msg, idx) => {
             const prevMsg = messages[idx - 1];
-            const showDate =
-              !prevMsg || !isSameDay(prevMsg.created_at, msg.created_at);
+            const showDate = !prevMsg || !isSameDay(prevMsg.created_at, msg.created_at);
             return (
               <React.Fragment key={msg.message_id}>
                 {showDate && <DateDivider date={msg.created_at} />}
@@ -155,6 +159,9 @@ export default function MessageThread({
                   message={msg}
                   isOwn={msg.sender_email === currentUserEmail}
                   users={users}
+                  canDeleteAsAdmin={canDeleteAsAdmin}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
                 />
               </React.Fragment>
             );
