@@ -49,6 +49,7 @@ export const PERMISSIONS = {
     VIEW_DISTRIBUTORS: "view_distributors",
     CREATE_DISTRIBUTOR: "create_distributor",
     EDIT_DISTRIBUTOR: "edit_distributor",
+    DELETE_DISTRIBUTOR: "delete_distributor",
 
     // Shopkeepers
     VIEW_SHOPKEEPERS: "view_shopkeepers",

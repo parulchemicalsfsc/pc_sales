@@ -1,7 +1,8 @@
 from typing import Optional, List
+import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from models import Distributor
-from supabase_db import SupabaseClient, get_supabase
+from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
 
@@ -199,3 +200,50 @@ async def update_distributor(
                 )
             except Exception:
                 pass
+
+
+@router.delete("/{distributor_id}", dependencies=[Depends(verify_permission("edit_distributor"))])
+def delete_distributor(
+    distributor_id: int,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Delete a distributor"""
+    try:
+        distributor_id = int(distributor_id)
+        print("Deleting ID:", distributor_id)
+
+        url = f"{SUPABASE_URL}/rest/v1/distributors?distributor_id=eq.{distributor_id}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.delete(url, headers=headers)
+        print("DELETE STATUS:", response.status_code)
+        print("DELETE RESPONSE:", response.text)
+
+        if response.status_code not in [200, 204]:
+            raise HTTPException(status_code=500, detail=response.text)
+
+        return {"message": "Distributor deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("DELETE ERROR:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        pass
+        # Temporarily disabling logging per user request
+        # if user_email:
+        #     try:
+        #         logger = get_activity_logger(db)
+        #         logger.log_delete(
+        #             user_email=user_email,
+        #             entity_type="distributor",
+        #             entity_name=f"ID: {distributor_id}",
+        #             entity_id=distributor_id,
+        #         )
+        #     except Exception:
+        #         pass

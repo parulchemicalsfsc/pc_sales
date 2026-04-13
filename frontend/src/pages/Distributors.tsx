@@ -14,6 +14,7 @@ import {
   Chip,
   Alert,
   CircularProgress,
+  Snackbar,
   InputAdornment,
   Grid,
   Divider,
@@ -56,6 +57,30 @@ export default function Distributors() {
     const saved = localStorage.getItem("distributorColumnNames");
     return saved ? JSON.parse(saved) : {};
   });
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null);
+  const [toast, setToast] = useState<{open: boolean; message: string; severity: "success" | "error"}>({ open: false, message: "", severity: "success" });
+
+  const handleDeleteClick = (row: Distributor) => {
+    setSelectedDistributor(row);
+    setDeleteOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedDistributor?.distributor_id) return;
+    try {
+      await distributorAPI.delete(selectedDistributor.distributor_id);
+      setToast({ open: true, message: "Distributor deleted successfully", severity: "success" });
+      loadDistributors();
+    } catch (error: any) {
+      console.error(error);
+      setToast({ open: true, message: error?.message || "Failed to delete distributor", severity: "error" });
+    } finally {
+      setDeleteOpen(false);
+      setSelectedDistributor(null);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem("distributorColumnNames", JSON.stringify(columnNames));
@@ -322,7 +347,7 @@ export default function Distributors() {
       align: "center",
       headerClassName: "multi-line-header",
       renderCell: (params) => (
-        <Box>
+        <Box display="flex" alignItems="center" gap={1}>
           <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
             <IconButton
               size="small"
@@ -330,6 +355,15 @@ export default function Distributors() {
               color="primary"
             >
               <EditIcon fontSize="small" />
+            </IconButton>
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => handleDeleteClick(params.row)}
+            >
+              <DeleteIcon fontSize="small" />
             </IconButton>
           </PermissionGate>
         </Box>
@@ -1274,6 +1308,38 @@ export default function Distributors() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <DialogTitle>{t("common.confirmDelete", "Confirm Delete")}</DialogTitle>
+        <DialogContent>
+          <Typography>
+            {t("common.deletePrompt", "Are you sure you want to delete this distributor?")}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancel")}</Button>
+          <Button color="error" onClick={handleConfirmDelete}>
+            {t("common.delete", "Delete")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for Notifications */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={4000}
+        onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+          severity={toast.severity}
+          sx={{ width: "100%" }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
