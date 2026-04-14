@@ -153,6 +153,7 @@ export interface Distributor {
 
 export interface Shopkeeper {
   shopkeeper_id?: number;
+  name?: string;
   record_date?: string;
   state?: string;
   village?: string;
@@ -186,6 +187,7 @@ export interface Shopkeeper {
 
 export interface Doctor {
   doctor_id?: number;
+  name?: string;
   record_date?: string;
   state?: string;
   village?: string;
