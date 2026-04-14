@@ -226,7 +226,7 @@ export default function Doctors() {
 
   const getRowColor = (row: Doctor) => {
     // RED (Critical Issue): Missing core contact or identity data
-    const redFields = ["village", "taluka", "mantri_name", "mantri_mobile"];
+    const redFields = ["village", "taluka", "name", "mantri_mobile"];
     const isRed = redFields.some(
       (field) =>
         row[field as keyof Doctor] === null ||
@@ -238,8 +238,7 @@ export default function Doctors() {
     // GREEN (Strictly Complete): ALL specified data points must be present
     const greenFields = [
       "village",
-      "taluka",
-      "mantri_name",
+      "name",
       "sabhasad_morning",
       "sabhasad_evening",
     ];
@@ -338,10 +337,10 @@ export default function Doctors() {
         </Box>
       ),
     },
-    // 1. Mantri (Moved to start)
+    // 1. Doctor Name (Moved to start)
     {
-      field: "mantri_name",
-      headerName: t("doctors.mantriName", "Mantri Name"),
+      field: "name",
+      headerName: t("doctors.name", "Doctor Name"),
       width: 220,
       minWidth: 180,
       headerAlign: "center",
@@ -368,7 +367,7 @@ export default function Doctors() {
     },
     {
       field: "mantri_mobile",
-      headerName: t("doctors.mobile", "Mantri Mobile"),
+      headerName: t("doctors.mobile", "Mobile"),
       width: 150,
       headerAlign: "center",
       align: "center",
@@ -877,7 +876,7 @@ export default function Doctors() {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label={t("doctors.doctorMobile", "Doctor Mobile")}
+                label={t("doctors.mobile", "Mobile")}
                 value={formData.mantri_mobile || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, mantri_mobile: e.target.value })

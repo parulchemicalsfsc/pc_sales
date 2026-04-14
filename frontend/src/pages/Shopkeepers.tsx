@@ -226,7 +226,7 @@ export default function Shopkeepers() {
 
   const getRowColor = (row: Shopkeeper) => {
     // RED (Critical Issue): Missing core contact or identity data
-    const redFields = ["village", "taluka", "mantri_name", "mantri_mobile"];
+    const redFields = ["village", "taluka", "name", "mantri_mobile"];
     const isRed = redFields.some(
       (field) =>
         row[field as keyof Shopkeeper] === null ||
@@ -238,8 +238,7 @@ export default function Shopkeepers() {
     // GREEN (Strictly Complete): ALL specified data points must be present
     const greenFields = [
       "village",
-      "taluka",
-      "mantri_name",
+      "name",
       "sabhasad_morning",
       "sabhasad_evening",
     ];
@@ -338,10 +337,10 @@ export default function Shopkeepers() {
         </Box>
       ),
     },
-    // 1. Mantri (Moved to start)
+    // 1. Shopkeeper Name (Moved to start)
     {
-      field: "mantri_name",
-      headerName: t("shopkeepers.mantriName", "Mantri Name"),
+      field: "name",
+      headerName: t("shopkeepers.name", "Shopkeeper Name"),
       width: 220,
       minWidth: 180,
       headerAlign: "center",
@@ -368,7 +367,7 @@ export default function Shopkeepers() {
     },
     {
       field: "mantri_mobile",
-      headerName: t("shopkeepers.mobile", "Mantri Mobile"),
+      headerName: t("shopkeepers.mobile", "Mobile"),
       width: 150,
       headerAlign: "center",
       align: "center",
