@@ -89,6 +89,18 @@ def create_shopkeeper(
         if not response.data:
             raise HTTPException(status_code=400, detail="Failed to create shopkeeper")
 
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_create(
+                    user_email=user_email,
+                    entity_type="shopkeeper",
+                    entity_name=f"{shopkeeper.village} - {shopkeeper.taluka}",
+                    new_state=response.data[0] if response.data else None,
+                )
+            except Exception:
+                pass
+
         return {
             "message": "Shopkeeper created successfully",
             "shopkeeper": response.data[0],
@@ -99,17 +111,7 @@ def create_shopkeeper(
         raise HTTPException(
             status_code=500, detail=f"Error creating shopkeeper: {str(e)}"
         )
-    finally:
-        if user_email:
-            try:
-                logger = get_activity_logger(db)
-                logger.log_create(
-                    user_email=user_email,
-                    entity_type="shopkeeper",
-                    entity_name=f"{shopkeeper.village} - {shopkeeper.taluka}",
-                )
-            except Exception:
-                pass
+
 
 
 @router.put("/{shopkeeper_id}", dependencies=[Depends(verify_permission("edit_shopkeeper"))])

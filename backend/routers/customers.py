@@ -116,6 +116,7 @@ def create_customer(
                     entity_type="customer",
                     entity_name=customer.name,
                     entity_id=created_customer.get("customer_id"),
+                    new_state=created_customer,
                     metadata={
                         "customer_code": customer.customer_code,
                         "mobile": customer.mobile,
@@ -204,7 +205,7 @@ def delete_customer(
         # First check if customer exists and get customer name
         check_response = (
             db.table("customers")
-            .select("customer_id, name")
+            .select("*")
             .eq("customer_id", customer_id)
             .execute()
         )
@@ -259,6 +260,7 @@ def delete_customer(
                 entity_type="customer",
                 entity_name=customer_name,
                 entity_id=customer_id,
+                old_state=check_response.data[0],
             )
 
         return {"message": "Customer deleted successfully"}

@@ -89,6 +89,18 @@ def create_doctor(
         if not response.data:
             raise HTTPException(status_code=400, detail="Failed to create doctor")
 
+        if user_email:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_create(
+                    user_email=user_email,
+                    entity_type="doctor",
+                    entity_name=f"{doctor.village} - {doctor.taluka}",
+                    new_state=response.data[0] if response.data else None,
+                )
+            except Exception:
+                pass
+
         return {
             "message": "Doctor created successfully",
             "doctor": response.data[0],
@@ -99,17 +111,7 @@ def create_doctor(
         raise HTTPException(
             status_code=500, detail=f"Error creating doctor: {str(e)}"
         )
-    finally:
-        if user_email:
-            try:
-                logger = get_activity_logger(db)
-                logger.log_create(
-                    user_email=user_email,
-                    entity_type="doctor",
-                    entity_name=f"{doctor.village} - {doctor.taluka}",
-                )
-            except Exception:
-                pass
+
 
 
 @router.put("/{doctor_id}", dependencies=[Depends(verify_permission("edit_doctor"))])
@@ -169,6 +171,10 @@ async def update_doctor(
         if not update_data:
             raise HTTPException(status_code=400, detail="No valid update data provided")
 
+        # Fetch current state before update for diff logging
+        current_res = db.table("doctors").select("*").eq("doctor_id", doctor_id).execute()
+        current_doctor = current_res.data[0] if current_res.data else None
+
         response = (
             db.table("doctors")
             .eq("doctor_id", doctor_id)
@@ -180,6 +186,21 @@ async def update_doctor(
             raise HTTPException(status_code=404, detail="Doctor not found")
 
         print("✅ UPDATE SUCCESS")
+        
+        if user_email and current_doctor:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update_with_diff(
+                    user_email=user_email,
+                    entity_type="doctor",
+                    entity_name=f"{doctor.name or doctor.village}",
+                    entity_id=doctor_id,
+                    before_state=current_doctor,
+                    after_state=update_data,
+                )
+            except Exception as le:
+                print(f"[ERROR] Failed to log update diff: {le}")
+
         return {
             "message": "Doctor updated successfully",
             "data": response.data[0],
@@ -192,15 +213,3 @@ async def update_doctor(
         raise HTTPException(
             status_code=500, detail=f"Error updating doctor: {str(e)}"
         )
-    finally:
-        if user_email:
-            try:
-                logger = get_activity_logger(db)
-                logger.log_update(
-                    user_email=user_email,
-                    entity_type="doctor",
-                    entity_name=f"{doctor.village} - {doctor.taluka}",
-                    entity_id=doctor_id,
-                )
-            except Exception:
-                pass

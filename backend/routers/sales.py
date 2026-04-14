@@ -356,6 +356,7 @@ def create_sale(
                     entity_type="sale",
                     entity_name=f"{invoice_no} - {customer_name}",
                     entity_id=sale_id,
+                    new_state=created_sale,
                     metadata={
                         "invoice_no": invoice_no,
                         "customer_id": sale.customer_id,
@@ -450,6 +451,7 @@ def create_sale(
                         entity_type="payment",
                         entity_name=f"₹{sale.paid_amount} for {invoice_no}",
                         entity_id=sale_id, # Linking to sale
+                        new_state=payment_data,
                         metadata={
                             "amount": sale.paid_amount,
                             "invoice_no": invoice_no,
@@ -642,6 +644,13 @@ def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase),
 ):
     """Delete a sale and its items"""
     try:
+        # Fetch sale data before delete for diff logging
+        check_response = db.table("sales").select("*").eq("sale_id", sale_id).execute()
+        if not check_response.data:
+            raise HTTPException(status_code=404, detail="Sale not found")
+        
+        old_sale = check_response.data[0]
+
         # Delete sale items first
         db.table("sale_items").eq("sale_id", sale_id).delete().execute()
 
@@ -651,12 +660,6 @@ def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase),
         if not response.data:
             raise HTTPException(status_code=404, detail="Sale not found")
 
-        return {"message": "Sale deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting sale: {str(e)}")
-    finally:
         if user_email:
             try:
                 logger = get_activity_logger(db)
@@ -665,9 +668,16 @@ def delete_sale(sale_id: int, db: SupabaseClient = Depends(get_supabase),
                     entity_type="sale",
                     entity_name=f"Sale #{sale_id}",
                     entity_id=sale_id,
+                    old_state=old_sale,
                 )
             except Exception:
                 pass
+
+        return {"message": "Sale deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting sale: {str(e)}")
 
 
 @router.get("/{sale_id}/invoice-pdf", dependencies=[Depends(verify_permission("download_invoice"))])

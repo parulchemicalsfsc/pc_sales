@@ -112,8 +112,20 @@ class ActivityLogger:
         entity_name: str,
         entity_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        new_state: Optional[Dict[str, Any]] = None,
     ):
         """Log a CREATE action"""
+        changes = []
+        if new_state:
+            skip = {"created_at", "updated_at", "id"}
+            for k, v in new_state.items():
+                if k not in skip and v is not None and str(v).strip() != "":
+                    changes.append({"field": k, "from": None, "to": v})
+            
+            if changes:
+                metadata = metadata or {}
+                metadata["changes"] = changes
+
         self.log_activity(
             user_email=user_email,
             action_type="CREATE",
@@ -183,8 +195,20 @@ class ActivityLogger:
         entity_name: str,
         entity_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        old_state: Optional[Dict[str, Any]] = None,
     ):
         """Log a DELETE action"""
+        changes = []
+        if old_state:
+            skip = {"created_at", "updated_at", "id"}
+            for k, v in old_state.items():
+                if k not in skip and v is not None and str(v).strip() != "":
+                    changes.append({"field": k, "from": v, "to": None})
+            
+            if changes:
+                metadata = metadata or {}
+                metadata["changes"] = changes
+
         self.log_activity(
             user_email=user_email,
             action_type="DELETE",

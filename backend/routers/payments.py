@@ -373,6 +373,7 @@ def create_payment(
                     entity_type="payment",
                     entity_name=f"Payment #{created_payment.get('payment_id')} for Sale #{payment.sale_id}",
                     entity_id=created_payment.get("payment_id"),
+                    new_state=created_payment,
                     metadata={"amount": float(payment.amount), "sale_id": int(payment.sale_id)},
                 )
             except Exception:
@@ -411,7 +412,8 @@ def update_payment(
         if not existing_payment.data:
             raise HTTPException(status_code=404, detail="Payment not found")
 
-        sale_id = existing_payment.data[0].get("sale_id")
+        current_payment = existing_payment.data[0]
+        sale_id = current_payment.get("sale_id")
 
         # Update payment
         response = (
@@ -456,23 +458,25 @@ def update_payment(
 
                 db.table("sales").eq("sale_id", sale_id).update({"payment_status": payment_status}).execute()
 
+        if user_email and current_payment:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update_with_diff(
+                    user_email=user_email,
+                    entity_type="payment",
+                    entity_name=f"Payment #{payment_id}",
+                    entity_id=payment_id,
+                    before_state=current_payment,
+                    after_state=payment_data,
+                )
+            except Exception as le:
+                 print(f"[ERROR] Failed to log update diff: {le}")
+
         return {"message": "Payment updated successfully", "payment": response.data[0]}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating payment: {str(e)}")
-    finally:
-        if user_email:
-            try:
-                logger = get_activity_logger(db)
-                logger.log_update(
-                    user_email=user_email,
-                    entity_type="payment",
-                    entity_name=f"Payment #{payment_id}",
-                    entity_id=payment_id,
-                )
-            except Exception:
-                pass
 
 
 @router.delete("/{payment_id}", dependencies=[Depends(verify_permission("delete_payment"))])
@@ -531,12 +535,6 @@ def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase),
 
                 db.table("sales").eq("sale_id", sale_id).update({"payment_status": payment_status}).execute()
 
-        return {"message": "Payment deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting payment: {str(e)}")
-    finally:
         if user_email:
             try:
                 logger = get_activity_logger(db)
@@ -545,6 +543,13 @@ def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase),
                     entity_type="payment",
                     entity_name=f"Payment #{payment_id}",
                     entity_id=payment_id,
+                    old_state=payment_response.data[0],
                 )
             except Exception:
                 pass
+
+        return {"message": "Payment deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting payment: {str(e)}")

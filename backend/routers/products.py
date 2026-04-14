@@ -95,6 +95,7 @@ def create_product(product: Product, db: SupabaseClient = Depends(get_db),
                         entity_type="product",
                         entity_name=product.product_name,
                         entity_id=response.data[0].get("product_id"),
+                        new_state=response.data[0],
                     )
                 except Exception:
                     pass
@@ -140,6 +141,10 @@ def update_product(
             "is_active": product.is_active,
         }
 
+        # Fetch current state before update for diff logging
+        current_res = db.table("products").select("*").eq("product_id", product_id).execute()
+        current_product = current_res.data[0] if current_res.data else None
+
         response = (
             db.table("products")
             .eq("product_id", product_id)
@@ -150,23 +155,25 @@ def update_product(
         if not response.data or len(response.data) == 0:
             raise HTTPException(status_code=404, detail="Product not found")
 
+        if user_email and current_product:
+            try:
+                logger = get_activity_logger(db)
+                logger.log_update_with_diff(
+                    user_email=user_email,
+                    entity_type="product",
+                    entity_name=product.product_name,
+                    entity_id=product_id,
+                    before_state=current_product,
+                    after_state=product_data,
+                )
+            except Exception as le:
+                print(f"[ERROR] Failed to log update diff: {le}")
+
         return {"message": "Product updated", "data": response.data[0]}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating product: {str(e)}")
-    finally:
-        if user_email:
-            try:
-                logger = get_activity_logger(db)
-                logger.log_update(
-                    user_email=user_email,
-                    entity_type="product",
-                    entity_name=product.product_name,
-                    entity_id=product_id,
-                )
-            except Exception:
-                pass
 
 
 @router.delete("/{product_id}", dependencies=[Depends(verify_permission("manage_products"))])
@@ -175,6 +182,10 @@ def delete_product(product_id: int, db: SupabaseClient = Depends(get_db),
 ):
     """Delete a product (soft delete by setting is_active to 0)"""
     try:
+        # Fetch current record before deleting
+        before_resp = db.table("products").select("*").eq("product_id", product_id).execute()
+        old_data = before_resp.data[0] if before_resp.data else None
+
         # Hard delete - permanently remove record
         print(f"[DEBUG] Attempting HARD delete for product_id: {product_id}")
         
@@ -192,15 +203,7 @@ def delete_product(product_id: int, db: SupabaseClient = Depends(get_db),
             print(f"[ERROR] Product {product_id} not found or update failed")
             raise HTTPException(status_code=404, detail="Product not found or could not be updated")
 
-        return {"message": "Product deleted successfully", "id": product_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[ERROR] Exception in delete_product: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
-    finally:
-        if user_email:
+        if user_email and old_data:
             try:
                 logger = get_activity_logger(db)
                 logger.log_delete(
@@ -208,6 +211,15 @@ def delete_product(product_id: int, db: SupabaseClient = Depends(get_db),
                     entity_type="product",
                     entity_name=f"Product #{product_id}",
                     entity_id=product_id,
+                    old_state=old_data,
                 )
             except Exception:
                 pass
+
+        return {"message": "Product deleted successfully", "id": product_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Exception in delete_product: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
