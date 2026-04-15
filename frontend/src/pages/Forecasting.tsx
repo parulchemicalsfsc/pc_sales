@@ -37,6 +37,7 @@ import {
   Cell,
 } from "recharts";
 import jsPDF from "jspdf";
+// @ts-ignore
 import autoTable from "jspdf-autotable";
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";

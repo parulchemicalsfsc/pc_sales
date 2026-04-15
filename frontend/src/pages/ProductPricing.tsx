@@ -232,6 +232,7 @@ export default function ProductPricing() {
     };
 
     const handleSaveAll = async () => {
+        if (saving) return;
         try {
             setSaving(true);
             setError(null);
@@ -290,6 +291,7 @@ export default function ProductPricing() {
     };
 
     const handleAddSubmit = async () => {
+        if (saving) return;
         try {
             setSaving(true);
             setError(null);
@@ -321,7 +323,7 @@ export default function ProductPricing() {
     };
 
     const handleDeleteConfirm = async () => {
-        if (!productToDelete) return;
+        if (!productToDelete || saving) return;
         try {
             setSaving(true);
             setError(null);

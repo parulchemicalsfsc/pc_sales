@@ -64,7 +64,7 @@ def get_demos(
         )
 
         distributors_response = (
-            db.table("distributors").select("distributor_id, name").execute()
+            db.table("distributors").select("distributor_id, mantri_name").execute()
         )
 
         distributors_dict = (
@@ -92,7 +92,7 @@ def get_demos(
                     "customer_mobile": customer.get("mobile"),
                     "village": customer.get("village"),
                     "product_name": product.get("product_name"),
-                    "distributor_name": distributor.get("name"),
+                    "distributor_name": distributor.get("mantri_name"),
                 }
             )
 

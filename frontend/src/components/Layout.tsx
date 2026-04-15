@@ -127,7 +127,7 @@ const navigationItems: NavItem[] = [
   },
   {
     id: "distributors-group",
-    labelKey: "nav.distributors",
+    labelKey: "nav.distributorsGroup",
     icon: <GroupIcon />,
     path: "#",
     children: [
@@ -583,7 +583,7 @@ export default function Layout({
                     </ListItemIcon>
                     {sidebarExpanded && (
                       <ListItemText
-                        primary={t(item.labelKey) === "nav.mantri" ? "Mantri" : t(item.labelKey)}
+                        primary={item.id === "distributors-group" ? "Distributors" : t(item.labelKey)}
                         primaryTypographyProps={{
                           fontWeight: active ? 600 : 500,
                           fontSize: "0.875rem",
@@ -629,7 +629,7 @@ export default function Layout({
                               {child.icon}
                             </ListItemIcon>
                             <ListItemText
-                              primary={t(child.labelKey) === "nav.mantri" ? "Mantri" : t(child.labelKey)}
+                              primary={t(child.labelKey)}
                               primaryTypographyProps={{
                                 fontWeight: isActive(child.path) ? 600 : 500,
                                 fontSize: "0.85rem",

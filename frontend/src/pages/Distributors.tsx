@@ -49,6 +49,7 @@ export default function Distributors() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [editingDistributor, setEditingDistributor] =
     useState<Distributor | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,7 +62,6 @@ export default function Distributors() {
     localStorage.setItem("distributorColumnNames", JSON.stringify(columnNames));
   }, [columnNames]);
 
-  const [submitting, setSubmitting] = useState(false);
   const [renameField, setRenameField] = useState<string | null>(null);
   const [newColumnName, setNewColumnName] = useState("");
 
