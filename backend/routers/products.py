@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
-from models import Product
+from models import Product, ProductRegion, ProductCategory
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
@@ -30,6 +30,49 @@ def get_all_products(db: SupabaseClient = Depends(get_db)):
         raise HTTPException(
             status_code=500, detail=f"Error fetching products: {str(e)}"
         )
+
+
+@router.get("/config/regions", dependencies=[Depends(verify_permission("view_products"))])
+def get_product_regions(db: SupabaseClient = Depends(get_db)):
+    """Get dynamic product regions"""
+    try:
+        res = db.table("product_regions").select("*").order("created_at").execute()
+        return res.data or []
+    except Exception as e:
+        print(f"[WARN] Failed fetching regions (maybe table missing): {e}")
+        return [{"name": "Gujarat"}, {"name": "Maharashtra"}, {"name": "Madhya Pradesh"}]
+
+
+@router.post("/config/regions", dependencies=[Depends(verify_permission("manage_products"))])
+def create_product_region(region: ProductRegion, db: SupabaseClient = Depends(get_db)):
+    """Create a new product region"""
+    try:
+        res = db.table("product_regions").insert({"name": region.name}).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/config/categories", dependencies=[Depends(verify_permission("view_products"))])
+def get_product_categories(db: SupabaseClient = Depends(get_db)):
+    """Get dynamic product categories"""
+    try:
+        res = db.table("product_categories").select("*").order("created_at").execute()
+        return res.data or []
+    except Exception as e:
+        print(f"[WARN] Failed fetching categories (maybe table missing): {e}")
+        return [{"name": "Sabhasad"}, {"name": "Mantri"}, {"name": "Distributor"}, {"name": "Field Officer"}]
+
+
+@router.post("/config/categories", dependencies=[Depends(verify_permission("manage_products"))])
+def create_product_category(category: ProductCategory, db: SupabaseClient = Depends(get_db)):
+    """Create a new product category"""
+    try:
+        res = db.table("product_categories").insert({"name": category.name}).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.get("/{product_id}", dependencies=[Depends(verify_permission("view_products"))])
@@ -65,22 +108,7 @@ def create_product(product: Product, db: SupabaseClient = Depends(get_db),
             "rate_gujarat": product.rate_gujarat,
             "rate_maharashtra": product.rate_maharashtra,
             "rate_mp": product.rate_mp,
-            
-            # Advanced Pricing
-            "rate_gujarat_sabhasad": product.rate_gujarat_sabhasad,
-            "rate_gujarat_mantri": product.rate_gujarat_mantri,
-            "rate_gujarat_distributor": product.rate_gujarat_distributor,
-            "rate_gujarat_field_officer": product.rate_gujarat_field_officer,
-            
-            "rate_maharashtra_sabhasad": product.rate_maharashtra_sabhasad,
-            "rate_maharashtra_mantri": product.rate_maharashtra_mantri,
-            "rate_maharashtra_distributor": product.rate_maharashtra_distributor,
-            "rate_maharashtra_field_officer": product.rate_maharashtra_field_officer,
-
-            "rate_mp_sabhasad": product.rate_mp_sabhasad,
-            "rate_mp_mantri": product.rate_mp_mantri,
-            "rate_mp_distributor": product.rate_mp_distributor,
-            "rate_mp_field_officer": product.rate_mp_field_officer,
+            "custom_rates": product.custom_rates,
             "is_active": product.is_active,
         }
 
@@ -122,22 +150,7 @@ def update_product(
             "rate_gujarat": product.rate_gujarat,
             "rate_maharashtra": product.rate_maharashtra,
             "rate_mp": product.rate_mp,
-            
-            # Advanced Pricing
-            "rate_gujarat_sabhasad": product.rate_gujarat_sabhasad,
-            "rate_gujarat_mantri": product.rate_gujarat_mantri,
-            "rate_gujarat_distributor": product.rate_gujarat_distributor,
-            "rate_gujarat_field_officer": product.rate_gujarat_field_officer,
-            
-            "rate_maharashtra_sabhasad": product.rate_maharashtra_sabhasad,
-            "rate_maharashtra_mantri": product.rate_maharashtra_mantri,
-            "rate_maharashtra_distributor": product.rate_maharashtra_distributor,
-            "rate_maharashtra_field_officer": product.rate_maharashtra_field_officer,
-
-            "rate_mp_sabhasad": product.rate_mp_sabhasad,
-            "rate_mp_mantri": product.rate_mp_mantri,
-            "rate_mp_distributor": product.rate_mp_distributor,
-            "rate_mp_field_officer": product.rate_mp_field_officer,
+            "custom_rates": product.custom_rates,
             "is_active": product.is_active,
         }
 

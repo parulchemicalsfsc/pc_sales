@@ -24,6 +24,12 @@ class Customer(BaseModel):
 # Products
 # ======================
 
+class ProductRegion(BaseModel):
+    name: str
+
+class ProductCategory(BaseModel):
+    name: str
+
 
 class Product(BaseModel):
     product_id: Optional[int] = None
@@ -32,27 +38,14 @@ class Product(BaseModel):
     capacity_ltr: Optional[float] = None
     category: Optional[str] = None
     standard_rate: Optional[float] = None
+    # Base Prices (Optional, maintained for fallback)
     rate_gujarat: Optional[float] = None
     rate_maharashtra: Optional[float] = None
     rate_mp: Optional[float] = None
     
-    # Advanced Pricing - Gujarat
-    rate_gujarat_sabhasad: Optional[float] = None
-    rate_gujarat_mantri: Optional[float] = None
-    rate_gujarat_distributor: Optional[float] = None
-    rate_gujarat_field_officer: Optional[float] = None
-
-    # Advanced Pricing - Maharashtra
-    rate_maharashtra_sabhasad: Optional[float] = None
-    rate_maharashtra_mantri: Optional[float] = None
-    rate_maharashtra_distributor: Optional[float] = None
-    rate_maharashtra_field_officer: Optional[float] = None
-
-    # Advanced Pricing - Madhya Pradesh
-    rate_mp_sabhasad: Optional[float] = None
-    rate_mp_mantri: Optional[float] = None
-    rate_mp_distributor: Optional[float] = None
-    rate_mp_field_officer: Optional[float] = None
+    # Dynamic Custom Pricing JSON
+    custom_rates: Optional[dict] = {}
+    
     is_active: int = 1
 
 

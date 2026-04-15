@@ -27,6 +27,7 @@ import {
   Slide,
   Paper,
   Button,
+  Collapse,
 } from "@mui/material";
 
 import {
@@ -59,6 +60,8 @@ import {
   ChevronRight as ChevronRightIcon,
   ArrowBack as ArrowBackIcon,
   TrendingUp as TrendingUpIcon,
+  ExpandLess,
+  ExpandMore,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -111,6 +114,7 @@ interface NavItem {
   path: string;
   badge?: number;
   permission?: string;
+  children?: NavItem[];
 }
 
 const navigationItems: NavItem[] = [
@@ -122,25 +126,33 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.VIEW_DASHBOARD,
   },
   {
-    id: "distributors",
+    id: "distributors-group",
     labelKey: "nav.distributors",
     icon: <GroupIcon />,
-    path: "/distributors",
-    permission: PERMISSIONS.VIEW_DISTRIBUTORS,
-  },
-  {
-    id: "shopkeepers",
-    labelKey: "nav.shopkeepers",
-    icon: <GroupIcon />,
-    path: "/shopkeepers",
-    permission: PERMISSIONS.VIEW_SHOPKEEPERS,
-  },
-  {
-    id: "doctors",
-    labelKey: "nav.doctors",
-    icon: <GroupIcon />,
-    path: "/doctors",
-    permission: PERMISSIONS.VIEW_DOCTORS,
+    path: "#",
+    children: [
+      {
+        id: "distributors",
+        labelKey: "nav.mantri",
+        icon: <GroupIcon />,
+        path: "/distributors",
+        permission: PERMISSIONS.VIEW_DISTRIBUTORS,
+      },
+      {
+        id: "shopkeepers",
+        labelKey: "nav.shopkeepers",
+        icon: <GroupIcon />,
+        path: "/shopkeepers",
+        permission: PERMISSIONS.VIEW_SHOPKEEPERS,
+      },
+      {
+        id: "doctors",
+        labelKey: "nav.doctors",
+        icon: <GroupIcon />,
+        path: "/doctors",
+        permission: PERMISSIONS.VIEW_DOCTORS,
+      },
+    ]
   },
   {
     id: "orders",
@@ -254,6 +266,7 @@ export default function Layout({
   const [userMenuAnchorEl, setUserMenuAnchorEl] = useState<null | HTMLElement>(
     null,
   );
+  const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({});
   const { t } = useTranslation();
   const { language, setLanguage } = useLanguageStore();
 
@@ -515,63 +528,120 @@ export default function Layout({
             const badgeCount =
               item.id === "chat" ? chatUnread || undefined : item.badge;
             return (
-              <ListItem key={item.id} disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  onClick={() => handleNavigation(item.path)}
-                  sx={{
-                    borderRadius: sidebarExpanded ? 2 : "50%",
-                    mx: sidebarExpanded ? 1 : "auto",
-                    my: sidebarExpanded ? 0 : 0.25,
-                    width: sidebarExpanded ? "auto" : 44,
-                    height: sidebarExpanded ? "auto" : 44,
-                    minHeight: sidebarExpanded ? 48 : 44,
-                    px: sidebarExpanded ? 2 : 0,
-                    py: sidebarExpanded ? 1 : 0,
-                    justifyContent: "center",
-                    backgroundColor: active
-                      ? theme.palette.mode === "dark"
-                        ? "rgba(144, 202, 249, 0.16)"
-                        : "rgba(25, 118, 210, 0.08)"
-                      : "transparent",
-                    color: active ? theme.palette.primary.main : "inherit",
-                    "&:hover": {
-                      backgroundColor:
-                        theme.palette.mode === "dark"
-                          ? "rgba(144, 202, 249, 0.08)"
-                          : "rgba(25, 118, 210, 0.04)",
-                    },
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <ListItemIcon
+              <Box key={item.id}>
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => {
+                      if (item.children) {
+                        setOpenSubMenus((prev) => ({
+                          ...prev,
+                          [item.id]: !prev[item.id],
+                        }));
+                      } else {
+                        handleNavigation(item.path);
+                      }
+                    }}
                     sx={{
-                      color: active ? theme.palette.primary.main : "inherit",
-                      minWidth: sidebarExpanded ? 40 : 0,
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
                       justifyContent: "center",
+                      backgroundColor: active
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(144, 202, 249, 0.16)"
+                          : "rgba(25, 118, 210, 0.08)"
+                        : "transparent",
+                      color: active ? theme.palette.primary.main : "inherit",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(144, 202, 249, 0.08)"
+                            : "rgba(25, 118, 210, 0.04)",
+                      },
+                      transition: "all 0.2s",
                     }}
                   >
-                    {badgeCount ? (
-                      <Badge badgeContent={badgeCount} color="error">
-                        {item.icon}
-                      </Badge>
-                    ) : (
-                      item.icon
-                    )}
-                  </ListItemIcon>
-                  {sidebarExpanded && (
-                    <ListItemText
-                      primary={t(item.labelKey)}
-                      primaryTypographyProps={{
-                        fontWeight: active ? 600 : 500,
-                        fontSize: "0.875rem",
-                        noWrap: true,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
+                    <ListItemIcon
+                      sx={{
+                        color: active ? theme.palette.primary.main : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
                       }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
+                    >
+                      {badgeCount ? (
+                        <Badge badgeContent={badgeCount} color="error">
+                          {item.icon}
+                        </Badge>
+                      ) : (
+                        item.icon
+                      )}
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t(item.labelKey) === "nav.mantri" ? "Mantri" : t(item.labelKey)}
+                        primaryTypographyProps={{
+                          fontWeight: active ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                    {sidebarExpanded && item.children && (
+                      openSubMenus[item.id] ? <ExpandLess /> : <ExpandMore />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+                {item.children && sidebarExpanded && (
+                  <Collapse in={openSubMenus[item.id]} timeout="auto" unmountOnExit>
+                    <List component="div" disablePadding>
+                      {item.children.map((child) => (
+                        <ListItem key={child.id} disablePadding sx={{ mb: 0.5 }}>
+                          <ListItemButton
+                            onClick={() => handleNavigation(child.path)}
+                            sx={{
+                              borderRadius: 2,
+                              mx: 1,
+                              my: 0,
+                              minHeight: 40,
+                              pl: 4,
+                              backgroundColor: isActive(child.path)
+                                ? theme.palette.mode === "dark"
+                                  ? "rgba(144, 202, 249, 0.16)"
+                                  : "rgba(25, 118, 210, 0.08)"
+                                : "transparent",
+                              color: isActive(child.path) ? theme.palette.primary.main : "inherit",
+                              "&:hover": {
+                                backgroundColor:
+                                  theme.palette.mode === "dark"
+                                    ? "rgba(144, 202, 249, 0.08)"
+                                    : "rgba(25, 118, 210, 0.04)",
+                              },
+                            }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 32, color: isActive(child.path) ? theme.palette.primary.main : "inherit" }}>
+                              {child.icon}
+                            </ListItemIcon>
+                            <ListItemText
+                              primary={t(child.labelKey) === "nav.mantri" ? "Mantri" : t(child.labelKey)}
+                              primaryTypographyProps={{
+                                fontWeight: isActive(child.path) ? 600 : 500,
+                                fontSize: "0.85rem",
+                              }}
+                            />
+                          </ListItemButton>
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Collapse>
+                )}
+              </Box>
             );
           })}
 

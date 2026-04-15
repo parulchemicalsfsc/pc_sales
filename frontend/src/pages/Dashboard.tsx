@@ -291,7 +291,7 @@ export default function Dashboard() {
             {/* Welcome Header */}
             <Box sx={{ mb: 4 }}>
                 <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-                    👋 {t("dashboard.welcomeBack")}
+                     {t("dashboard.welcomeBack")}
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ fontSize: "1.05rem" }}>
                     {t("dashboard.subtitle")}

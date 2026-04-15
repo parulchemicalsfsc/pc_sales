@@ -536,23 +536,8 @@ def update_product_price(
              update_data["rate_gujarat"] = rate_gujarat
         if rate_maharashtra is not None:
              update_data["rate_maharashtra"] = rate_maharashtra
-        # Advanced Pricing - Gujarat
-        if "rate_gujarat_sabhasad" in price_data: update_data["rate_gujarat_sabhasad"] = price_data["rate_gujarat_sabhasad"]
-        if "rate_gujarat_mantri" in price_data: update_data["rate_gujarat_mantri"] = price_data["rate_gujarat_mantri"]
-        if "rate_gujarat_distributor" in price_data: update_data["rate_gujarat_distributor"] = price_data["rate_gujarat_distributor"]
-        if "rate_gujarat_field_officer" in price_data: update_data["rate_gujarat_field_officer"] = price_data["rate_gujarat_field_officer"]
-
-        # Advanced Pricing - Maharashtra
-        if "rate_maharashtra_sabhasad" in price_data: update_data["rate_maharashtra_sabhasad"] = price_data["rate_maharashtra_sabhasad"]
-        if "rate_maharashtra_mantri" in price_data: update_data["rate_maharashtra_mantri"] = price_data["rate_maharashtra_mantri"]
-        if "rate_maharashtra_distributor" in price_data: update_data["rate_maharashtra_distributor"] = price_data["rate_maharashtra_distributor"]
-        if "rate_maharashtra_field_officer" in price_data: update_data["rate_maharashtra_field_officer"] = price_data["rate_maharashtra_field_officer"]
-
-        # Advanced Pricing - Madhya Pradesh
-        if "rate_mp_sabhasad" in price_data: update_data["rate_mp_sabhasad"] = price_data["rate_mp_sabhasad"]
-        if "rate_mp_mantri" in price_data: update_data["rate_mp_mantri"] = price_data["rate_mp_mantri"]
-        if "rate_mp_distributor" in price_data: update_data["rate_mp_distributor"] = price_data["rate_mp_distributor"]
-        if "rate_mp_field_officer" in price_data: update_data["rate_mp_field_officer"] = price_data["rate_mp_field_officer"]
+        if "custom_rates" in price_data:
+             update_data["custom_rates"] = price_data["custom_rates"]
 
         if not update_data:
              raise HTTPException(
@@ -627,23 +612,7 @@ def update_product_prices_bulk(
             if "rate_maharashtra" in update: update_data["rate_maharashtra"] = update["rate_maharashtra"]
             if "rate_mp" in update: update_data["rate_mp"] = update["rate_mp"]
 
-            # Advanced Pricing - Gujarat
-            if "rate_gujarat_sabhasad" in update: update_data["rate_gujarat_sabhasad"] = update["rate_gujarat_sabhasad"]
-            if "rate_gujarat_mantri" in update: update_data["rate_gujarat_mantri"] = update["rate_gujarat_mantri"]
-            if "rate_gujarat_distributor" in update: update_data["rate_gujarat_distributor"] = update["rate_gujarat_distributor"]
-            if "rate_gujarat_field_officer" in update: update_data["rate_gujarat_field_officer"] = update["rate_gujarat_field_officer"]
-
-            # Advanced Pricing - Maharashtra
-            if "rate_maharashtra_sabhasad" in update: update_data["rate_maharashtra_sabhasad"] = update["rate_maharashtra_sabhasad"]
-            if "rate_maharashtra_mantri" in update: update_data["rate_maharashtra_mantri"] = update["rate_maharashtra_mantri"]
-            if "rate_maharashtra_distributor" in update: update_data["rate_maharashtra_distributor"] = update["rate_maharashtra_distributor"]
-            if "rate_maharashtra_field_officer" in update: update_data["rate_maharashtra_field_officer"] = update["rate_maharashtra_field_officer"]
-
-            # Advanced Pricing - Madhya Pradesh
-            if "rate_mp_sabhasad" in update: update_data["rate_mp_sabhasad"] = update["rate_mp_sabhasad"]
-            if "rate_mp_mantri" in update: update_data["rate_mp_mantri"] = update["rate_mp_mantri"]
-            if "rate_mp_distributor" in update: update_data["rate_mp_distributor"] = update["rate_mp_distributor"]
-            if "rate_mp_field_officer" in update: update_data["rate_mp_field_officer"] = update["rate_mp_field_officer"]
+            if "custom_rates" in update: update_data["custom_rates"] = update["custom_rates"]
 
             if product_id is None or not update_data:
                 errors.append(f"Invalid update data: {update}")

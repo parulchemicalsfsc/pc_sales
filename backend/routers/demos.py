@@ -97,6 +97,10 @@ def get_demos(
             )
 
         return result
+    except requests.HTTPError as e:
+        print(f"Warning: Supabase HTTP error in get_demos: {e}")
+        # Return empty list if table doesn't exist
+        return []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching demos: {str(e)}")
 
