@@ -195,8 +195,8 @@ async def update_doctor(
                     entity_type="doctor",
                     entity_name=f"{doctor.name or doctor.village}",
                     entity_id=doctor_id,
-                    before_state=current_doctor,
-                    after_state=update_data,
+                    before=current_doctor,
+                    after=update_data,
                 )
             except Exception as le:
                 print(f"[ERROR] Failed to log update diff: {le}")

@@ -133,7 +133,7 @@ const navigationItems: NavItem[] = [
     children: [
       {
         id: "distributors",
-        labelKey: "nav.mantri",
+        labelKey: "nav.distributors",
         icon: <GroupIcon />,
         path: "/distributors",
         permission: PERMISSIONS.VIEW_DISTRIBUTORS,

@@ -466,8 +466,8 @@ def update_payment(
                     entity_type="payment",
                     entity_name=f"Payment #{payment_id}",
                     entity_id=payment_id,
-                    before_state=current_payment,
-                    after_state=payment_data,
+                    before=current_payment,
+                    after=payment_data,
                 )
             except Exception as le:
                  print(f"[ERROR] Failed to log update diff: {le}")

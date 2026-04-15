@@ -544,6 +544,10 @@ def update_product_price(
                 status_code=400, detail="At least one price field is required"
              )
 
+        # Fetch current state before update for diff logging
+        current_res = db.table("products").select("*").eq("product_id", product_id).execute()
+        current_product = current_res.data[0] if current_res.data else None
+
         # Update the product price
         response = (
             db.table("products")
@@ -559,15 +563,26 @@ def update_product_price(
 
         # Log this admin action
         logger = get_activity_logger(db)
-        logger.log_activity(
-            user_email=admin_email,
-            action_type="UPDATE",
-            action_description=f"Updated price for product '{product.get('product_name', 'Unknown')}'",
-            entity_type="product",
-            entity_id=product_id,
-            entity_name=product.get("product_name"),
-            metadata={"new_rates": update_data},
-        )
+        if current_product:
+            logger.log_update_with_diff(
+                user_email=admin_email,
+                entity_type="product",
+                entity_name=product.get("product_name", "Unknown"),
+                entity_id=product_id,
+                before=current_product,
+                after={**current_product, **update_data},
+                extra_metadata={"new_rates": update_data},
+            )
+        else:
+            logger.log_activity(
+                user_email=admin_email,
+                action_type="UPDATE",
+                action_description=f"Updated price for product '{product.get('product_name', 'Unknown')}'",
+                entity_type="product",
+                entity_id=product_id,
+                entity_name=product.get("product_name"),
+                metadata={"new_rates": update_data},
+            )
 
         return {
             "message": "Product price updated successfully",

@@ -176,8 +176,8 @@ def update_product(
                     entity_type="product",
                     entity_name=product.product_name,
                     entity_id=product_id,
-                    before_state=current_product,
-                    after_state=product_data,
+                    before=current_product,
+                    after=product_data,
                 )
             except Exception as le:
                 print(f"[ERROR] Failed to log update diff: {le}")
