@@ -20,6 +20,7 @@ import {
   Divider,
   Tooltip,
   MenuItem,
+  Menu,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -32,6 +33,7 @@ import {
   LocationOn as LocationOnIcon,
   Refresh as RefreshIcon,
   Group as GroupIcon,
+  MoreVert as MoreVertIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -334,39 +336,91 @@ export default function Distributors() {
     {
       field: "actions",
       headerName: t("common.actions"),
-      width: 120,
+      width: 100,
       sortable: false,
       headerAlign: "center",
       align: "center",
       headerClassName: "multi-line-header",
-      renderCell: (params) => (
-        <Box display="flex" alignItems="center" gap={1}>
-          <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
+      renderCell: (params) => {
+        const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+        const open = Boolean(anchorEl);
+
+        const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
+          event.stopPropagation();
+          setAnchorEl(event.currentTarget);
+        };
+
+        const handleClose = (event?: React.MouseEvent) => {
+          if (event) event.stopPropagation();
+          setAnchorEl(null);
+        };
+
+        const handleAction = (action: () => void) => {
+          handleClose();
+          action();
+        };
+
+        return (
+          <Box onClick={(e) => e.stopPropagation()}>
             <IconButton
               size="small"
-              onClick={() => handleOpenDialog(params.row)}
+              onClick={handleOpen}
               sx={{ 
-                color: isDarkMode ? "#60A5FA" : "primary.main",
+                color: isDarkMode ? "#E5E7EB" : "text.secondary",
                 "&:hover": { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : undefined }
               }}
             >
-              <EditIcon fontSize="small" />
+              <MoreVertIcon fontSize="small" />
             </IconButton>
-          </PermissionGate>
-          <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
-            <IconButton
-              size="small"
-              onClick={() => handleDeleteClick(params.row)}
-              sx={{ 
-                color: isDarkMode ? "#F87171" : "error.main",
-                "&:hover": { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : undefined }
+            <Menu
+              anchorEl={anchorEl}
+              open={open}
+              onClose={() => handleClose()}
+              onClick={(e) => e.stopPropagation()}
+              PaperProps={{
+                sx: {
+                  boxShadow: isDarkMode ? "0 4px 20px rgba(0,0,0,0.5)" : "0 2px 10px rgba(0,0,0,0.1)",
+                  border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none",
+                  backgroundColor: isDarkMode ? "#1F2937" : "background.paper",
+                }
               }}
             >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </PermissionGate>
-        </Box>
-      ),
+              <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
+                <MenuItem 
+                  onClick={() => handleAction(() => handleOpenDialog(params.row))}
+                  sx={{ 
+                    fontSize: "0.875rem",
+                    gap: 1.5,
+                    py: 1,
+                    px: 2,
+                    color: isDarkMode ? "#E5E7EB" : "text.primary",
+                    "&:hover": { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : undefined }
+                  }}
+                >
+                  <EditIcon fontSize="small" sx={{ color: isDarkMode ? "#60A5FA" : "primary.main" }} />
+                  {t("common.edit", "Edit")}
+                </MenuItem>
+              </PermissionGate>
+              <PermissionGate permission={PERMISSIONS.EDIT_DISTRIBUTOR}>
+                <MenuItem 
+                  onClick={() => handleAction(() => handleDeleteClick(params.row))}
+                  sx={{ 
+                    fontSize: "0.875rem",
+                    gap: 1.5,
+                    py: 1,
+                    px: 2,
+                    color: isDarkMode ? "#F87171" : "error.main",
+                    "&:hover": { backgroundColor: isDarkMode ? (isDarkMode ? "rgba(248,113,113,0.08)" : "error.lighter") : undefined }
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                  {t("common.delete", "Delete")}
+                </MenuItem>
+              </PermissionGate>
+            </Menu>
+          </Box>
+        );
+      },
     },
     // 1. Mantri (Moved to start)
     {
@@ -832,6 +886,37 @@ export default function Distributors() {
         border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none"
       }}>
         <CardContent>
+          {/* Status Legend */}
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: { xs: 2, sm: 4 },
+              mb: 3,
+              px: { xs: 1, md: 2 },
+              alignItems: "center",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: "success.main" }} />
+              <Typography variant="body2" sx={{ color: isDarkMode ? "#E5E7EB" : "text.primary", fontSize: "0.9rem", fontWeight: 600 }}>
+                {t("distributors.legendComplete", "Complete Profile")}
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: "warning.main" }} />
+              <Typography variant="body2" sx={{ color: isDarkMode ? "#E5E7EB" : "text.primary", fontSize: "0.9rem", fontWeight: 600 }}>
+                {t("distributors.legendPartial", "Partial Profile")}
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Box sx={{ width: 12, height: 12, borderRadius: "50%", bgcolor: "error.main" }} />
+              <Typography variant="body2" sx={{ color: isDarkMode ? "#E5E7EB" : "text.primary", fontSize: "0.9rem", fontWeight: 600 }}>
+                {t("distributors.legendMissing", "Missing Contact Details")}
+              </Typography>
+            </Box>
+          </Box>
+
           <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
             {loading ? (
               <TableSkeleton rows={10} columns={5} />
