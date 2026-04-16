@@ -139,26 +139,29 @@ def start_scheduler():
     scheduler = BackgroundScheduler()
 
     if os.environ.get("SCHEDULER_ENABLED", "").strip() == "1":
-        # 10:00 AM IST (UTC+5:30 = 4:30 AM UTC)
+        import pytz
+        ist = pytz.timezone("Asia/Kolkata")
+        
+        # 10:00 AM IST
         scheduler.add_job(
             distribute_calls_job,
-            trigger=CronTrigger(hour=4, minute=30),
+            trigger=CronTrigger(hour=10, minute=0, timezone=ist),
             id="daily_calling_distribution",
             name="Auto-Distribute at 10 AM IST",
             replace_existing=True
         )
-        # 12:00 AM IST (midnight = 6:30 PM UTC previous day)
+        # 12:00 AM IST (midnight)
         scheduler.add_job(
             midnight_refresh_job,
-            trigger=CronTrigger(hour=18, minute=30),
+            trigger=CronTrigger(hour=0, minute=0, timezone=ist),
             id="midnight_refresh",
             name="Midnight Refresh — Clear Pending",
             replace_existing=True
         )
-        # 11:45 PM IST (UTC+5:30 = 6:15 PM UTC)
+        # 11:45 PM IST
         scheduler.add_job(
             run_nightly_scoring,
-            trigger=CronTrigger(hour=18, minute=15),
+            trigger=CronTrigger(hour=23, minute=45, timezone=ist),
             id="nightly_scoring",
             name="Nightly Priority Scoring at 11:45 PM IST",
             replace_existing=True
