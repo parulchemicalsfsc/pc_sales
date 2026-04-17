@@ -99,6 +99,18 @@ function prettyField(field: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatValue(val: any): string {
+  if (val === null || val === undefined || val === "") return "—";
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val);
+    } catch (e) {
+      return String(val);
+    }
+  }
+  return String(val);
+}
+
 // ── Render before→after diff chips ────────────────────────────
 function ChangeDiff({ changes }: { changes: { field: string; from: any; to: any }[] }) {
   if (!changes || changes.length === 0) return null;
@@ -130,13 +142,27 @@ function ChangeDiff({ changes }: { changes: { field: string; from: any; to: any 
               color: "#dc2626",
               textDecoration: "line-through",
               opacity: 0.75,
+              wordBreak: "break-all",
+              maxWidth: 200,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
-            {String(c.from ?? "—")}
+            {formatValue(c.from)}
           </Box>
           <Box component="span" sx={{ color: "#64748b" }}>→</Box>
-          <Box component="span" sx={{ color: "#16a34a", fontWeight: 600 }}>
-            {String(c.to ?? "—")}
+          <Box
+            component="span"
+            sx={{
+              color: "#16a34a",
+              fontWeight: 600,
+              wordBreak: "break-all",
+              maxWidth: 200,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {formatValue(c.to)}
           </Box>
         </Box>
       ))}

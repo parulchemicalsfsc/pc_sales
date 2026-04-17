@@ -74,6 +74,26 @@ def create_product_category(category: ProductCategory, db: SupabaseClient = Depe
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/config/regions/{region_name}", dependencies=[Depends(verify_permission("manage_products"))])
+def delete_product_region(region_name: str, db: SupabaseClient = Depends(get_db)):
+    """Delete a product region"""
+    try:
+        db.table("product_regions").delete().eq("name", region_name).execute()
+        return {"message": "Region deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/config/categories/{category_name}", dependencies=[Depends(verify_permission("manage_products"))])
+def delete_product_category(category_name: str, db: SupabaseClient = Depends(get_db)):
+    """Delete a product category"""
+    try:
+        db.table("product_categories").delete().eq("name", category_name).execute()
+        return {"message": "Category deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @router.get("/{product_id}", dependencies=[Depends(verify_permission("view_products"))])
 def get_product(product_id: int, db: SupabaseClient = Depends(get_db)):
