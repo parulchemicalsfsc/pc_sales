@@ -377,6 +377,34 @@ export default function ProductPricing() {
         }
     };
 
+    const handleDeleteRegion = async (region: string) => {
+        if (!window.confirm(`Are you sure you want to delete region: "${region}"?`)) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/api/products/config/regions/${encodeURIComponent(region)}`, {
+                headers: { "x-user-email": user?.email },
+            });
+            await fetchConfig();
+            setSuccess("Region deleted successfully");
+            setTimeout(() => setSuccess(null), 3000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || "Failed to delete region");
+        }
+    };
+
+    const handleDeleteCategory = async (category: string) => {
+        if (!window.confirm(`Are you sure you want to delete category: "${category}"?`)) return;
+        try {
+            await axios.delete(`${API_BASE_URL}/api/products/config/categories/${encodeURIComponent(category)}`, {
+                headers: { "x-user-email": user?.email },
+            });
+            await fetchConfig();
+            setSuccess("Category deleted successfully");
+            setTimeout(() => setSuccess(null), 3000);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || "Failed to delete category");
+        }
+    };
+
     if (!user || !hasPermission(PERMISSIONS.MANAGE_PRICING)) {
         return (
             <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
@@ -400,45 +428,67 @@ export default function ProductPricing() {
                     </Typography>
                 </Box>
                 <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-                    <FormControl size="small" sx={{ minWidth: 160 }}>
-                        <InputLabel>{t("pricing.region", "Region")}</InputLabel>
-                        <Select
-                            value={selectedRegion}
-                            label="Region"
-                            onChange={(e) => {
-                                if (e.target.value === "__add_region__") {
-                                    setOpenAddRegionDialog(true);
-                                } else {
-                                    setSelectedRegion(e.target.value);
-                                }
-                            }}
-                        >
-                            {regions.map((region) => (
-                                <MenuItem key={region} value={region}>{region}</MenuItem>
-                            ))}
-                            <MenuItem value="__add_region__" sx={{ fontStyle: "italic", color: "primary.main", borderTop: "1px solid #eee" }}>+ Add Region</MenuItem>
-                        </Select>
-                    </FormControl>
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                        <FormControl size="small" sx={{ minWidth: 160 }}>
+                            <InputLabel>{t("pricing.region", "Region")}</InputLabel>
+                            <Select
+                                value={selectedRegion}
+                                label="Region"
+                                onChange={(e) => {
+                                    if (e.target.value === "__add_region__") {
+                                        setOpenAddRegionDialog(true);
+                                    } else {
+                                        setSelectedRegion(e.target.value);
+                                    }
+                                }}
+                            >
+                                {regions.map((region) => (
+                                    <MenuItem key={region} value={region}>{region}</MenuItem>
+                                ))}
+                                <MenuItem value="__add_region__" sx={{ fontStyle: "italic", color: "primary.main", borderTop: "1px solid #eee" }}>+ Add Region</MenuItem>
+                            </Select>
+                        </FormControl>
+                        {selectedRegion && (
+                            <Tooltip title="Delete Region">
+                                <span>
+                                    <IconButton size="small" color="error" onClick={() => handleDeleteRegion(selectedRegion)} disabled={saving || regions.length <= 1}>
+                                        <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        )}
+                    </Box>
 
-                    <FormControl size="small" sx={{ minWidth: 160, mr: 2 }}>
-                        <InputLabel>{t("pricing.category", "Category")}</InputLabel>
-                        <Select
-                            value={selectedCategory}
-                            label="Category"
-                            onChange={(e) => {
-                                if (e.target.value === "__add_category__") {
-                                    setOpenAddCategoryDialog(true);
-                                } else {
-                                    setSelectedCategory(e.target.value);
-                                }
-                            }}
-                        >
-                            {categories.map((category) => (
-                                <MenuItem key={category} value={category}>{category}</MenuItem>
-                            ))}
-                            <MenuItem value="__add_category__" sx={{ fontStyle: "italic", color: "primary.main", borderTop: "1px solid #eee" }}>+ Add Category</MenuItem>
-                        </Select>
-                    </FormControl>
+                    <Box sx={{ display: "flex", alignItems: "center", mr: 2 }}>
+                        <FormControl size="small" sx={{ minWidth: 160 }}>
+                            <InputLabel>{t("pricing.category", "Category")}</InputLabel>
+                            <Select
+                                value={selectedCategory}
+                                label="Category"
+                                onChange={(e) => {
+                                    if (e.target.value === "__add_category__") {
+                                        setOpenAddCategoryDialog(true);
+                                    } else {
+                                        setSelectedCategory(e.target.value);
+                                    }
+                                }}
+                            >
+                                {categories.map((category) => (
+                                    <MenuItem key={category} value={category}>{category}</MenuItem>
+                                ))}
+                                <MenuItem value="__add_category__" sx={{ fontStyle: "italic", color: "primary.main", borderTop: "1px solid #eee" }}>+ Add Category</MenuItem>
+                            </Select>
+                        </FormControl>
+                        {selectedCategory && (
+                            <Tooltip title="Delete Category">
+                                <span>
+                                    <IconButton size="small" color="error" onClick={() => handleDeleteCategory(selectedCategory)} disabled={saving || categories.length <= 1}>
+                                        <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                        )}
+                    </Box>
 
                     <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} disabled={saving}>
                         {t("pricing.addProduct", "Add Product")}

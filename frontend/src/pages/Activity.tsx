@@ -99,47 +99,92 @@ function prettyField(field: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function formatValue(val: any): string {
+  if (val === null || val === undefined || val === "") return "—";
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val, null, 2);
+    } catch (e) {
+      return String(val);
+    }
+  }
+  return String(val);
+}
+
 // ── Render before→after diff chips ────────────────────────────
 function ChangeDiff({ changes }: { changes: { field: string; from: any; to: any }[] }) {
   if (!changes || changes.length === 0) return null;
   return (
-    <Box sx={{ mt: 0.75, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-      {changes.map((c, i) => (
-        <Box
-          key={i}
-          sx={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 0.4,
-            bgcolor: "#f1f5f9",
-            border: "1px solid #e2e8f0",
-            borderRadius: 1.5,
-            px: 0.9,
-            py: 0.3,
-            fontSize: "11px",
-            fontFamily: "'JetBrains Mono','Fira Code',monospace",
-            lineHeight: 1.4,
-          }}
-        >
-          <Box component="span" sx={{ color: "#64748b", fontWeight: 600 }}>
-            {prettyField(c.field)}:
-          </Box>
+    <Box sx={{ mt: 0.75, display: "flex", flexDirection: "column", gap: 0.5 }}>
+      {changes.map((c, i) => {
+        const isComplex = (typeof c.from === "object" && c.from !== null) || (typeof c.to === "object" && c.to !== null);
+        
+        return (
           <Box
-            component="span"
+            key={i}
             sx={{
-              color: "#dc2626",
-              textDecoration: "line-through",
-              opacity: 0.75,
+              display: isComplex ? "block" : "inline-flex",
+              alignItems: "center",
+              gap: 0.4,
+              bgcolor: "#f1f5f9",
+              border: "1px solid #e2e8f0",
+              borderRadius: 1.5,
+              px: isComplex ? 1.5 : 0.9,
+              py: isComplex ? 1 : 0.3,
+              fontSize: "11px",
+              fontFamily: "'JetBrains Mono','Fira Code',monospace",
+              lineHeight: 1.4,
+              width: "fit-content",
+              maxWidth: "100%",
             }}
           >
-            {String(c.from ?? "—")}
+            <Box component="span" sx={{ color: "#64748b", fontWeight: 600, display: isComplex ? "block" : "inline", mb: isComplex ? 0.5 : 0 }}>
+              {prettyField(c.field)}:
+            </Box>
+
+            <Box
+              component={isComplex ? "pre" : "span"}
+              sx={{
+                m: 0,
+                display: isComplex ? "block" : "inline",
+                color: "#dc2626",
+                textDecoration: isComplex ? "none" : "line-through",
+                opacity: 0.75,
+                wordBreak: "break-all",
+                whiteSpace: isComplex ? "pre-wrap" : "normal",
+                bgcolor: isComplex ? alpha("#dc2626", 0.05) : "transparent",
+                px: isComplex ? 1.5 : 0,
+                py: isComplex ? 1 : 0,
+                borderRadius: 1,
+              }}
+            >
+              {formatValue(c.from)}
+            </Box>
+
+            <Box component="span" sx={{ color: "#64748b", display: isComplex ? "block" : "inline", my: isComplex ? 0.5 : 0, textAlign: "center" }}>
+              {isComplex ? "↓" : "→"}
+            </Box>
+
+            <Box
+              component={isComplex ? "pre" : "span"}
+              sx={{
+                m: 0,
+                display: isComplex ? "block" : "inline",
+                color: "#16a34a",
+                fontWeight: 600,
+                wordBreak: "break-all",
+                whiteSpace: isComplex ? "pre-wrap" : "normal",
+                bgcolor: isComplex ? alpha("#16a34a", 0.05) : "transparent",
+                px: isComplex ? 1.5 : 0,
+                py: isComplex ? 1 : 0,
+                borderRadius: 1,
+              }}
+            >
+              {formatValue(c.to)}
+            </Box>
           </Box>
-          <Box component="span" sx={{ color: "#64748b" }}>→</Box>
-          <Box component="span" sx={{ color: "#16a34a", fontWeight: 600 }}>
-            {String(c.to ?? "—")}
-          </Box>
-        </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }
