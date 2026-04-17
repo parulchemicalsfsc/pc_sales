@@ -411,6 +411,7 @@
     "processingDesc": "After upload, data will be processed and imported automatically",
     "selectTypeSubtitle": "Select an import type and upload your Excel file",
     "customerImport": "Customer Import",
+    "distributorImport": "Distributor Import",
     "paymentImport": "Payment Import",
     "demosImport": "Demos Import",
     "salesImport": "Sales Import",

@@ -137,6 +137,15 @@ def _safe_str(value) -> str | None:
     return s
 
 
+def to_upper_safe(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        return value.upper() if value else None
+    return value
+
+
 def clean_phone(value) -> Optional[str]:
     """
     Robustly clean and validate a 10-digit phone number.
@@ -337,35 +346,35 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
 
 
         record = {
-            "village":          village.upper() or None,
-            "taluka":           taluka.upper()  or None,
-            "district":         district.upper() if district else None,
-            "mantri_name":      mantri_name.upper() if mantri_name else None,
+            "village":          to_upper_safe(village),
+            "taluka":           to_upper_safe(taluka),
+            "district":         to_upper_safe(district),
+            "mantri_name":      to_upper_safe(mantri_name),
             "mantri_mobile":    mantri_mobile,
             "sabhasad_morning": sabhasad_morning,
             "sabhasad_evening": sabhasad_evening,
             
             # Additional Fields
             "record_date": parse_date(row[col_record_date]) if col_record_date else None,
-            "state": _safe_str(row[col_state]) if col_state else None,
-            "dairy_type": _safe_str(row[col_dairy_type]) if col_dairy_type else None,
+            "state": to_upper_safe(_safe_str(row[col_state])) if col_state else None,
+            "dairy_type": to_upper_safe(_safe_str(row[col_dairy_type])) if col_dairy_type else None,
             "dairy_time_morning": parse_time(row[col_dairy_time_m]) if col_dairy_time_m else None,
             "dairy_time_evening": parse_time(row[col_dairy_time_e]) if col_dairy_time_e else None,
             "milk_collection_morning": _safe_int(row[col_milk_m]) if col_milk_m else None,
             "milk_collection_evening": _safe_int(row[col_milk_e]) if col_milk_e else None,
-            "nature_of_sabhasad": _safe_str(row[col_nature]) if col_nature else None,
-            "support": _safe_str(row[col_support]) if col_support else None,
-            "animal_delivery_period": _safe_str(row[col_animal_period]) if col_animal_period else None,
+            "nature_of_sabhasad": to_upper_safe(_safe_str(row[col_nature])) if col_nature else None,
+            "support": to_upper_safe(_safe_str(row[col_support])) if col_support else None,
+            "animal_delivery_period": to_upper_safe(_safe_str(row[col_animal_period])) if col_animal_period else None,
             "payment_recovery_demo": _safe_int(row[col_recovery_demo]) if col_recovery_demo else None,
             "payment_recovery_dispatch": _safe_int(row[col_recovery_dispatch]) if col_recovery_dispatch else None,
-            "decision_maker_availability_morning": _safe_str(row[col_dm_avail_m]) if col_dm_avail_m else None,
-            "decision_maker_availability_evening": _safe_str(row[col_dm_avail_e]) if col_dm_avail_e else None,
-            "high_holder_to_low_holder_villages": _safe_str(row[col_high_holder]) if col_high_holder else None,
-            "current_status_of_business": _safe_str(row[col_current_status]) if col_current_status else None,
+            "decision_maker_availability_morning": to_upper_safe(_safe_str(row[col_dm_avail_m])) if col_dm_avail_m else None,
+            "decision_maker_availability_evening": to_upper_safe(_safe_str(row[col_dm_avail_e])) if col_dm_avail_e else None,
+            "high_holder_to_low_holder_villages": to_upper_safe(_safe_str(row[col_high_holder])) if col_high_holder else None,
+            "current_status_of_business": to_upper_safe(_safe_str(row[col_current_status])) if col_current_status else None,
         }
         
         # 📦 DEBUG LOG
-        print("📦 EXTRA FIELDS:", record)
+        print("NORMALIZED RECORD:", record)
         records.append(record)
 
     print(f"[DEBUG] Extracted {len(records)} valid record(s).")

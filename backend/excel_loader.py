@@ -1,7 +1,7 @@
 import re
 from typing import Optional, Any
 import pandas as pd
-from clean_excel_distributors import extract_distributors
+from clean_excel_distributors import extract_distributors, to_upper_safe
 
 # =================================================
 # CONSTANTS
@@ -146,10 +146,10 @@ def import_customers_excel(path: str, conn: Any) -> int:
             continue
 
         records.append({
-            "name": name,
+            "name": to_upper_safe(name),
             "mobile": mobile,
-            "village": village,
-            "taluka": taluka
+            "village": to_upper_safe(village),
+            "taluka": to_upper_safe(taluka)
         })
 
     if records:
