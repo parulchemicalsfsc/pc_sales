@@ -27,16 +27,18 @@ import {
   Close as CloseIcon,
   AttachFile as AttachFileIcon,
   CheckCircle as CheckCircleIcon,
+  Group as GroupIcon,
 } from "@mui/icons-material";
 import { fileAPI } from "../services/api";
 import { useTranslation } from "../hooks/useTranslation";
 
-type ImportType = "customer" | "payment" | "demos" | "sales";
+type ImportType = "customer" | "payment" | "demos" | "sales" | "sabhasad";
 
 interface ImportDialog {
   type: ImportType;
   title: string;
   icon: React.ReactNode;
+  description?: string;
   fields: {
     name: string;
     label: string;
@@ -59,15 +61,10 @@ export default function DataImport() {
   const importDialogs: ImportDialog[] = [
     {
       type: "customer",
-      title: t("import.customerImport", "Customer Import"),
-      icon: <PeopleIcon sx={{ fontSize: 48, color: "primary.main" }} />,
-      fields: [
-        { name: "name", label: "Customer Name", required: false },
-        { name: "mobile", label: "Mobile Number", required: false },
-        { name: "village", label: "Village", required: false },
-        { name: "taluka", label: "Taluka", required: false },
-        { name: "district", label: "District", required: false },
-      ],
+      title: t("import.distributorImport", "Distributor Import"),
+      icon: <GroupIcon sx={{ fontSize: 48, color: "primary.main" }} />,
+      description: "Import the files containing Mantri data",
+      fields: [],
     },
     {
       type: "payment",
@@ -119,6 +116,13 @@ export default function DataImport() {
         { name: "rate", label: "Rate", required: false, type: "number" },
         { name: "notes", label: "Notes", required: false, multiline: true },
       ],
+    },
+    {
+      type: "sabhasad",
+      title: "Sabhasad Import",
+      description: "Import the files containing Sabhasad data",
+      icon: <GroupIcon sx={{ fontSize: 48, color: "info.main" }} />,
+      fields: [],
     },
   ];
 
@@ -233,6 +237,8 @@ export default function DataImport() {
         return "warning.main";
       case "sales":
         return "error.main";
+      case "sabhasad":
+        return "info.main";
       default:
         return "primary.main";
     }
@@ -402,7 +408,7 @@ export default function DataImport() {
                     {importDialogs.find((d) => d.type === openDialog)?.title}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {t("import.fillDetailsSubtitle", "Fill in the details below to import your data")}
+                    {importDialogs.find((d) => d.type === openDialog)?.description || t("import.fillDetailsSubtitle", "Fill in the details below to import your data")}
                   </Typography>
                 </Box>
               </Box>
@@ -434,72 +440,75 @@ export default function DataImport() {
             )}
 
             {/* Input Fields */}
-            <Grid container spacing={3} sx={{ mb: 4 }}>
-              {importDialogs
-                .find((d) => d.type === openDialog)
-                ?.fields.map((field) => (
-                  <Grid
-                    item
-                    xs={12}
-                    sm={field.multiline ? 12 : 6}
-                    key={field.name}
-                  >
-                    <TextField
-                      fullWidth
-                      variant="outlined"
-                      label={field.required ? `${field.label} *` : field.label}
-                      type={field.type || "text"}
-                      multiline={field.multiline}
-                      rows={field.multiline ? 4 : 1}
-                      value={formData[field.name] || ""}
-                      onChange={(e) =>
-                        handleFieldChange(field.name, e.target.value)
-                      }
-                      placeholder={
-                        field.name === "mobile" || field.name.includes("mobile")
-                          ? "+91 9876543210"
-                          : undefined
-                      }
-                      InputLabelProps={
-                        field.type === "date" ||
-                          field.name === "mobile" ||
-                          field.name.includes("mobile")
-                          ? { shrink: true }
-                          : undefined
-                      }
-                      InputProps={
-                        field.name === "mobile" || field.name.includes("mobile")
-                          ? {
-                            startAdornment: (
-                              <InputAdornment
-                                position="start"
-                                sx={{ ml: 0.5 }}
-                              >
-                                <Box
-                                  component="span"
-                                  sx={{
-                                    color: "text.primary",
-                                    fontWeight: 600,
-                                    fontSize: "1rem",
-                                    minWidth: "32px",
-                                    bgcolor: "action.hover",
-                                    py: 0.5,
-                                    px: 1,
-                                    borderRadius: 1,
-                                    mr: 1,
-                                  }}
+            {importDialogs.find((d) => d.type === openDialog)?.fields && 
+              importDialogs.find((d) => d.type === openDialog)!.fields.length > 0 && (
+              <Grid container spacing={3} sx={{ mb: 4 }}>
+                {importDialogs
+                  .find((d) => d.type === openDialog)
+                  ?.fields.map((field) => (
+                    <Grid
+                      item
+                      xs={12}
+                      sm={field.multiline ? 12 : 6}
+                      key={field.name}
+                    >
+                      <TextField
+                        fullWidth
+                        variant="outlined"
+                        label={field.required ? `${field.label} *` : field.label}
+                        type={field.type || "text"}
+                        multiline={field.multiline}
+                        rows={field.multiline ? 4 : 1}
+                        value={formData[field.name] || ""}
+                        onChange={(e) =>
+                          handleFieldChange(field.name, e.target.value)
+                        }
+                        placeholder={
+                          field.name === "mobile" || field.name.includes("mobile")
+                            ? "+91 9876543210"
+                            : undefined
+                        }
+                        InputLabelProps={
+                          field.type === "date" ||
+                            field.name === "mobile" ||
+                            field.name.includes("mobile")
+                            ? { shrink: true }
+                            : undefined
+                        }
+                        InputProps={
+                          field.name === "mobile" || field.name.includes("mobile")
+                            ? {
+                              startAdornment: (
+                                <InputAdornment
+                                  position="start"
+                                  sx={{ ml: 0.5 }}
                                 >
-                                  +91
-                                </Box>
-                              </InputAdornment>
-                            ),
-                          }
-                          : undefined
-                      }
-                    />
-                  </Grid>
-                ))}
-            </Grid>
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      color: "text.primary",
+                                      fontWeight: 600,
+                                      fontSize: "1rem",
+                                      minWidth: "32px",
+                                      bgcolor: "action.hover",
+                                      py: 0.5,
+                                      px: 1,
+                                      borderRadius: 1,
+                                      mr: 1,
+                                    }}
+                                  >
+                                    +91
+                                  </Box>
+                                </InputAdornment>
+                              ),
+                            }
+                            : undefined
+                        }
+                      />
+                    </Grid>
+                  ))}
+              </Grid>
+            )}
 
             {/* File Upload Section */}
             <Paper
@@ -507,16 +516,22 @@ export default function DataImport() {
               sx={{
                 border: "2px dashed",
                 borderColor: selectedFile ? "success.main" : "primary.main",
-                borderRadius: 4,
-                p: 4,
+                borderRadius: 3,
+                p: 5,
                 textAlign: "center",
                 bgcolor: selectedFile ? "success.50" : "background.paper",
                 cursor: "pointer",
                 transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 220,
                 "&:hover": {
                   bgcolor: "action.hover",
                   transform: 'scale(1.01)',
-                  borderColor: 'primary.dark'
+                  borderColor: 'primary.dark',
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
                 },
               }}
               onClick={() =>
@@ -540,9 +555,9 @@ export default function DataImport() {
               ) : (
                 <Box>
                   <AttachFileIcon
-                    sx={{ fontSize: 48, color: "primary.main", mb: 1 }}
+                    sx={{ fontSize: 56, color: "primary.main", mb: 2 }}
                   />
-                  <Typography variant="h6" sx={{ mb: 1 }}>
+                  <Typography variant="h6" sx={{ mb: 1, fontWeight: 600 }}>
                     {t("import.clickToSelect", "Click to select Excel file")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
