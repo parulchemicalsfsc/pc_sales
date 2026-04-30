@@ -223,14 +223,13 @@ def get_my_assignments(
 ):
     """Fetch paginated assignments for the logged-in telecaller."""
     try:
-        today_str = date.today().isoformat()
         offset = (page - 1) * limit
 
-        # Build query
+        # Build query — show ALL pending assignments regardless of assigned_date
+        # (date filter was causing assignments from past days to not appear)
         query = db.table("calling_assignments") \
             .select("*") \
             .eq("user_email", user_email) \
-            .eq("assigned_date", today_str) \
             .order("assignment_id")
 
         if status:
@@ -246,8 +245,7 @@ def get_my_assignments(
         # Get total count for pagination
         count_query = db.table("calling_assignments") \
             .select("assignment_id") \
-            .eq("user_email", user_email) \
-            .eq("assigned_date", today_str)
+            .eq("user_email", user_email)
         if status:
             if status == "completed":
                 count_query = count_query.neq("status", "Pending")
@@ -256,35 +254,34 @@ def get_my_assignments(
         count_res = count_query.execute()
         total = len(count_res.data or [])
 
-        # Enrich with distributor details
-        dist_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
-        distributors_map = {}
-        if dist_ids:
-            dist_res = db.table("distributors") \
-                .select("distributor_id, name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
-                .in_("distributor_id", dist_ids) \
+        # Enrich with customer details (assignments reference customer_id from customers table)
+        cust_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
+        customers_map = {}
+        if cust_ids:
+            cust_res = db.table("customers") \
+                .select("customer_id, name, village, taluka, district, mobile, priority_score, priority_label") \
+                .in_("customer_id", cust_ids) \
                 .execute()
-            distributors_map = {d["distributor_id"]: d for d in (dist_res.data or [])}
+            customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
 
         enhanced = []
         for a in assignments:
-            d = distributors_map.get(a["customer_id"], {})
+            c = customers_map.get(a["customer_id"], {})
             enhanced.append({
                 **a,
-                "name": d.get("name", "Unknown"),
-                "mobile": d.get("mantri_mobile", ""),
-                "village": d.get("village", ""),
-                "taluka": d.get("taluka", ""),
-                "district": d.get("district", ""),
-                "priority_score": d.get("priority_score", 0),
-                "priority_label": d.get("priority_label", "LOW"),
+                "name": c.get("name", "Unknown"),
+                "mobile": c.get("mobile", ""),
+                "village": c.get("village", ""),
+                "taluka": c.get("taluka", ""),
+                "district": c.get("district", ""),
+                "priority_score": c.get("priority_score", 0),
+                "priority_label": c.get("priority_label", "LOW"),
             })
 
-        # Summary counts (all statuses for today)
+        # Summary counts (all statuses for this user)
         all_res = db.table("calling_assignments") \
             .select("status") \
             .eq("user_email", user_email) \
-            .eq("assigned_date", today_str) \
             .execute()
         all_assignments = all_res.data or []
         pending = sum(1 for x in all_assignments if x["status"] == "Pending")
@@ -353,7 +350,7 @@ def update_call_status(
             .update({
                 "status": new_status,
                 "notes": body.notes or "",
-            })
+            }).execute()  # BUG FIX: was missing .execute()
 
         # 4. Insert call log
         db.table("call_logs").insert({
@@ -598,7 +595,7 @@ def admin_reassign(
         # 2. Update assignment
         db.table("calling_assignments") \
             .eq("assignment_id", body.assignment_id) \
-            .update({"user_email": body.new_user_email})
+            .update({"user_email": body.new_user_email}).execute()  # BUG FIX: was missing .execute()
 
         # 3. Notify new telecaller
         db.table("notifications").insert({
@@ -630,7 +627,7 @@ def get_distribution_status(
     import pytz
     ist = pytz.timezone("Asia/Kolkata")
     now_ist = datetime.now(ist)
-    target = now_ist.replace(hour=10, minute=0, second=0, microsecond=0)
+    target = now_ist.replace(hour=21, minute=25, second=0, microsecond=0)  # TEST: revert to hour=10, minute=0
 
     if now_ist >= target:
         minutes_remaining = 0
