@@ -60,29 +60,38 @@ def _get_telecaller_emails(db: SupabaseClient) -> list:
         return []
 
 
-def _check_already_distributed(db: SupabaseClient, target_date: str) -> bool:
-    """Idempotency check: are there assignments for this date already?"""
+def _check_already_distributed(db: SupabaseClient, target_date: str, valid_emails: list = None) -> bool:
+    """
+    Idempotency check: are there assignments for this date for VALID telecallers?
+    If valid_emails is provided, only count assignments where user_email is in that list.
+    Ghost assignments (for removed users) are ignored.
+    """
     try:
         res = db.table("calling_assignments") \
-            .select("assignment_id", count="exact") \
+            .select("assignment_id, user_email") \
             .eq("assigned_date", target_date) \
-            .limit(1) \
             .execute()
-        found = (res.count or 0) > 0 or len(res.data or []) > 0
-        logger.info(f"[DIST] Idempotency check for {target_date}: already_distributed={found} (count={res.count}, rows={len(res.data or [])})")
+        all_rows = res.data or []
+        if valid_emails:
+            # Only count assignments for currently active telecallers
+            valid_rows = [r for r in all_rows if r.get("user_email") in valid_emails]
+            ghost_rows = [r for r in all_rows if r.get("user_email") not in valid_emails]
+            found = len(valid_rows) > 0
+            logger.info(
+                f"[DIST] Idempotency check for {target_date}: total_rows={len(all_rows)}, "
+                f"valid_rows={len(valid_rows)}, ghost_rows={len(ghost_rows)}, "
+                f"valid_emails={valid_emails}, already_distributed={found}"
+            )
+            if ghost_rows:
+                logger.warning(f"[DIST] ⚠️ Found {len(ghost_rows)} ghost assignments for unknown users: "
+                               f"{list(set(r['user_email'] for r in ghost_rows))} — these will be cleared")
+        else:
+            found = len(all_rows) > 0
+            logger.info(f"[DIST] Idempotency check for {target_date}: already_distributed={found} (rows={len(all_rows)})")
         return found
     except Exception as ex:
-        logger.warning(f"[DIST] Idempotency check count query failed ({ex}), falling back...")
-        try:
-            res = db.table("calling_assignments") \
-                .select("assignment_id") \
-                .eq("assigned_date", target_date) \
-                .limit(1) \
-                .execute()
-            return len(res.data or []) > 0
-        except Exception as ex2:
-            logger.error(f"[DIST] Idempotency fallback also failed: {ex2}")
-            return False
+        logger.warning(f"[DIST] Idempotency check failed ({ex}), falling back to False")
+        return False
 
 
 def _get_pending_counts(db: SupabaseClient, emails: list) -> dict:
@@ -104,27 +113,22 @@ def _get_pending_counts(db: SupabaseClient, emails: list) -> dict:
     return counts
 
 
-def distribute_calls(db: SupabaseClient, admin_email: str = "system") -> dict:
+def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: bool = False) -> dict:
     """
     Load-aware, idempotent distribution of pending customers to telecallers.
     Queries the `customers` table — calling_assignments.customer_id = customers.customer_id.
+    If force=True, clears any ghost/stale assignments for today before checking idempotency.
     """
     today_str = date.today().isoformat()
-    logger.info(f"[DIST] ===== distribute_calls START (date={today_str}, triggered_by={admin_email}) =====")
+    logger.info(f"[DIST] ===== distribute_calls START (date={today_str}, triggered_by={admin_email}, force={force}) =====")
 
-    # 1. Idempotency check
-    already = _check_already_distributed(db, today_str)
-    if already:
-        logger.info(f"[DIST] Already distributed for {today_str} — skipping.")
-        return {"message": "Already distributed for today", "status": "skipped"}
-
-    # 2. Get telecallers
+    # 1. Get telecallers FIRST so we can do smart idempotency check
     telecallers = _get_telecaller_emails(db)
     if not telecallers:
         logger.warning("[DIST] ❌ No active telecallers found — aborting distribution!")
         try:
             db.table("notifications").insert({
-                "user_email": admin_email if admin_email != "system" else "system@internal",
+                "user_email": admin_email if admin_email not in ("system", "system_scheduler") else "system@internal",
                 "title": "⚠️ No Telecallers Available",
                 "message": "Auto-distribution failed: No active telecallers found in app_users.",
                 "notification_type": "warning",
@@ -135,8 +139,47 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system") -> dict:
             logger.error(f"[DIST] Failed to send no-telecaller notification: {ne}")
         return {"message": "No active telecallers found", "status": "error", "total_calls": 0}
 
-    emails = [t["email"] for t in telecallers]
-    logger.info(f"[DIST] Telecallers to distribute to: {emails}")
+    valid_emails = [t["email"] for t in telecallers]
+    logger.info(f"[DIST] Telecallers to distribute to: {valid_emails}")
+
+    # 2. Clear ghost assignments (assignments for users no longer in telecaller list)
+    try:
+        ghost_res = db.table("calling_assignments") \
+            .select("assignment_id, user_email") \
+            .eq("assigned_date", today_str) \
+            .eq("status", "Pending") \
+            .execute()
+        ghost_rows = [r for r in (ghost_res.data or []) if r.get("user_email") not in valid_emails]
+        if ghost_rows:
+            ghost_ids = [r["assignment_id"] for r in ghost_rows]
+            logger.warning(f"[DIST] 🗑️ Deleting {len(ghost_rows)} ghost assignments for unknown users: "
+                           f"{list(set(r['user_email'] for r in ghost_rows))}")
+            for gid in ghost_ids:
+                db.table("calling_assignments").eq("assignment_id", gid).delete().execute()
+            logger.info(f"[DIST] Ghost cleanup complete — deleted {len(ghost_ids)} rows")
+    except Exception as ge:
+        logger.warning(f"[DIST] Ghost cleanup failed (non-fatal): {ge}")
+
+    # 3. Smart idempotency check — only block if VALID telecallers already have assignments
+    already = _check_already_distributed(db, today_str, valid_emails=valid_emails)
+    if already and not force:
+        logger.info(f"[DIST] Already distributed for {today_str} to valid telecallers — skipping. Use force=True to override.")
+        return {"message": "Already distributed for today", "status": "skipped"}
+    elif already and force:
+        logger.info(f"[DIST] force=True — clearing existing valid assignments and re-distributing")
+        try:
+            existing_res = db.table("calling_assignments") \
+                .select("assignment_id") \
+                .eq("assigned_date", today_str) \
+                .eq("status", "Pending") \
+                .execute()
+            for row in (existing_res.data or []):
+                db.table("calling_assignments").eq("assignment_id", row["assignment_id"]).delete().execute()
+            logger.info(f"[DIST] Force-cleared {len(existing_res.data or [])} existing pending assignments")
+        except Exception as fe:
+            logger.error(f"[DIST] Force-clear failed: {fe}")
+
+    emails = valid_emails  # Already fetched above
 
     # 3. Get customers to call (top 150 by priority_score)
     # NOTE: calling_assignments.customer_id references customers.customer_id
@@ -676,12 +719,13 @@ def get_admin_assignments(
 
 @router.post("/admin/distribute")
 def admin_distribute(
+    force: bool = Query(False, description="Set true to re-distribute even if already done today"),
     admin_email: str = Header(None, alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
-    """Admin: Trigger idempotent, load-aware call distribution."""
+    """Admin: Trigger idempotent, load-aware call distribution. Use ?force=true to override idempotency."""
     try:
-        result = distribute_calls(db, admin_email or "admin")
+        result = distribute_calls(db, admin_email or "admin", force=force)
         return result
     except HTTPException:
         raise
@@ -794,11 +838,11 @@ def admin_refresh_distribution(
         for p in pending:
             db.table("calling_assignments") \
                 .eq("assignment_id", p["assignment_id"]) \
-                .delete()
+                .delete() \
+                .execute()  # BUG FIX: was missing .execute()
 
-        # 3. Re-run distribution (this creates fresh assignments)
-        # First remove today's marker so distribution runs
-        result = distribute_calls(db, admin_email or "admin")
+        # 3. Re-run distribution with force=True since we already cleared
+        result = distribute_calls(db, admin_email or "admin", force=True)
 
         return {
             "message": f"Refreshed: removed {len(pending)} pending, re-distributed",
@@ -849,7 +893,8 @@ def admin_bulk_reassign(
         for a in candidates:
             db.table("calling_assignments") \
                 .eq("assignment_id", a["assignment_id"]) \
-                .update({"user_email": body.target_email})
+                .update({"user_email": body.target_email}) \
+                .execute()  # BUG FIX: was missing .execute()
             reassigned += 1
 
         # Notify the telecaller
