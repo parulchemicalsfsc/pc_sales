@@ -181,37 +181,40 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
 
     emails = valid_emails  # Already fetched above
 
-    # 3. Get customers to call (top 150, ordered by priority_score if available)
-    # NOTE: calling_assignments.customer_id references customers.customer_id
+    # 3. Get distributors to call (top 150, ordered by priority_score descending)
+    # NOTE: calling_assignments.customer_id stores distributor_id here due to schema reuse.
+    # See: Switch Call Distribution to Distributors Table (implementation doc)
     customers_to_call = []
     try:
-        # Try with priority columns first
-        cust_res = db.table("customers") \
-            .select("customer_id, name, mobile, village, priority_score, priority_label") \
+        dist_res = db.table("distributors") \
+            .select("distributor_id, mantri_name, mantri_mobile, village, priority_score, priority_label") \
             .order("priority_score", desc=True) \
             .limit(150) \
             .execute()
-        customers_to_call = cust_res.data or []
-        logger.info(f"[DIST] Fetched {len(customers_to_call)} customers with priority cols (top 150 by priority_score)")
+        raw_distributors = dist_res.data or []
+        
+        # Map distributor fields to customer fields to avoid breaking downstream logic
+        for d in raw_distributors:
+            customers_to_call.append({
+                "customer_id": d.get("distributor_id"),
+                "name": d.get("mantri_name"),
+                "mobile": d.get("mantri_mobile"),
+                "village": d.get("village"),
+                "priority_score": d.get("priority_score"),
+                "priority_label": d.get("priority_label")
+            })
+            
+        logger.info(f"[DIST] Fetched {len(customers_to_call)} distributors (top 150 by priority_score)")
     except Exception as e:
-        logger.warning(f"[DIST] priority_score/priority_label columns not available ({e}), falling back to basic fetch")
-        try:
-            # Fallback: fetch without score columns (schema may not have them yet)
-            cust_res = db.table("customers") \
-                .select("customer_id, name, mobile, village") \
-                .limit(150) \
-                .execute()
-            customers_to_call = cust_res.data or []
-            logger.info(f"[DIST] Fallback fetched {len(customers_to_call)} customers without priority cols")
-        except Exception as e2:
-            logger.error(f"[DIST] ❌ Failed to fetch customers even with fallback: {e2}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to fetch customers: {e2}")
+        logger.error(f"[DIST] ❌ Failed to fetch distributors: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch distributors: {e}")
+        
     if customers_to_call:
-        logger.info(f"[DIST] Sample customer IDs: {[c['customer_id'] for c in customers_to_call[:5]]}")
+        logger.info(f"[DIST] Sample distributor IDs: {[c['customer_id'] for c in customers_to_call[:5]]}")
 
     if not customers_to_call:
-        logger.warning("[DIST] ❌ No customers found to distribute — check customers table has rows.")
-        return {"message": "No customers to distribute", "status": "empty", "total_calls": 0}
+        logger.warning("[DIST] ❌ No distributors found to distribute.")
+        return {"message": "No distributors to distribute", "status": "empty", "total_calls": 0}
 
     # 4. Load-aware distribution: fewer pending → more new calls
     pending_counts = _get_pending_counts(db, emails)
@@ -328,14 +331,18 @@ def debug_state(db: SupabaseClient = Depends(get_db)):
 
     # 3. Customers count
     try:
-        cust_res = db.table("customers").select("customer_id").limit(5).execute()
-        cust_sample = [c["customer_id"] for c in (cust_res.data or [])]
-        cust_count_res = db.table("customers").select("customer_id").execute()
+        cust_res = db.table("distributors").select("distributor_id").limit(5).execute()
+        cust_sample = [c["distributor_id"] for c in (cust_res.data or [])]
+        cust_count_res = db.table("distributors").select("distributor_id").execute()
         cust_total = len(cust_count_res.data or [])
+        
+        scored_res = db.table("distributors").select("distributor_id").not_.is_("priority_score", "null").limit(1).execute()
+        has_scored = len(scored_res.data or []) > 0
     except Exception as e:
         cust_sample = []
         cust_total = -1
-        logger.error(f"[DEBUG] customers query failed: {e}")
+        has_scored = False
+        logger.error(f"[DEBUG] distributors query failed: {e}")
 
     # 4. Assignments for today
     try:
@@ -365,6 +372,7 @@ def debug_state(db: SupabaseClient = Depends(get_db)):
         "telecaller_count": len(telecallers),
         "customers_total": cust_total,
         "customers_sample_ids": cust_sample,
+        "has_scored_distributors": has_scored,
         "assignments_for_today": len(today_assignments),
         "already_distributed_today": len(today_assignments) > 0,
         "total_assignments_ever": total_assignments,
@@ -427,31 +435,35 @@ def get_my_assignments(
 
         # Enrich with customer details
         cust_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
-        logger.info(f"[MY-ASSIGN] Enriching {len(cust_ids)} customer IDs: {cust_ids[:10]}")
+        logger.info(f"[MY-ASSIGN] Enriching {len(cust_ids)} distributor IDs: {cust_ids[:10]}")
+        # NOTE: customer_id col stores distributor_id here due to schema reuse.
+        # See: Switch Call Distribution to Distributors Table (implementation doc)
         customers_map = {}
         if cust_ids:
             try:
-                cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile, priority_score, priority_label") \
-                    .in_("customer_id", cust_ids) \
+                dist_res = db.table("distributors") \
+                    .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
+                    .in_("distributor_id", cust_ids) \
                     .execute()
-                customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
+                # Map fields to what the frontend expects
+                for d in (dist_res.data or []):
+                    customers_map[d["distributor_id"]] = {
+                        "customer_id": d.get("distributor_id"),
+                        "name": d.get("mantri_name"),
+                        "mobile": d.get("mantri_mobile"),
+                        "village": d.get("village"),
+                        "taluka": d.get("taluka"),
+                        "district": d.get("district"),
+                        "priority_score": d.get("priority_score"),
+                        "priority_label": d.get("priority_label")
+                    }
             except Exception as e:
-                logger.warning(f"[MY-ASSIGN] Customer enrichment columns missing ({e}), falling back...")
-                try:
-                    # Fallback for old schema
-                    cust_res = db.table("customers") \
-                        .select("customer_id, name, village, mobile") \
-                        .in_("customer_id", cust_ids) \
-                        .execute()
-                    customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
-                except Exception as e2:
-                    logger.error(f"[MY-ASSIGN] ❌ Fallback customer enrichment failed: {e2}")
+                logger.error(f"[MY-ASSIGN] ❌ Distributor enrichment failed: {e}", exc_info=True)
             
-            logger.info(f"[MY-ASSIGN] Customer lookup returned {len(customers_map)} matches out of {len(cust_ids)} IDs")
+            logger.info(f"[MY-ASSIGN] Distributor lookup returned {len(customers_map)} matches out of {len(cust_ids)} IDs")
             if len(customers_map) < len(cust_ids):
                 missing = set(cust_ids) - set(customers_map.keys())
-                logger.warning(f"[MY-ASSIGN] ⚠️ Missing customer enrichment for IDs: {missing} — these will show as 'Unknown'")
+                logger.warning(f"[MY-ASSIGN] ⚠️ Missing distributor enrichment for IDs: {missing}")
 
         enhanced = []
         for a in assignments:
