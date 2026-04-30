@@ -1,5 +1,27 @@
 import os
+import logging
 from contextlib import asynccontextmanager
+
+# ─── Load .env FIRST so all env vars (SCHEDULER_ENABLED etc.) are available ──
+from dotenv import load_dotenv
+load_dotenv()  # reads backend/.env into os.environ
+
+# ─── Logging Setup ────────────────────────────────────────────────────────────
+# Writes to BOTH console (so you see it in terminal) AND backend.log file
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),                        # → terminal / console
+        logging.FileHandler("backend.log", mode="a", encoding="utf-8"),  # → backend.log
+    ],
+)
+logger = logging.getLogger("main")
+logger.info("=" * 60)
+logger.info("Backend starting up...")
+logger.info(f"SCHEDULER_ENABLED = {os.environ.get('SCHEDULER_ENABLED', '(not set)')}")
+logger.info("=" * 60)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

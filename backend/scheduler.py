@@ -8,9 +8,9 @@ from supabase_db import get_supabase
 logger = logging.getLogger(__name__)
 
 def distribute_calls_job():
-    """Daily 9:47 PM IST job: idempotent call distribution. [TEST MODE]"""
+    """Daily 22:05 IST job: idempotent call distribution. [TEST MODE]"""
     try:
-        logger.info("[SCHEDULER] ===== distribute_calls_job TRIGGERED (9:47 PM IST — TEST) =====")
+        logger.info("[SCHEDULER] ===== distribute_calls_job TRIGGERED (22:05 IST — TEST) =====")
         from routers.automation import distribute_calls
         db = get_supabase()
         logger.info("[SCHEDULER] DB connection obtained, calling distribute_calls...")
@@ -145,12 +145,12 @@ def start_scheduler():
         import pytz
         ist = pytz.timezone("Asia/Kolkata")
         
-        # 9:47 PM IST [TEST — revert to hour=10, minute=0 after testing]
+        # 22:05 IST [TEST — revert to hour=10, minute=0 after testing]
         scheduler.add_job(
             distribute_calls_job,
-            trigger=CronTrigger(hour=21, minute=47, timezone=ist),
+            trigger=CronTrigger(hour=22, minute=5, timezone=ist),
             id="daily_calling_distribution",
-            name="Auto-Distribute at 9:47 PM IST (TEST)",
+            name="Auto-Distribute at 22:05 IST (TEST)",
             replace_existing=True
         )
         # 12:00 AM IST (midnight)
@@ -170,7 +170,7 @@ def start_scheduler():
             replace_existing=True
         )
         scheduler.start()
-        logger.info("✅ Scheduler ENABLED — midnight refresh + 9:47 PM distribution (TEST) + 11:45 PM scoring")
+        logger.info("✅ Scheduler ENABLED — midnight refresh + 22:05 distribution (TEST) + 11:45 PM scoring")
     else:
         logger.info("⏸️ Scheduler DISABLED — set SCHEDULER_ENABLED=1 to enable")
 
