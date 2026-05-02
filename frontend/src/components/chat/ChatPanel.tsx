@@ -44,22 +44,22 @@ export default function ChatPanel({ currentUserEmail }: ChatPanelProps) {
     <Box
       sx={{
         display: "flex",
-        flex: 1, // fill the flex container from Layout
+        flex: 1,
         overflow: "hidden",
         bgcolor: "background.paper",
       }}
     >
-
       <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <MessageThread
           conversation={activeConv}
           messages={messages}
-          loading={loadingMsgs}
+          loading={loadingMsgs || loadingConvs}
           currentUserEmail={currentUserEmail}
           users={users}
           canDeleteAsAdmin={canDeleteAsAdmin}
           onEdit={editMessage}
           onDelete={deleteMessage}
+          loadingConvs={loadingConvs}
         />
         {activeConv && (
           <MessageInput
@@ -71,8 +71,6 @@ export default function ChatPanel({ currentUserEmail }: ChatPanelProps) {
           />
         )}
       </Box>
-
-
     </Box>
   );
 }

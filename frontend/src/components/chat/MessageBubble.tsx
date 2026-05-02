@@ -297,46 +297,46 @@ export default function MessageBubble({
               )}
             </Stack>
           )}
-        </Box>
 
-        {/* Hover action buttons — float beside the bubble */}
-        {showActions && hovered && !deletingMsg && (
-          <Stack
-            direction="row"
-            gap={0.25}
-            alignItems="center"
-            sx={{
-              position: "absolute",
-              [isOwn ? "left" : "right"]: isOwn ? 48 : 48,
-              bottom: 4,
-              bgcolor: "background.paper",
-              borderRadius: 2,
-              boxShadow: 2,
-              px: 0.5,
-              py: 0.25,
-              zIndex: 10,
-            }}
-          >
-            {canEdit && (
-              <Tooltip title="Edit (within 5 min)" placement="top">
-                <span>
-                  <IconButton size="small" onClick={() => { setEditing(true); setEditValue(message.content); }}>
-                    <EditIcon sx={{ fontSize: 15 }} />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-            {canDelete && (
-              <Tooltip title={canDeleteAsAdmin && !isOwn ? "Delete (moderator)" : "Delete (within 24 h)"} placement="top">
-                <span>
-                  <IconButton size="small" color="error" onClick={handleDelete}>
-                    <DeleteOutlineIcon sx={{ fontSize: 15 }} />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-          </Stack>
-        )}
+          {/* Inline action buttons — shown on hover, just below the bubble */}
+          {showActions && hovered && !deletingMsg && (
+            <Stack
+              direction="row"
+              gap={0.25}
+              alignItems="center"
+              justifyContent={isOwn ? "flex-end" : "flex-start"}
+              sx={{ mt: 0.25, mx: 0.5 }}
+            >
+              {canEdit && (
+                <Tooltip title="Edit (within 5 min)" placement="bottom">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => { setEditing(true); setEditValue(message.content); }}
+                      sx={{ p: 0.25, opacity: 0.6, "&:hover": { opacity: 1 } }}
+                    >
+                      <EditIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              )}
+              {canDelete && (
+                <Tooltip title={canDeleteAsAdmin && !isOwn ? "Delete (moderator)" : "Delete (within 24 h)"} placement="bottom">
+                  <span>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={handleDelete}
+                      sx={{ p: 0.25, opacity: 0.6, "&:hover": { opacity: 1 } }}
+                    >
+                      <DeleteOutlineIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              )}
+            </Stack>
+          )}
+        </Box>
       </Box>
 
       {/* Error / feedback snackbar */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSessionTracker } from "../hooks/useSessionTracker";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
@@ -71,7 +71,7 @@ import { languages } from "../i18n/i18n";
 import { useAuth, supabase } from "../contexts/AuthContext";
 import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
-import { useChat } from "../hooks/useChat";
+
 
 const EXPANDED_DRAWER_WIDTH = 240;
 const COLLAPSED_DRAWER_WIDTH = 72;
@@ -275,7 +275,48 @@ export default function Layout({
   // Run session tracking globally from Layout so it continues across all pages
   useSessionTracker({ userEmail: user?.email });
   const [unreadCount, setUnreadCount] = useState(0);
-  const { totalUnread: chatUnread } = useChat(user?.email);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  // Ref so the realtime callback always sees the latest pathname without re-subscribing
+  const pathnameRef = useRef(location.pathname);
+  useEffect(() => { pathnameRef.current = location.pathname; }, [location.pathname]);
+
+  // localStorage key per user — stores the last time they visited /chat
+  const chatSeenKey = user?.email ? `chat_last_seen_${user.email}` : null;
+
+  // ── Chat unread badge logic ──────────────────────────────────────────────────
+  // Uses localStorage to track "last time user visited /chat", so the count
+  // survives page refreshes without depending on Supabase read receipts at all.
+  const initChatUnread = useCallback(async () => {
+    if (!user?.email) return;
+
+    // Read the last-seen timestamp from localStorage (written when user visits /chat)
+    const key = `chat_last_seen_${user.email}`;
+    const lastSeen = localStorage.getItem(key);
+    // If the user has never opened chat, don't show a badge for historical messages
+    if (!lastSeen) { setChatUnreadCount(0); return; }
+
+    // Get all conversations this user is in
+    const { data: parts } = await supabase
+      .from("chat_participants")
+      .select("conversation_id")
+      .eq("user_email", user.email);
+    if (!parts || parts.length === 0) { setChatUnreadCount(0); return; }
+    const convIds = parts.map((p: any) => p.conversation_id);
+
+    // Count messages that arrived after the last /chat visit
+    let total = 0;
+    await Promise.all(convIds.map(async (id: number) => {
+      const { count } = await supabase
+        .from("chat_messages")
+        .select("*", { count: "exact", head: true })
+        .eq("conversation_id", id)
+        .eq("is_deleted", false)
+        .gt("created_at", lastSeen)
+        .neq("sender_email", user.email);
+      total += count ?? 0;
+    }));
+    setChatUnreadCount(total);
+  }, [user?.email]);
   const desktopDrawerWidth = sidebarExpanded
     ? EXPANDED_DRAWER_WIDTH
     : COLLAPSED_DRAWER_WIDTH;
@@ -405,6 +446,41 @@ export default function Layout({
     }
   }, [location.pathname]);
 
+  // ── Chat unread badge: initial load + realtime maintenance ──────────────────
+  useEffect(() => {
+    if (!user?.email) return;
+    // One-time initial count on mount
+    initChatUnread();
+
+    // Realtime: increment when a new message arrives while NOT on /chat
+    const chatChannel = supabase
+      .channel(`layout-chat-unread-${user.email}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages" },
+        (payload) => {
+          const msg = payload.new as any;
+          // Ignore own messages and messages received while on the chat page
+          if (msg.sender_email === user.email) return;
+          if (pathnameRef.current === "/chat") return;
+          setChatUnreadCount((n) => n + 1);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(chatChannel); };
+  }, [user?.email]);
+
+  // Zero the chat badge the moment the user navigates TO /chat,
+  // and stamp localStorage so the next mount knows what's already been seen.
+  useEffect(() => {
+    if (location.pathname === "/chat" && user?.email) {
+      const key = `chat_last_seen_${user.email}`;
+      localStorage.setItem(key, new Date().toISOString());
+      setChatUnreadCount(0);
+    }
+  }, [location.pathname, user?.email]);
+
   // Real-time Activity Toast Polling
   const [activityToast, setActivityToast] = useState<{
     msg: string;
@@ -525,8 +601,10 @@ export default function Layout({
           .map((item) => {
             const active = isActive(item.path);
             // Inject live badge count for chat nav item
+            // Suppress chat badge when user is already on /chat page
+            const chatBadge = location.pathname === "/chat" ? 0 : chatUnreadCount;
             const badgeCount =
-              item.id === "chat" ? chatUnread || undefined : item.badge;
+              item.id === "chat" ? chatBadge || undefined : item.badge;
             return (
               <Box key={item.id}>
                 <ListItem disablePadding sx={{ mb: 0.5 }}>

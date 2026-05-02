@@ -26,23 +26,37 @@ def get_my_permissions(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Returns the permission set for the currently logged-in user.
-    Called ONCE at login by the frontend — result stored in React context.
-    Subsequent UI checks are instant (no network calls).
+    Single login endpoint — returns everything the frontend needs in one call:
+      - is_active  : whether the account is allowed to log in
+      - role       : the user's role key
+      - permissions: full permission set
+
+    Replaces the old two-call pattern (check-status + my-permissions).
+    Clears stale cache so permissions are always fresh at login.
     """
     if not user_email:
         raise HTTPException(status_code=401, detail="Missing x-user-email header.")
 
-    # Force a fresh DB fetch (clears stale cache for this user)
+    # ── Single query: get role + active status together ───────────────────────
+    user_res = db.table("app_users").select("role, is_active").eq("email", user_email).execute()
+    if not user_res.data:
+        raise HTTPException(status_code=404, detail="User not found in app_users.")
+
+    user_row = user_res.data[0]
+    is_active = user_row.get("is_active", True)
+    role_key = user_row.get("role", "unknown")
+
+    if not is_active:
+        raise HTTPException(status_code=403, detail="ACCOUNT_DEACTIVATED")
+
+    # ── Fetch permissions (uses permission_keys[] fast path if migration ran) ─
     clear_user_permission_cache(user_email)
     permissions = get_user_permissions(user_email, db)
-
-    user_res = db.table("app_users").select("role").eq("email", user_email).execute()
-    role_key = user_res.data[0].get("role", "unknown") if user_res.data else "unknown"
 
     return {
         "email": user_email,
         "role": role_key,
+        "is_active": is_active,
         "permissions": sorted(list(permissions)),
     }
 

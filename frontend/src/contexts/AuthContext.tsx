@@ -42,24 +42,32 @@ const normalizeRole = (raw: string | undefined | null): string | null => {
   return raw.toLowerCase().replace(/ /g, "_");
 };
 
-/** Fetch the user's permission set from the backend (single call at login) */
-const fetchPermissionsFromBackend = async (
+/** Single call at login — returns permissions, role, and is_active together */
+const fetchLoginData = async (
   email: string
-): Promise<Set<string>> => {
+): Promise<{ permissions: Set<string>; role: string | null; is_active: boolean }> => {
   try {
     const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
     const res = await fetch(`${API_BASE}/api/rbac/my-permissions`, {
       headers: { "x-user-email": email },
     });
+    if (res.status === 403) {
+      // Backend returned ACCOUNT_DEACTIVATED
+      return { permissions: new Set(), role: null, is_active: false };
+    }
     if (!res.ok) {
       console.warn("[Auth] Could not load permissions:", res.status);
-      return new Set();
+      return { permissions: new Set(), role: null, is_active: true };
     }
     const data = await res.json();
-    return new Set<string>(data.permissions || []);
+    return {
+      permissions: new Set<string>(data.permissions || []),
+      role: data.role ?? null,
+      is_active: data.is_active ?? true,
+    };
   } catch (err) {
-    console.error("[Auth] fetchPermissions error:", err);
-    return new Set();
+    console.error("[Auth] fetchLoginData error:", err);
+    return { permissions: new Set(), role: null, is_active: true };
   }
 };
 
@@ -75,7 +83,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true);
 
   // ── Load permissions for a given user ───────────────────────────────────────
-  const loadPermissions = useCallback(async (currentUser: User | null) => {
+  const loadPermissions = useCallback(async (
+    currentUser: User | null,
+    opts?: { throwIfDeactivated?: boolean }
+  ) => {
     if (!currentUser?.email) {
       setPermissions(new Set());
       setPermissionsLoaded(true);
@@ -83,10 +94,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     setPermissionsLoaded(false);
-    const perms = await fetchPermissionsFromBackend(currentUser.email);
+    const { permissions: perms, role: backendRole, is_active } = await fetchLoginData(currentUser.email);
+
+    // Account deactivated — sign out and optionally throw so signIn can handle it
+    if (!is_active) {
+      await supabase.auth.signOut();
+      localStorage.removeItem("user_email");
+      setPermissions(new Set());
+      setPermissionsLoaded(true);
+      if (opts?.throwIfDeactivated) throw new Error("ACCOUNT_DEACTIVATED");
+      window.location.href = "/login";
+      return;
+    }
+
     setPermissions(perms);
+    // Use role from backend (authoritative) instead of JWT metadata
+    if (backendRole) setRole(backendRole);
     setPermissionsLoaded(true);
-    console.log(`[Auth] Loaded ${perms.size} permissions for ${currentUser.email}`);
+    console.log(`[Auth] Loaded ${perms.size} permissions for ${currentUser.email} (role=${backendRole})`);
   }, []);
 
   // ── Initial auth check + subscriber ─────────────────────────────────────────
@@ -180,36 +205,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       localStorage.setItem("user_email", data.user.email);
     }
 
-    // ── Phase 2: Check if the app_users account is active ───────────────────
-    // Supabase Auth has no concept of our is_active flag, so we check ourselves.
-    try {
-      const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
-      const statusRes = await fetch(
-        `${API_BASE}/api/admin/check-status?email=${encodeURIComponent(email)}`
-      );
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        if (!statusData.is_active) {
-          // Revoke the Supabase session immediately — deactivated users must not proceed
-          await supabase.auth.signOut();
-          localStorage.removeItem("user_email");
-          throw new Error("ACCOUNT_DEACTIVATED");
-        }
-      }
-    } catch (statusErr: any) {
-      // Only re-throw if it's our deactivation error
-      if (statusErr?.message === "ACCOUNT_DEACTIVATED") throw statusErr;
-      // Other fetch errors (network, DB) — fail open so a backend issue doesn't lock everyone out
-      console.warn("[Auth] Could not verify account status:", statusErr);
-    }
-
-    // Load permissions NOW so the caller can navigate immediately after.
-    // This avoids a race where navigate fires before permissionsLoaded is true.
+    // ── Single call: fetches is_active + role + permissions together ─────────
+    // Drops the old separate check-status round trip entirely.
     if (data.user) {
       setUser(data.user);
       setSession(data.session);
-      setRole(normalizeRole(data.user.user_metadata?.role));
-      await loadPermissions(data.user);
+      // loadPermissions will override role with the authoritative backend value
+      await loadPermissions(data.user, { throwIfDeactivated: true });
 
       // Log LOGIN event (fire-and-forget, only on explicit user sign-in)
       activityAPI.logAuth("LOGIN").catch(() => { });

@@ -17,6 +17,7 @@ interface MessageThreadProps {
   canDeleteAsAdmin?: boolean;
   onEdit?: (messageId: number, newContent: string) => Promise<{ success: boolean; error?: string }>;
   onDelete?: (messageId: number) => Promise<{ success: boolean; error?: string }>;
+  loadingConvs?: boolean;
 }
 
 function isSameDay(a: string, b: string): boolean {
@@ -32,6 +33,7 @@ export default function MessageThread({
   canDeleteAsAdmin = false,
   onEdit,
   onDelete,
+  loadingConvs = false,
 }: MessageThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +41,29 @@ export default function MessageThread({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // While conversations are still being fetched from Supabase, show a spinner
+  // instead of the "Select a conversation" placeholder — avoids a confusing flash
+  if (loadingConvs || (!conversation && loading)) {
+    return (
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: 2,
+          color: "text.secondary",
+        }}
+      >
+        <CircularProgress size={32} />
+        <Typography variant="body2" color="text.secondary">
+          Loading chats…
+        </Typography>
+      </Box>
+    );
+  }
 
   if (!conversation) {
     return (

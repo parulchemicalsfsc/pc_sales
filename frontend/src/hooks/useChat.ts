@@ -397,12 +397,33 @@ export function useChat(currentUserEmail: string | null | undefined) {
   }, [currentUserEmail]);
 
   // ── SINGLE OWNER of messages + subscription ─────────────────────────────────
-  // This effect is the ONLY place that calls loadMessages + subscribeToConversation.
-  // switchConversation just calls setActiveConvId — it does NOT load/subscribe.
+  // This effect fires whenever activeConvId changes (auto-open OR manual switch).
+  // It loads messages, subscribes, AND writes the read receipt — so the badge
+  // is always cleared regardless of how the conversation was opened.
   useEffect(() => {
     if (activeConvId === null) return;
     loadMessages(activeConvId);
     subscribeToConversation(activeConvId);
+
+    // Write read receipt for every activation (auto-open on load included).
+    // This is what makes fetchChatUnread in Layout see 0 unread after visiting /chat.
+    if (currentUserEmailRef.current) {
+      supabase.from("chat_read_receipts").upsert(
+        {
+          conversation_id: activeConvId,
+          user_email: currentUserEmailRef.current,
+          last_read_at: new Date().toISOString(),
+        },
+        { onConflict: "conversation_id,user_email" }
+      );
+      // Also clear local unread state immediately
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.conversation_id === activeConvId ? { ...c, unread_count: 0 } : c
+        )
+      );
+    }
+
     return () => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
