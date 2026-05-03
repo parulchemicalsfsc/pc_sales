@@ -46,6 +46,7 @@ from routers import (
     forecasting,
     shopkeepers,
     doctors,
+    attendance,
 )
 from scheduler import start_scheduler
 
@@ -106,3 +107,4 @@ app.include_router(rbac, prefix="/api/rbac")
 app.include_router(sessions, prefix="/api/user-sessions")
 app.include_router(forecasting, prefix="/api/forecasting")
 app.include_router(chat, prefix="/api/chat")
+app.include_router(attendance, prefix="/api/attendance")

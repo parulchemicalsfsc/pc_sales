@@ -8,6 +8,7 @@ import os
 import math
 import logging
 from datetime import datetime, date
+import pytz
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Header, Body
@@ -18,6 +19,11 @@ from activity_logger import get_activity_logger
 
 router = APIRouter()
 logger = logging.getLogger("automation")
+
+def get_today_ist() -> str:
+    """Returns today's date in YYYY-MM-DD format using IST timezone."""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist).date().isoformat()
 
 # ─── Pydantic Models ─────────────────────────────────────
 
@@ -41,19 +47,35 @@ VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
 # ─── Distribution Logic ──────────────────────────────────
 
 def _get_telecaller_emails(db: SupabaseClient) -> list:
-    """Get telecaller users from app_users table."""
+    """Get telecaller users from app_users table, filtered by today's attendance."""
     try:
         res = db.table("app_users").select("email, name, role").execute()
         users = res.data or []
         logger.info(f"[DIST] app_users total rows: {len(users)}")
-        logger.info(f"[DIST] All roles in app_users: {[u.get('role') for u in users]}")
+        
         telecaller_roles = {"telecaller", "staff", "telecaller1", "telecaller2"}
-        telecallers = [
+        all_telecallers = [
             u for u in users
             if u.get("role", "").lower().replace(" ", "_") in telecaller_roles
                or "telecaller" in u.get("role", "").lower()
         ]
-        logger.info(f"[DIST] Found {len(telecallers)} telecallers: {[t['email'] for t in telecallers]}")
+        
+        # Filter by today's attendance (IST)
+        today_str = get_today_ist()
+        att_res = db.table("telecaller_attendance") \
+            .select("user_email, is_present") \
+            .eq("attendance_date", today_str) \
+            .eq("is_present", True) \
+            .execute()
+            
+        present_emails = {row["user_email"] for row in (att_res.data or [])}
+        
+        telecallers = [t for t in all_telecallers if t["email"] in present_emails]
+        logger.info(f"[DIST] Found {len(all_telecallers)} total telecallers, {len(telecallers)} are PRESENT today: {[t['email'] for t in telecallers]}")
+        
+        if not telecallers:
+            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! 🚨")
+            
         return telecallers
     except Exception as e:
         logger.error(f"[DIST] Error fetching telecallers: {e}", exc_info=True)
@@ -119,25 +141,25 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     Queries the `customers` table — calling_assignments.customer_id = customers.customer_id.
     If force=True, clears any ghost/stale assignments for today before checking idempotency.
     """
-    today_str = date.today().isoformat()
+    today_str = get_today_ist()
     logger.info(f"[DIST] ===== distribute_calls START (date={today_str}, triggered_by={admin_email}, force={force}) =====")
 
     # 1. Get telecallers FIRST so we can do smart idempotency check
     telecallers = _get_telecaller_emails(db)
     if not telecallers:
-        logger.warning("[DIST] ❌ No active telecallers found — aborting distribution!")
+        logger.warning("[DIST] ❌ No active telecallers found (or none marked present) — aborting distribution!")
         try:
             db.table("notifications").insert({
                 "user_email": admin_email if admin_email not in ("system", "system_scheduler") else "system@internal",
-                "title": "⚠️ No Telecallers Available",
-                "message": "Auto-distribution failed: No active telecallers found in app_users.",
+                "title": "⚠️ No Telecallers Present",
+                "message": "Auto-distribution failed: Zero telecallers are marked as present today.",
                 "notification_type": "warning",
                 "entity_type": "calling_list",
                 "is_read": False,
             }).execute()
         except Exception as ne:
             logger.error(f"[DIST] Failed to send no-telecaller notification: {ne}")
-        return {"message": "No active telecallers found", "status": "error", "total_calls": 0}
+        return {"message": "No telecallers marked present", "status": "error", "total_calls": 0}
 
     valid_emails = [t["email"] for t in telecallers]
     logger.info(f"[DIST] Telecallers to distribute to: {valid_emails}")
@@ -322,7 +344,7 @@ def debug_state(db: SupabaseClient = Depends(get_db)):
     Hit GET /api/automation/debug-state in browser to see full diagnostics.
     """
     import os
-    today_str = date.today().isoformat()
+    today_str = get_today_ist()
 
     # 1. Scheduler env
     scheduler_enabled = os.environ.get("SCHEDULER_ENABLED", "").strip()
@@ -698,7 +720,7 @@ def get_admin_assignments(
 ):
     """Admin: view all assignments for a date, grouped summary."""
     try:
-        d = target_date or date.today().isoformat()
+        d = target_date or get_today_ist()
         offset = (page - 1) * limit
 
         res = db.table("calling_assignments") \
@@ -843,7 +865,7 @@ def get_distribution_status(
     db: SupabaseClient = Depends(get_db),
 ):
     """Check if today's distribution has happened and return timer info."""
-    today_str = date.today().isoformat()
+    today_str = get_today_ist()
     distributed = _check_already_distributed(db, today_str)
 
     # Calculate time until 10 AM IST
@@ -878,7 +900,7 @@ def admin_refresh_distribution(
     from today using the same load-aware logic. Effectively a manual midnight reset.
     """
     try:
-        today_str = date.today().isoformat()
+        today_str = get_today_ist()
 
         # 1. Get all pending assignments for today
         pending_res = db.table("calling_assignments") \
@@ -929,7 +951,7 @@ def admin_bulk_reassign(
         raise HTTPException(status_code=400, detail="Count must be at least 1")
 
     try:
-        today_str = date.today().isoformat()
+        today_str = get_today_ist()
 
         # Get pending assignments of this priority NOT already assigned to target
         res = db.table("calling_assignments") \

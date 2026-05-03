@@ -109,7 +109,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setPermissions(perms);
     // Use role from backend (authoritative) instead of JWT metadata
-    if (backendRole) setRole(backendRole);
+    if (backendRole) {
+      setRole(backendRole);
+      localStorage.setItem("user_role", backendRole); // persist for api.ts header use
+    }
     setPermissionsLoaded(true);
     console.log(`[Auth] Loaded ${perms.size} permissions for ${currentUser.email} (role=${backendRole})`);
   }, []);
@@ -226,6 +229,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setPermissions(new Set());
     setPermissionsLoaded(false);
     localStorage.removeItem("user_email");
+    localStorage.removeItem("user_role");
   };
 
   return (

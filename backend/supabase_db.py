@@ -615,6 +615,18 @@ def init_supabase_db():
     );
 
     -- ===================================
+    -- Telecaller Attendance Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS telecaller_attendance (
+        id SERIAL PRIMARY KEY,
+        user_email TEXT NOT NULL,
+        attendance_date DATE NOT NULL,
+        is_present BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_email, attendance_date)
+    );
+
+    -- ===================================
     -- Indexes for Performance
     -- ===================================
     CREATE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code);

@@ -132,6 +132,50 @@ export const dashboardAPI = {
   },
 };
 
+// Attendance API
+export const attendanceAPI = {
+  // ─── New duty-sheet endpoints (admin / sales_manager only) ─────────────
+
+  /** Check whether the duty-sheet popup should open for this session. */
+  getDutySheetStatus: async () => {
+    const role = localStorage.getItem("user_role") ?? "";
+    return apiClient.get("/api/attendance/duty-sheet-status", {
+      headers: { "x-user-role": role },
+    });
+  },
+
+  /** Fetch all active telecallers with their current duty status for today. */
+  getAllTelecallers: async () => {
+    return apiClient.get("/api/attendance/telecallers");
+  },
+
+  /** Admin / SM submits the duty toggles for today. */
+  submitDutySheet: async (
+    telecallers: { email: string; is_on_duty: boolean }[]
+  ) => {
+    const role = localStorage.getItem("user_role") ?? "";
+    return apiClient.post(
+      "/api/attendance/submit-duty-sheet",
+      { telecallers },
+      { headers: { "x-user-role": role } }
+    );
+  },
+
+  // ─── Legacy endpoints (no longer called from UI) ────────────────────────
+  // TODO: remove in next cleanup cycle once backward-compat period ends.
+
+  getStatus: async () => {
+    const response = await apiClient.get("/api/attendance/status");
+    return response;
+  },
+  mark: async (isPresent: boolean) => {
+    const response = await apiClient.post("/api/attendance/mark", {
+      is_present: isPresent,
+    });
+    return response;
+  },
+};
+
 // Customer API
 export const customerAPI = {
   getAll: async (params?: any) => {

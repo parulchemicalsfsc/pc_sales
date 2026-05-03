@@ -71,6 +71,7 @@ import { languages } from "../i18n/i18n";
 import { useAuth, supabase } from "../contexts/AuthContext";
 import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
+import DutySheetPopup from "./DutySheetPopup";
 
 
 const EXPANDED_DRAWER_WIDTH = 240;
@@ -1355,6 +1356,9 @@ export default function Layout({
           </Box>
         </Paper>
       </Snackbar>
+      
+      {/* Admin/SM Duty Sheet Popup — appears once per day before 10 AM */}
+      <DutySheetPopup />
     </Box>
   );
 }
