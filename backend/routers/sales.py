@@ -189,9 +189,10 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 except Exception as e:
                     print(f"Error parsing payment terms for sale {sale_id}: {e}")
             
-            if is_due:
-                customer = customers_dict.get(customer_id, {})
-                result.append(
+            # Return all sales that have a pending balance, regardless of due date terms, 
+            # so early payments can be recorded and totals match the global dashboard.
+            customer = customers_dict.get(customer_id, {})
+            result.append(
                     {
                         "sale_id": sale_id,
                         "invoice_no": sale.get("invoice_no"),
