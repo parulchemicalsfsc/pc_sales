@@ -27,6 +27,8 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { attendanceAPI } from "../services/api";
+import apiClient from "../services/api";
+
 
 // ─── Roles allowed to manage the duty sheet ─────────────────────────────────
 const DUTY_ROLES = ["admin", "sales_manager", "manager"];
@@ -60,7 +62,7 @@ const getISTDateString = (): string => {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 const DutySheetPopup: React.FC = () => {
-  const { user, role } = useAuth();
+  const { user, role, permissionsLoaded } = useAuth();
   const theme = useTheme();
 
   const [open, setOpen] = useState(false);
@@ -79,7 +81,9 @@ const DutySheetPopup: React.FC = () => {
 
   // ── Check if popup should open ──────────────────────────────────────────
   useEffect(() => {
-    if (!user || !role) {
+    // Wait until AuthContext has finished loading permissions and role
+    // from the backend before making any determination.
+    if (!permissionsLoaded || !user || !role) {
       setLoading(false);
       return;
     }
@@ -92,7 +96,11 @@ const DutySheetPopup: React.FC = () => {
 
     const check = async () => {
       try {
-        const res = await attendanceAPI.getDutySheetStatus();
+        // Pass role directly from React context (not from localStorage)
+        // to avoid the race where localStorage hasn't been written yet.
+        const res = await apiClient.get("/api/attendance/duty-sheet-status", {
+          headers: { "x-user-role": normalizedRole },
+        });
         if (res.data.should_show_popup) {
           // Fetch telecaller list
           const tcRes = await attendanceAPI.getAllTelecallers();
@@ -107,7 +115,7 @@ const DutySheetPopup: React.FC = () => {
     };
 
     check();
-  }, [user, role]);
+  }, [user, role, permissionsLoaded]);
 
   // ── Toggle individual telecaller ────────────────────────────────────────
   const handleToggle = useCallback((email: string) => {

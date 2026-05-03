@@ -76,15 +76,32 @@ def get_duty_sheet_status(
     - Only admin / sales_manager / manager roles see the popup.
     - Popup only shows before 10:00 AM IST.
     - If the duty sheet was already submitted today (by anyone), popup is suppressed.
+
+    Order: role-check FIRST, then DB lookup, so a missing table never silently
+    suppresses the popup for a valid admin/SM.
     """
     today = get_today_ist()
     before_10am = _is_before_10am()
 
-    # Check if already submitted
+    # ── 1. Role check FIRST (fast, no DB needed) ─────────────────────────────
+    role = (x_user_role or "").lower().replace(" ", "_")
+    if role not in DUTY_ROLES:
+        logger.info(f"[DUTY] duty-sheet-status: role='{role}' not in DUTY_ROLES — no popup")
+        return {"should_show_popup": False, "submitted": False, "before_10am": before_10am}
+
+    # ── 2. Time check (before 10 AM IST only) ────────────────────────────────
+    if not before_10am:
+        logger.info(f"[DUTY] duty-sheet-status: after 10 AM — no popup")
+        return {"should_show_popup": False, "submitted": False, "before_10am": False}
+
+    # ── 3. Check if already submitted today ──────────────────────────────────
+    #    If the duty_sheet_log table doesn't exist yet (migration pending),
+    #    treat it as "not yet submitted" and still show the popup.
     try:
-        res = db.table("duty_sheet_log").select("*").eq("duty_date", today).execute()
+        res = db.table("duty_sheet_log").select("submitted_by, submitted_at").eq("duty_date", today).execute()
         if res.data:
             record = res.data[0]
+            logger.info(f"[DUTY] duty-sheet-status: already submitted by {record.get('submitted_by')}")
             return {
                 "should_show_popup": False,
                 "submitted": True,
@@ -93,17 +110,14 @@ def get_duty_sheet_status(
                 "before_10am": before_10am,
             }
     except Exception as e:
-        logger.error(f"[DUTY] Error checking duty_sheet_log: {e}")
-        # If we can't check, default to not showing
-        return {"should_show_popup": False, "submitted": False, "before_10am": before_10am}
+        # Table may not exist yet — treat as not submitted and SHOW the popup.
+        # The submit endpoint will create the row; if the table truly doesn't
+        # exist, submit will fail with a clear error.
+        logger.warning(f"[DUTY] duty_sheet_log query failed (table may not exist): {e}")
 
-    # Role check — if role not passed via header, default to not showing
-    role = (x_user_role or "").lower().replace(" ", "_")
-    if role not in DUTY_ROLES:
-        return {"should_show_popup": False, "submitted": False, "before_10am": before_10am}
-
+    logger.info(f"[DUTY] duty-sheet-status: role='{role}', before_10am={before_10am} — SHOW popup")
     return {
-        "should_show_popup": before_10am,
+        "should_show_popup": True,
         "submitted": False,
         "submitted_by": None,
         "submitted_at": None,
