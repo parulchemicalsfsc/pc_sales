@@ -105,7 +105,8 @@ export default function Login() {
                 borderRadius: 5,
                 overflow: "hidden",
                 boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-                backgroundColor: "#000",
+                backgroundColor: "#7A1C9A", // Placeholder color while video loads
+                backgroundImage: "linear-gradient(135deg, #4A0E64 0%, #2A0845 100%)", // Matching deep tone
               }}
             >
               <video
@@ -114,6 +115,9 @@ export default function Login() {
                 loop
                 muted
                 playsInline
+                preload="auto"
+                disablePictureInPicture
+                disableRemotePlayback
                 style={{
                   width: "100%",
                   height: "100%",
