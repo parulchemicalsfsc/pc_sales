@@ -36,9 +36,26 @@ def _verify_intake_key(request: Request):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+import re
+
 def _generate_lead_id(db: SupabaseClient, source_website: str) -> str:
-    prefix = SOURCE_PREFIX_MAP.get(source_website.lower(), "PC")
-    res = db.table("leads").select("lead_id").eq("source_website", source_website).execute()
+    # 1. Generate a 2-letter prefix automatically
+    clean_name = re.sub(r'[^a-zA-Z0-9\s_]', '', source_website).strip()
+    words = re.split(r'[\s_]+', clean_name)
+    words = [w for w in words if w]
+    
+    if not words:
+        prefix = "LD"
+    elif len(words) == 1:
+        prefix = words[0][:2].upper().ljust(2, 'X')
+    else:
+        prefix = (words[0][0] + words[1][0]).upper()
+        
+    # Check if there is a hardcoded override
+    prefix = SOURCE_PREFIX_MAP.get(source_website.lower(), prefix)
+    
+    # 2. Count existing leads with this specific prefix to ensure uniqueness
+    res = db.table("leads").select("lead_id").like("lead_id", f"{prefix}-%").execute()
     n = len(res.data or []) + 1
     return f"{prefix}-{n:04d}"
 
