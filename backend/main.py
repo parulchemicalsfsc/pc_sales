@@ -89,6 +89,65 @@ def root():
     return {"status": "Sales Management API running"}
 
 
+# ─── Health / Keep-Alive ──────────────────────────────────────────────────────
+# Hit this every 5 min from cron-job.org to prevent Render from sleeping.
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# ─── External Cron Triggers ───────────────────────────────────────────────────
+# Secured by CRON_SECRET env var. Set the same secret as a query param in
+# your cron-job.org request URL: ?secret=YOUR_SECRET
+# These run the job directly via HTTP — no dependency on APScheduler being alive.
+
+def _verify_cron_secret(secret: str):
+    expected = os.getenv("CRON_SECRET", "").strip()
+    if not expected:
+        raise Exception("CRON_SECRET env var not set on server")
+    if secret != expected:
+        raise Exception("Invalid cron secret")
+
+@app.post("/cron/distribute")
+def cron_distribute(secret: str = ""):
+    """External trigger: run 10 AM call distribution job."""
+    try:
+        _verify_cron_secret(secret)
+    except Exception as e:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=403, detail=str(e))
+    from scheduler import distribute_calls_job
+    logger.info("[CRON] External trigger → distribute_calls_job")
+    distribute_calls_job()
+    return {"status": "distribute_calls_job triggered"}
+
+@app.post("/cron/midnight-refresh")
+def cron_midnight_refresh(secret: str = ""):
+    """External trigger: run midnight refresh job."""
+    try:
+        _verify_cron_secret(secret)
+    except Exception as e:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=403, detail=str(e))
+    from scheduler import midnight_refresh_job
+    logger.info("[CRON] External trigger → midnight_refresh_job")
+    midnight_refresh_job()
+    return {"status": "midnight_refresh_job triggered"}
+
+@app.post("/cron/nightly-scoring")
+def cron_nightly_scoring(secret: str = ""):
+    """External trigger: run nightly priority scoring job."""
+    try:
+        _verify_cron_secret(secret)
+    except Exception as e:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=403, detail=str(e))
+    from scheduler import run_nightly_scoring
+    logger.info("[CRON] External trigger → run_nightly_scoring")
+    run_nightly_scoring()
+    return {"status": "run_nightly_scoring triggered"}
+
+
 app.include_router(customers, prefix="/api/customers")
 app.include_router(products, prefix="/api/products")
 app.include_router(sales, prefix="/api/sales")

@@ -1,0 +1,129 @@
+name: Scheduled Cron Jobs
+
+on:
+  schedule:
+    # ── All times in UTC (IST = UTC + 5:30) ──────────────────────────────────
+    # 10:00 AM IST = 04:30 UTC
+    - cron: "30 4 * * *"   # distribute_calls_job
+    # Midnight IST = 18:30 UTC (previous day)
+    - cron: "30 18 * * *"  # midnight_refresh_job
+    # 11:45 PM IST = 18:15 UTC (previous day)
+    - cron: "15 18 * * *"  # nightly_scoring_job
+
+  # Allow manual trigger from GitHub Actions UI (for testing)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run"
+        required: true
+        default: "distribute"
+        type: choice
+        options:
+          - distribute
+          - midnight_refresh
+          - nightly_scoring
+          - all
+
+jobs:
+  # ── 10:00 AM IST: Call Distribution ─────────────────────────────────────────
+  distribute:
+    name: "10:00 AM IST — Distribute Calls"
+    runs-on: ubuntu-latest
+    # Only run at 04:30 UTC schedule OR if manually triggered with this job
+    if: |
+      (github.event_name == 'schedule' && contains(github.event.schedule, '30 4')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'distribute' || inputs.job == 'all'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+
+      - name: Run distribute_calls_job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          cd backend
+          python -c "
+          from scheduler import distribute_calls_job
+          print('=== Running distribute_calls_job ===')
+          distribute_calls_job()
+          print('=== Done ===')
+          "
+
+  # ── Midnight IST: Clear Pending Assignments ──────────────────────────────────
+  midnight_refresh:
+    name: "Midnight IST — Refresh Assignments"
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && contains(github.event.schedule, '30 18')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'midnight_refresh' || inputs.job == 'all'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+
+      - name: Run midnight_refresh_job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          cd backend
+          python -c "
+          from scheduler import midnight_refresh_job
+          print('=== Running midnight_refresh_job ===')
+          midnight_refresh_job()
+          print('=== Done ===')
+          "
+
+  # ── 11:45 PM IST: Nightly Priority Scoring ──────────────────────────────────
+  nightly_scoring:
+    name: "11:45 PM IST — Nightly Scoring"
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && contains(github.event.schedule, '15 18')) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.job == 'nightly_scoring' || inputs.job == 'all'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+
+      - name: Run nightly_scoring_job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          cd backend
+          python -c "
+          from scheduler import run_nightly_scoring
+          print('=== Running run_nightly_scoring ===')
+          run_nightly_scoring()
+          print('=== Done ===')
+          "
