@@ -78,7 +78,8 @@ def _get_telecaller_emails(db: SupabaseClient) -> list:
         logger.info(f"[DIST] Found {len(all_telecallers)} total telecallers, {len(telecallers)} are PRESENT today: {[t['email'] for t in telecallers]}")
         
         if not telecallers:
-            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! 🚨")
+            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! Falling back to ALL active telecallers. 🚨")
+            telecallers = all_telecallers
             
         return telecallers
     except Exception as e:
