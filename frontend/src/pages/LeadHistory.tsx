@@ -66,7 +66,7 @@ function TimelineEntry({ act }: { act: LeadActivity }) {
   );
 }
 
-export default function LeadWorkspace() {
+export default function LeadHistory() {
   const { user } = useAuth();
   const [myLeads, setMyLeads] = useState<Lead[]>([]);
   const [selected, setSelected] = useState<Lead | null>(null);
@@ -232,9 +232,6 @@ export default function LeadWorkspace() {
   const isOverdue = selected?.follow_up_date && selected.follow_up_date < today && !isClosed;
 
   const filteredLeads = myLeads.filter(lead => {
-    const isClosed = ["Converted", "Rejected"].includes(lead.status);
-    if (isClosed) return false; // Strictly only active leads in workspace
-
     if (statusFilter !== "All" && lead.status !== statusFilter) return false;
 
     if (searchQuery) {
@@ -251,8 +248,8 @@ export default function LeadWorkspace() {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Box>
-          <Typography variant="h4" fontWeight={700}>Lead Workspace</Typography>
-          <Typography variant="body2" color="text.secondary">Select a lead to work on it</Typography>
+          <Typography variant="h4" fontWeight={700}>All My Leads</Typography>
+          <Typography variant="body2" color="text.secondary">Review all leads ever assigned to you</Typography>
         </Box>
         <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
       </Box>
@@ -265,7 +262,7 @@ export default function LeadWorkspace() {
         <Grid item xs={12} md={4} lg={3}>
           <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
             <CardContent sx={{ pb: 1 }}>
-              <Typography variant="subtitle2" fontWeight={700}>Active Leads ({filteredLeads.length})</Typography>
+              <Typography variant="subtitle2" fontWeight={700}>All Leads ({filteredLeads.length})</Typography>
             </CardContent>
             <Divider />
             <Box p={1.5} display="flex" flexDirection="column" gap={1}>
@@ -276,11 +273,13 @@ export default function LeadWorkspace() {
               />
               <FormControl size="small" fullWidth>
                 <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                  <MenuItem value="All">All Active Statuses</MenuItem>
+                  <MenuItem value="All">All Statuses</MenuItem>
                   <MenuItem value="Unassigned">Unassigned</MenuItem>
                   <MenuItem value="Assigned">Assigned</MenuItem>
                   <MenuItem value="In Progress">In Progress</MenuItem>
                   <MenuItem value="Follow-up">Follow-up</MenuItem>
+                  <MenuItem value="Converted">Converted</MenuItem>
+                  <MenuItem value="Rejected">Rejected</MenuItem>
                 </Select>
               </FormControl>
             </Box>
@@ -349,30 +348,6 @@ export default function LeadWorkspace() {
                       <Typography variant="h5" fontWeight={700}>{selected.full_name}</Typography>
                       {selected.company_name && <Typography color="text.secondary">{selected.company_name}</Typography>}
                     </Box>
-                    {!isClosed && (
-                      <Box display="flex" gap={1} flexWrap="wrap">
-                        <Button size="small" variant="outlined" startIcon={<EditIcon />}
-                          onClick={() => { setEditPhone(selected.phone || ""); setEditCompany(selected.company_name || ""); setEditProduct(selected.product_interest || ""); setEditOpen(true); }}>
-                          Edit
-                        </Button>
-                        <Button size="small" variant="outlined" startIcon={<HistoryIcon />}
-                          onClick={() => { setNewStatus(selected.status); setStatusOpen(true); }}>
-                          Status
-                        </Button>
-                        <Button size="small" variant="outlined" startIcon={<PhoneIcon />}
-                          onClick={() => { setNewFollowUp(selected.follow_up_date || ""); setFollowUpOpen(true); }}>
-                          Follow-up
-                        </Button>
-                        <Button size="small" variant="contained" startIcon={<MessageIcon />}
-                          onClick={() => { setLogType("Call"); setLogSummary(""); setLogOpen(true); }}>
-                          Log Activity
-                        </Button>
-                        <Button size="small" variant="contained" color="success" startIcon={<CheckCircleIcon />}
-                          onClick={() => { setClosureType("Converted"); setCloseOpen(true); }}>
-                          Close Lead
-                        </Button>
-                      </Box>
-                    )}
                   </Box>
                 </CardContent>
               </Card>

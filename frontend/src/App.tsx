@@ -38,6 +38,7 @@ import Activity from "./pages/Activity";
 import LeadDashboard from "./pages/LeadDashboard";
 import LeadPipeline from "./pages/LeadPipeline";
 import LeadWorkspace from "./pages/LeadWorkspace";
+import LeadHistory from "./pages/LeadHistory";
 import { createAppTheme } from "./theme/theme";
 import { PERMISSIONS } from "./config/permissions";
 
@@ -326,6 +327,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.WORK_LEADS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <LeadWorkspace />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/lead-history"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.WORK_LEADS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <LeadHistory />
                       </Layout>
                     </ProtectedRoute>
                   }

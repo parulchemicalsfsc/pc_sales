@@ -243,6 +243,13 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.WORK_LEADS,
   },
   {
+    id: "lead-history",
+    labelKey: "nav.leadHistory",
+    icon: <HistoryIcon />,
+    path: "/lead-history",
+    permission: PERMISSIONS.WORK_LEADS,
+  },
+  {
     id: "chat",
     labelKey: "nav.chat",
     icon: <ChatIcon />,

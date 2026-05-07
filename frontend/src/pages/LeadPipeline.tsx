@@ -16,6 +16,7 @@ import {
   AutoAwesome as AutoIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
+import { PERMISSIONS } from "../config/permissions";
 import { leadsService, Lead, LeadActivity } from "../services/leadsService";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -68,7 +69,7 @@ function TimelineEntry({ act }: { act: LeadActivity }) {
 }
 
 export default function LeadPipeline() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -372,7 +373,7 @@ export default function LeadPipeline() {
             </Box>
 
             {/* Actions */}
-            {!selectedLead.closure_type && (
+            {!selectedLead.closure_type && hasPermission(PERMISSIONS.MANAGE_LEADS) && (
               <Box display="flex" gap={1} mb={2} flexWrap="wrap">
                 <Button variant="contained" size="small" startIcon={<AssignmentIcon />}
                   onClick={() => { setAssignTo(selectedLead.assigned_to || ""); setAssignOpen(true); }}>

@@ -95,6 +95,7 @@ export const PERMISSIONS = {
 
     // Leads
     VIEW_ALL_LEADS: "view_all_leads",
+    MANAGE_LEADS: "manage_leads",
     WORK_LEADS: "work_leads",
     VIEW_LEAD_DASHBOARD: "view_lead_dashboard",
 } as const;

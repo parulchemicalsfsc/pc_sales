@@ -353,7 +353,7 @@ def get_lead_detail_owner(
         raise HTTPException(status_code=500, detail=f"Error fetching lead: {e}")
 
 
-@router.post("/{lead_id}/assign", dependencies=[Depends(verify_permission("view_all_leads"))])
+@router.post("/{lead_id}/assign", dependencies=[Depends(verify_permission("manage_leads"))])
 def assign_lead(
     lead_id: str,
     payload: dict,
@@ -427,7 +427,7 @@ def assign_lead(
         raise HTTPException(status_code=500, detail=f"Error assigning lead: {e}")
 
 
-@router.post("/{lead_id}/comment", dependencies=[Depends(verify_permission("view_all_leads"))])
+@router.post("/{lead_id}/comment", dependencies=[Depends(verify_permission("manage_leads"))])
 def manager_comment(
     lead_id: str,
     payload: dict,
@@ -610,14 +610,25 @@ def close_lead(
         raise HTTPException(status_code=500, detail=f"Error closing lead: {e}")
 
 
-@router.get("/owners/list", dependencies=[Depends(verify_permission("view_all_leads"))])
+@router.get("/owners/list", dependencies=[Depends(verify_permission("manage_leads"))])
 def get_lead_owners(
     db: SupabaseClient = Depends(get_db),
     user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
-    """Get all users with lead_owner role for the assign dropdown."""
+    """Get all users who have the 'work_leads' permission for the assign dropdown."""
     try:
-        res = db.table("app_users").select("email, name").eq("role", "lead_owner").eq("is_active", True).execute()
+        # 1. Find all roles that have 'work_leads' permission
+        roles_res = db.table("roles").select("role_key, permission_keys").execute()
+        valid_roles = [
+            r["role_key"] for r in (roles_res.data or [])
+            if r.get("permission_keys") and "work_leads" in r["permission_keys"]
+        ]
+        
+        if not valid_roles:
+            return {"owners": []}
+            
+        # 2. Get active users with those roles
+        res = db.table("app_users").select("email, name").in_("role", valid_roles).eq("is_active", True).execute()
         return {"owners": res.data or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching lead owners: {e}")

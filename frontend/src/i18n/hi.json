@@ -25,7 +25,8 @@
     "leads": "Leads",
     "leadDashboard": "Lead Dashboard",
     "leadPipeline": "Lead Pipeline",
-    "leadWorkspace": "Lead Workspace"
+    "leadWorkspace": "Lead Workspace",
+    "leadHistory": "सभी मेरे लीड्स"
   },
   "common": {
     "add": "जोड़ें",
