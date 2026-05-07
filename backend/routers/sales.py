@@ -13,36 +13,10 @@ from routers.notifications import create_notification_helper
 router = APIRouter()
 
 
-def generate_invoice_no(db: SupabaseClient) -> str:
-    """Generate a unique invoice number"""
-    try:
-        # Get the latest invoice number
-        response = (
-            db.table("sales")
-            .select("invoice_no")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-        if response.data and response.data[0].get("invoice_no"):
-            last_invoice = response.data[0]["invoice_no"]
-            # Extract number from invoice (assuming format INV-XXXXX)
-            if last_invoice.startswith("INV-"):
-                try:
-                    last_num = int(last_invoice.split("-")[1])
-                    new_num = last_num + 1
-                except:
-                    new_num = 1
-            else:
-                new_num = 1
-        else:
-            new_num = 1
-
-        return f"INV-{new_num:05d}"
-    except:
-        # Fallback to timestamp-based invoice
-        return f"INV-{int(datetime.now().timestamp())}"
+# Invoice number generation has been moved entirely to the database.
+# A BEFORE INSERT trigger on the `sales` table calls the PostgreSQL function
+# `generate_fsc_invoice_no()` which is atomic and race-condition-safe.
+# See: database/migrations/invoice_no_trigger.sql
 
 
 @router.get("/", dependencies=[Depends(verify_permission("view_sales"))])
@@ -258,27 +232,36 @@ def create_sale(
             capacity = product.get("capacity_ltr", 0) or 0
             total_liters += capacity * item.quantity
 
-        # Generate invoice number
-        if sale.invoice_no:
-             # Check if invoice number already exists
-            existing_sale = db.table("sales").select("sale_id").eq("invoice_no", sale.invoice_no).execute()
-            if existing_sale.data:
-                raise HTTPException(status_code=400, detail=f"Invoice number {sale.invoice_no} already exists")
-            invoice_no = sale.invoice_no
-        else:
-            invoice_no = generate_invoice_no(db)
-
-        # Create sale record
-        sale_data = {
-            "invoice_no": invoice_no,
+        # Build sale record.
+        # invoice_no is intentionally OMITTED when the caller hasn't supplied one —
+        # the database BEFORE INSERT trigger calls generate_fsc_invoice_no() and
+        # fills it in atomically, guaranteeing uniqueness even under concurrent load.
+        sale_data: dict = {
             "customer_id": sale.customer_id,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
             "payment_status": "Pending",
-            "notes": sale.notes if hasattr(sale, "notes") and sale.notes else None,
-            "payment_terms": sale.payment_terms if hasattr(sale, "payment_terms") else None,
+            "notes": sale.notes or None,
+            "payment_terms": sale.payment_terms or None,
         }
+
+        # Only include invoice_no when the caller explicitly provides one
+        if sale.invoice_no and sale.invoice_no.strip():
+            # Reject duplicates early so we give a clear error before hitting the DB
+            existing = (
+                db.table("sales")
+                .select("sale_id")
+                .eq("invoice_no", sale.invoice_no.strip())
+                .execute()
+            )
+            if existing.data:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Invoice number '{sale.invoice_no}' already exists.",
+                )
+            sale_data["invoice_no"] = sale.invoice_no.strip()
+        # else: DB trigger generates the invoice number — no Python code needed
 
         sale_response = db.table("sales").insert(sale_data).execute()
 
@@ -287,6 +270,8 @@ def create_sale(
 
         created_sale = sale_response.data[0]
         sale_id = created_sale.get("sale_id")
+        # The DB trigger populates invoice_no — read it back from the response
+        invoice_no = created_sale.get("invoice_no", "")
         
         # Generate and store sale_code in MMyy#### format (optional - only if column exists)
         try:
@@ -476,7 +461,14 @@ def create_sale(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating sale: {str(e)}")
+        error_str = str(e)
+        # The DB trigger is atomic, but surface any remaining constraint errors clearly
+        if "409" in error_str or "duplicate" in error_str.lower() or "unique" in error_str.lower():
+            raise HTTPException(
+                status_code=409,
+                detail="A duplicate invoice number was detected. This should not happen — please contact support if it persists.",
+            )
+        raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}")
 
 
 @router.get("/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])

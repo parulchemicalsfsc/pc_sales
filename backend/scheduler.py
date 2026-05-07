@@ -151,7 +151,8 @@ def start_scheduler():
             trigger=CronTrigger(hour=10, minute=0, timezone=ist),
             id="daily_calling_distribution",
             name="Auto-Distribute at 10:00 AM IST",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=None
         )
         # 12:00 AM IST (midnight)
         scheduler.add_job(
@@ -159,7 +160,8 @@ def start_scheduler():
             trigger=CronTrigger(hour=0, minute=0, timezone=ist),
             id="midnight_refresh",
             name="Midnight Refresh — Clear Pending",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=None
         )
         # 11:45 PM IST
         scheduler.add_job(
@@ -167,7 +169,8 @@ def start_scheduler():
             trigger=CronTrigger(hour=23, minute=45, timezone=ist),
             id="nightly_scoring",
             name="Nightly Priority Scoring at 11:45 PM IST",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=None
         )
         scheduler.start()
         logger.info("✅ Scheduler ENABLED — midnight refresh + 10:00 AM distribution + 11:45 PM scoring")

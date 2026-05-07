@@ -78,7 +78,8 @@ def _get_telecaller_emails(db: SupabaseClient) -> list:
         logger.info(f"[DIST] Found {len(all_telecallers)} total telecallers, {len(telecallers)} are PRESENT today: {[t['email'] for t in telecallers]}")
         
         if not telecallers:
-            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! 🚨")
+            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! Falling back to ALL active telecallers. 🚨")
+            telecallers = all_telecallers
             
         return telecallers
     except Exception as e:
@@ -1107,3 +1108,66 @@ def trigger_daily_cron(
     except Exception as e:
         logger.error(f"[CRON] Unexpected error in trigger_daily_cron: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Cron trigger failed: {e}")
+
+
+@router.post("/trigger-midnight")
+def trigger_midnight_cron(
+    x_cron_secret: str = Header(None, alias="x-cron-secret"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    External-cron entry point for the Midnight Refresh job.
+    Clears old pending assignments. Protected by CRON_SECRET.
+    """
+    expected_secret = os.environ.get("CRON_SECRET", "").strip()
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET is not configured.")
+
+    if x_cron_secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret.")
+
+    logger.info("[CRON] 🌙 /trigger-midnight authenticated — clearing old pending assignments...")
+    try:
+        today = get_today_ist()
+        res = db.table("calling_assignments") \
+            .lt("assigned_date", today) \
+            .eq("status", "Pending") \
+            .delete() \
+            .execute()
+        deleted = len(res.data or [])
+        logger.info(f"[CRON] Cleared {deleted} old pending assignments.")
+        return {"triggered_by": "external_cron", "message": "Midnight refresh successful", "deleted_count": deleted}
+    except Exception as e:
+        logger.error(f"[CRON] Unexpected error in trigger_midnight_cron: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Midnight cron trigger failed: {e}")
+
+
+@router.post("/trigger-scoring")
+def trigger_scoring_cron(
+    x_cron_secret: str = Header(None, alias="x-cron-secret"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    External-cron entry point for the Nightly Priority Scoring job.
+    Protected by CRON_SECRET.
+    """
+    expected_secret = os.environ.get("CRON_SECRET", "").strip()
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET is not configured.")
+
+    if x_cron_secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret.")
+
+    logger.info("[CRON] 🔄 /trigger-scoring authenticated — starting nightly scoring...")
+    try:
+        # Ensure we can import run_nightly_scoring
+        from scheduler import run_nightly_scoring
+        
+        # The internal run_nightly_scoring doesn't return anything or take db, 
+        # it just uses the global db. We just call it.
+        run_nightly_scoring()
+        
+        return {"triggered_by": "external_cron", "message": "Nightly scoring completed successfully"}
+    except Exception as e:
+        logger.error(f"[CRON] Unexpected error in trigger_scoring_cron: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Scoring cron trigger failed: {e}")
