@@ -176,13 +176,28 @@ def update_role_permissions(
     if role_key == "admin" and len(permission_ids) == 0:
         raise HTTPException(status_code=400, detail="Cannot strip all permissions from admin role.")
 
-    # Replace permissions
+    # Replace permissions in junction table
     db.table("role_permissions").eq("role_id", role_id).delete().execute()
     if permission_ids:
         inserts = [{"role_id": role_id, "permission_id": pid} for pid in permission_ids]
         db.table("role_permissions").insert(inserts).execute()
 
+    # ── Sync permission_keys[] on the roles row (keeps fast-path in sync) ──────
+    # Resolve permission_ids → permission_key strings
+    if permission_ids:
+        pk_res = (
+            db.table("permissions")
+            .select("permission_key")
+            .in_("permission_id", permission_ids)
+            .execute()
+        )
+        perm_keys = [p["permission_key"] for p in (pk_res.data or [])]
+    else:
+        perm_keys = []
+
+    db.table("roles").update({"permission_keys": perm_keys}).eq("role_id", role_id).execute()
+
     # Invalidate ALL cached permissions — next request will re-fetch from DB
     clear_user_permission_cache()
 
-    return {"message": f"Permissions updated for '{role_res.data[0]['display_name']}'."}
+    return {"message": f"Permissions updated for '{role_res.data[0]['display_name']}'. {len(perm_keys)} permissions assigned."}
