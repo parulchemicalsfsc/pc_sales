@@ -24,6 +24,7 @@ SOURCE_PREFIX_MAP = {
     "website_a": "WA",
     "website_b": "WB",
     "website_c": "WC",
+    "parul_chemicals": "PC",
 }
 
 
