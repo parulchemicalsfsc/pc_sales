@@ -43,6 +43,7 @@ import { PERMISSIONS } from "../config/permissions";
 export default function Shopkeepers() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isDarkMode = theme.palette.mode === "dark";
   const { t, tf } = useTranslation();
   const [shopkeepers, setShopkeepers] = useState<Shopkeeper[]>([]);
   const [loading, setLoading] = useState(true);
@@ -257,8 +258,8 @@ export default function Shopkeepers() {
   const StatusDot = ({ color }: { color: string }) => (
     <Box
       sx={{
-        width: 8,
-        height: 8,
+        width: 10,
+        height: 10,
         borderRadius: "50%",
         backgroundColor:
           color === "green"
@@ -267,6 +268,7 @@ export default function Shopkeepers() {
               ? "#ea580c"
               : "#ef4444",
         flexShrink: 0,
+        boxShadow: isDarkMode ? `0 0 8px ${color === "green" ? "rgba(22, 163, 74, 0.5)" : color === "orange" ? "rgba(234, 88, 12, 0.5)" : "rgba(239, 68, 68, 0.5)"}` : "none",
       }}
     />
   );
@@ -297,16 +299,17 @@ export default function Shopkeepers() {
     return (
       <span
         style={{
-          backgroundColor: bgColor,
+          backgroundColor: isDarkMode ? `${bgColor}dd` : bgColor,
           color: "white",
           borderRadius: "999px",
           padding: "4px 10px",
           fontSize: "12px",
-          fontWeight: 500,
+          fontWeight: 600,
           display: "inline-block",
           minWidth: "28px",
           textAlign: "center",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+          boxShadow: isDarkMode ? "0 2px 4px rgba(0,0,0,0.3)" : "0 1px 2px rgba(0,0,0,0.2)",
+          border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "none",
         }}
       >
         {value}
@@ -694,11 +697,15 @@ export default function Shopkeepers() {
     <Box>
       {/* Header */}
       <Box sx={{ mb: { xs: 2, md: 4 } }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
-          <GroupIcon sx={{ mr: 1, verticalAlign: "middle" }} />
+        <Typography variant="h4" sx={{ 
+          fontWeight: 700, 
+          mb: 0.5,
+          color: isDarkMode ? "#F3F4F6" : "text.primary" 
+        }}>
+          <GroupIcon sx={{ mr: 1, verticalAlign: "middle", color: "primary.main" }} />
           {t("shopkeepers.title")}
         </Typography>
-        <Typography variant="body1" color="text.secondary">
+        <Typography variant="body1" sx={{ color: isDarkMode ? "#9CA3AF" : "text.secondary" }}>
           {t("shopkeepers.subtitle", "Manage your shopkeeper network")}
         </Typography>
       </Box>
@@ -710,7 +717,13 @@ export default function Shopkeepers() {
       )}
 
       {/* Actions Bar */}
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ 
+        mb: 3,
+        backgroundColor: isDarkMode ? "#111827" : "background.paper",
+        borderRadius: "12px",
+        border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none",
+        boxShadow: isDarkMode ? "0 4px 20px rgba(0,0,0,0.4)" : undefined,
+      }}>
         <CardContent>
           <Box
             sx={{
@@ -751,7 +764,12 @@ export default function Shopkeepers() {
       </Card>
 
       {/* Data Grid */}
-      <Card>
+      <Card sx={{ 
+        backgroundColor: isDarkMode ? "#111827" : "background.paper",
+        borderRadius: "12px",
+        boxShadow: isDarkMode ? "0 8px 30px rgba(0,0,0,0.5)" : undefined,
+        border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none"
+      }}>
         <CardContent>
           <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
             {loading ? (
@@ -765,7 +783,7 @@ export default function Shopkeepers() {
                 pageSizeOptions={[10, 25, 50]}
                 disableRowSelectionOnClick
                 scrollbarSize={8}
-                rowHeight={48}
+                rowHeight={isDarkMode ? 60 : 48}
                 localeText={{
                   noRowsLabel: "No shopkeeper data available",
                 }}
@@ -790,30 +808,38 @@ export default function Shopkeepers() {
                     borderRadius: "6px",
                     marginBottom: "6px",
                     transition: "all 0.2s ease",
-                    bgcolor: "#fff",
+                    backgroundColor: isDarkMode ? "transparent" : "#fff",
+                    color: isDarkMode ? "#E5E7EB" : "inherit",
                     "&:hover": {
                       cursor: "pointer",
+                      backgroundColor: isDarkMode ? "rgba(255,255,255,0.05) !important" : undefined,
+                      transform: isDarkMode ? "scale(1.002)" : "none",
                     },
                   },
                   "& .row-green": {
-                    backgroundColor: "#d1fae5 !important",
-                    borderLeft: "5px solid #16a34a !important",
+                    backgroundColor: isDarkMode ? "rgba(34, 197, 94, 0.2) !important" : "#d1fae5 !important",
+                    borderLeft: isDarkMode ? "5px solid #22c55e !important" : "5px solid #16a34a !important",
+                    color: isDarkMode ? "#d1fae5 !important" : "inherit",
                     "&:hover": {
-                      backgroundColor: "#bbf7d0 !important",
+                      backgroundColor: isDarkMode ? "rgba(34, 197, 94, 0.3) !important" : "#bbf7d0 !important",
                     },
                   },
                   "& .row-orange": {
-                    backgroundColor: "#ffedd5 !important",
-                    borderLeft: "5px solid #ea580c !important",
+                    backgroundColor: isDarkMode ? "rgba(251, 146, 60, 0.25) !important" : "#ffedd5 !important",
+                    borderLeft: isDarkMode ? "5px solid #fb923c !important" : "5px solid #ea580c !important",
+                    color: isDarkMode ? "#ffedd5 !important" : "inherit",
+                    boxShadow: isDarkMode ? "inset 0 0 12px rgba(251, 146, 60, 0.2)" : "none",
                     "&:hover": {
-                      backgroundColor: "#fed7aa !important",
+                      backgroundColor: isDarkMode ? "rgba(251, 146, 60, 0.35) !important" : "#fed7aa !important",
                     },
                   },
                   "& .row-red": {
-                    backgroundColor: "#fee2e2 !important",
-                    borderLeft: "5px solid #dc2626 !important",
+                    backgroundColor: isDarkMode ? "rgba(239, 68, 68, 0.25) !important" : "#fee2e2 !important",
+                    borderLeft: isDarkMode ? "5px solid #ef4444 !important" : "5px solid #dc2626 !important",
+                    color: isDarkMode ? "#fecaca !important" : "inherit",
+                    boxShadow: isDarkMode ? "inset 0 0 12px rgba(239, 68, 68, 0.2)" : "none",
                     "&:hover": {
-                      backgroundColor: "#fecaca !important",
+                      backgroundColor: isDarkMode ? "rgba(239, 68, 68, 0.35) !important" : "#fecaca !important",
                     },
                   },
                   "& .MuiDataGrid-cell": {
@@ -824,14 +850,39 @@ export default function Shopkeepers() {
                     fontSize: "14px",
                     px: 2,
                     whiteSpace: "nowrap",
+                    color: isDarkMode ? "#E5E7EB" : "inherit",
                   },
                   "& .MuiDataGrid-columnHeaders": {
-                    bgcolor: "rgba(0,0,0,0.01)",
+                    backgroundColor: isDarkMode ? "#1F2937 !important" : "rgba(0,0,0,0.01)",
                     borderRadius: 0,
-                    borderBottom: "1px solid rgba(0,0,0,0.08)",
-                    color: "#111827",
+                    borderBottom: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
+                    color: isDarkMode ? "#F9FAFB" : "#111827",
                     fontWeight: 600,
                     fontSize: "14px",
+                  },
+                  "& .MuiDataGrid-footerContainer": {
+                    borderTop: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
+                    color: isDarkMode ? "#9CA3AF" : "inherit",
+                  },
+                  "& .MuiTablePagination-root": {
+                    color: isDarkMode ? "#9CA3AF" : "inherit",
+                  },
+                  "& .MuiTablePagination-selectIcon": {
+                    color: isDarkMode ? "#9CA3AF" : "inherit",
+                  },
+                  "& ::-webkit-scrollbar": {
+                    width: "8px",
+                    height: "8px",
+                  },
+                  "& ::-webkit-scrollbar-track": {
+                    backgroundColor: isDarkMode ? "#111827" : "#f1f1f1",
+                  },
+                  "& ::-webkit-scrollbar-thumb": {
+                    backgroundColor: isDarkMode ? "#374151" : "#ccc",
+                    borderRadius: "4px",
+                  },
+                  "& ::-webkit-scrollbar-thumb:hover": {
+                    backgroundColor: isDarkMode ? "#4B5563" : "#999",
                   },
                 }}
               />
