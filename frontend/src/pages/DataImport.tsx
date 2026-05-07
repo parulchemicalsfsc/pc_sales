@@ -132,8 +132,7 @@ export default function DataImport() {
       "VILLAGE",
       "TALUKA",
       "DISTRICT",
-      "STATE",
-      "AADHAR"
+      "STATE"
     ];
 
     const sampleRow = {
@@ -143,8 +142,7 @@ export default function DataImport() {
       "VILLAGE": "ANAND",
       "TALUKA": "ANAND",
       "DISTRICT": "ANAND",
-      "STATE": "GUJARAT",
-      "AADHAR": "123456789012"
+      "STATE": "GUJARAT"
     };
 
     const ws = XLSX.utils.json_to_sheet([sampleRow], { header: headers });

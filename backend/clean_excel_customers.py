@@ -7,7 +7,6 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 NAME_ALIASES    = {"name", "sabhasad name", "member name", "sabahsad name"}
 MOBILE_ALIASES  = {"mobile", "number", "contact", "phone", "mobile no"}
-AADHAR_ALIASES  = {"aadhar", "adhar", "uid", "adhar no", "aadhar no"}
 CODE_ALIASES    = {"code", "customer code", "id", "sabhasad code"}
 
 VILLAGE_ALIASES  = {"village", "gaon", "gram", "village name"}
@@ -15,7 +14,7 @@ TALUKA_ALIASES   = {"taluka", "taluko", "taluka name", "tehsil"}
 DISTRICT_ALIASES = {"district", "district name", "jilla"}
 STATE_ALIASES    = {"state", "rajya"}
 
-HEADER_KEYWORDS = {"name", "mobile", "village", "code", "aadhar"}
+HEADER_KEYWORDS = {"name", "mobile", "village", "code"}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +121,6 @@ def extract_sabhasad(filepath: str, sheet_name: int | str = 0) -> list[dict]:
 
     # Step 4: Map remaining columns
     col_code     = _match_col(norm_cols, CODE_ALIASES)
-    col_aadhar   = _match_col(norm_cols, AADHAR_ALIASES)
     col_taluka   = _match_col(norm_cols, TALUKA_ALIASES)
     col_district = _match_col(norm_cols, DISTRICT_ALIASES)
     col_state    = _match_col(norm_cols, STATE_ALIASES)
@@ -139,13 +137,11 @@ def extract_sabhasad(filepath: str, sheet_name: int | str = 0) -> list[dict]:
             continue
             
         mobile = clean_phone(row[col_mobile]) if col_mobile else None
-        aadhar = re.sub(r"\D", "", str(row[col_aadhar])) if col_aadhar and pd.notna(row[col_aadhar]) else None
         
         record = {
             "customer_code": _safe_str(row[col_code]) if col_code else None,
             "name": to_upper_safe(name),
             "mobile": mobile,
-            "adhar_no": aadhar,
             "village": to_upper_safe(village),
             "taluka": to_upper_safe(_safe_str(row[col_taluka])) if col_taluka else None,
             "district": to_upper_safe(_safe_str(row[col_district])) if col_district else None,
