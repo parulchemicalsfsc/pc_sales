@@ -500,6 +500,7 @@ const RoleManagement: React.FC = () => {
                                                                 size="small"
                                                                 sx={{ p: 0, mt: 0.2 }}
                                                                 onChange={() => togglePermission(perm.permission_id)}
+                                                                onClick={(e) => e.stopPropagation()}
                                                             />
                                                             <Box>
                                                                 <Typography variant="body2" fontWeight={500}>
