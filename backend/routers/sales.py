@@ -246,24 +246,37 @@ def create_sale(
             "payment_terms": sale.payment_terms or None,
         }
 
-        # Only include invoice_no when the caller explicitly provides one
+        # Only include invoice_no when the caller explicitly provides a non-empty value.
+        # NOTE: We intentionally skip the pre-flight duplicate check here — it creates a
+        # race condition (two concurrent requests both pass the check, then both insert,
+        # causing the DB unique constraint to fire on the second one). The DB constraint
+        # is the authoritative guard; we just need to surface its error clearly.
         if sale.invoice_no and sale.invoice_no.strip():
-            # Reject duplicates early so we give a clear error before hitting the DB
-            existing = (
-                db.table("sales")
-                .select("sale_id")
-                .eq("invoice_no", sale.invoice_no.strip())
-                .execute()
-            )
-            if existing.data:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Invoice number '{sale.invoice_no}' already exists.",
-                )
             sale_data["invoice_no"] = sale.invoice_no.strip()
         # else: DB trigger generates the invoice number — no Python code needed
 
-        sale_response = db.table("sales").insert(sale_data).execute()
+        try:
+            sale_response = db.table("sales").insert(sale_data).execute()
+        except Exception as insert_err:
+            # Surface the real Supabase/PostgREST error message for debugging
+            import requests as _requests
+            err_body = ""
+            if hasattr(insert_err, "response") and insert_err.response is not None:
+                try:
+                    err_body = insert_err.response.text
+                except Exception:
+                    pass
+            err_str = f"{insert_err}" + (f" | DB response: {err_body}" if err_body else "")
+            print(f"[create_sale] INSERT failed: {err_str}")
+
+            # Detect unique-constraint / duplicate invoice errors
+            combined = err_str.lower() + err_body.lower()
+            if "duplicate" in combined or "unique" in combined or "23505" in combined:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A duplicate invoice number was detected. The DB trigger may not be installed — please run the invoice_no_trigger.sql migration in Supabase.",
+                )
+            raise HTTPException(status_code=500, detail=f"Error inserting sale: {err_str}")
 
         if not sale_response.data:
             raise HTTPException(status_code=400, detail="Failed to create sale")
@@ -462,13 +475,20 @@ def create_sale(
         raise
     except Exception as e:
         error_str = str(e)
-        # The DB trigger is atomic, but surface any remaining constraint errors clearly
-        if "409" in error_str or "duplicate" in error_str.lower() or "unique" in error_str.lower():
+        # Extract HTTP response body if available for better diagnostics
+        err_body = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                err_body = e.response.text
+            except Exception:
+                pass
+        combined = (error_str + err_body).lower()
+        if "duplicate" in combined or "unique" in combined or "23505" in combined:
             raise HTTPException(
                 status_code=409,
-                detail="A duplicate invoice number was detected. This should not happen — please contact support if it persists.",
+                detail=f"A duplicate invoice number was detected. DB response: {err_body or error_str}",
             )
-        raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}")
+        raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}" + (f" | {err_body}" if err_body else ""))
 
 
 @router.get("/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])
