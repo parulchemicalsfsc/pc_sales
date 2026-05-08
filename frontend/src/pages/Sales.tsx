@@ -543,11 +543,16 @@ export default function Sales() {
 
       const isDistributorSale = customerCategory === "Distributor" || customerCategory === "Mantri";
 
+      // buyer_type distinguishes mantri (uses mantri_name) from distributor (uses name)
+      const buyerType = customerCategory === "Mantri" ? "mantri"
+        : customerCategory === "Distributor" ? "distributor"
+        : "customer";
+
       const saleData = {
         // Send the right buyer FK based on category
         customer_id: isDistributorSale ? undefined : customerId,
         distributor_id: isDistributorSale ? customerId : undefined,
-        buyer_type: isDistributorSale ? "distributor" : "customer",
+        buyer_type: buyerType,
         invoice_no: formData.invoice_no || undefined,
         sale_date: formData.sale_date,
         items: items.map((item) => ({

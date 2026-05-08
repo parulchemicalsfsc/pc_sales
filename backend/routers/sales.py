@@ -38,9 +38,18 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         result = []
         for sale in sales:
             buyer_type = sale.get("buyer_type", "customer")
-            if buyer_type == "distributor" and sale.get("distributor_id"):
+            if buyer_type == "mantri" and sale.get("distributor_id"):
+                # Mantri: name stored in mantri_name field on the distributor row
                 entity = distributors_dict.get(sale["distributor_id"], {})
-                # Try multiple possible mobile field names
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("mantri_name") or entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
+                })
+            elif buyer_type == "distributor" and sale.get("distributor_id"):
+                # Distributor: name stored in name field
+                entity = distributors_dict.get(sale["distributor_id"], {})
                 mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
                 result.append({
                     **sale,
