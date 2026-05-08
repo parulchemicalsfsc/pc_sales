@@ -21,7 +21,12 @@
     "userManagement": "उपयोगकर्ता प्रबंधन",
     "customerReport": "सभासद रिपोर्ट",
     "shopkeepers": "दुकानदार",
-    "doctors": "डॉक्टर"
+    "doctors": "डॉक्टर",
+    "leads": "Leads",
+    "leadDashboard": "Lead Dashboard",
+    "leadPipeline": "Lead Pipeline",
+    "leadWorkspace": "Lead Workspace",
+    "leadHistory": "सभी मेरे लीड्स"
   },
   "common": {
     "add": "जोड़ें",

@@ -20,7 +20,12 @@
     "callDistribution": "કૉલ વિતરણ",
     "userManagement": "વપરાશકર્તા વ્યવસ્થાપન",
     "shopkeepers": "દુકાનદાર",
-    "doctors": "ડોક્ટર"
+    "doctors": "ડોક્ટર",
+    "leads": "Leads",
+    "leadDashboard": "Lead Dashboard",
+    "leadPipeline": "Lead Pipeline",
+    "leadWorkspace": "Lead Workspace",
+    "leadHistory": "મારા બધા લીડ્સ"
   },
   "common": {
     "add": "ઉમેરો",
