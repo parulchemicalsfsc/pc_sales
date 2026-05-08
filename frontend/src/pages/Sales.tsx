@@ -669,9 +669,36 @@ export default function Sales() {
     },
     {
       field: "customer_name",
-      headerName: t("customers.customerName"),
+      headerName: "Name",
       flex: 1,
-      minWidth: 200,
+      minWidth: 220,
+      renderCell: (params) => {
+        const buyerType = params.row.buyer_type;
+        const badgeColor: Record<string, "default" | "warning" | "info" | "secondary"> = {
+          mantri: "warning",
+          distributor: "info",
+          field_officer: "secondary",
+        };
+        const badgeLabel: Record<string, string> = {
+          mantri: "Mantri",
+          distributor: "Distributor",
+          field_officer: "Field Officer",
+        };
+        const showBadge = buyerType && buyerType !== "customer";
+        return (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2" noWrap>{params.value || "—"}</Typography>
+            {showBadge && (
+              <Chip
+                label={badgeLabel[buyerType] || buyerType}
+                size="small"
+                color={badgeColor[buyerType] || "default"}
+                sx={{ fontSize: "0.65rem", height: 18 }}
+              />
+            )}
+          </Box>
+        );
+      },
     },
     {
       field: "village",
