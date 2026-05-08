@@ -32,7 +32,7 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         customers_response = db.table("customers").select("customer_id, name, village, mobile").execute()
         customers_dict = {c["customer_id"]: c for c in (customers_response.data or [])}
 
-        distributors_response = db.table("distributors").select("distributor_id, name, village, mantri_mobile").execute()
+        distributors_response = db.table("distributors").select("*").execute()
         distributors_dict = {d["distributor_id"]: d for d in (distributors_response.data or [])}
 
         result = []
@@ -40,11 +40,13 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
             buyer_type = sale.get("buyer_type", "customer")
             if buyer_type == "distributor" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
+                # Try multiple possible mobile field names
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
                 result.append({
                     **sale,
                     "customer_name": entity.get("name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mantri_mobile", ""),
+                    "mobile": mobile,
                 })
             else:
                 entity = customers_dict.get(sale.get("customer_id"), {})
