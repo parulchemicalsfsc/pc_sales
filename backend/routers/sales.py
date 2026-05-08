@@ -21,33 +21,39 @@ router = APIRouter()
 
 @router.get("/", dependencies=[Depends(verify_permission("view_sales"))])
 def get_sales(db: SupabaseClient = Depends(get_supabase)):
-    """Get all sales with customer information"""
+    """Get all sales with customer/distributor information"""
     try:
-        # Get sales
         sales_response = db.table("sales").select("*").order("created_at", desc=True).execute()
-
         if not sales_response.data:
             return []
-
         sales = sales_response.data
 
-        # Get customers to join data
-        customers_response = db.table("customers").select("*").execute()
-        customers_dict = {c["customer_id"]: c for c in customers_response.data}
+        # Fetch both lookup tables in parallel
+        customers_response = db.table("customers").select("customer_id, name, village, mobile").execute()
+        customers_dict = {c["customer_id"]: c for c in (customers_response.data or [])}
 
-        # Enrich sales with customer data
+        distributors_response = db.table("distributors").select("distributor_id, name, village, mantri_mobile").execute()
+        distributors_dict = {d["distributor_id"]: d for d in (distributors_response.data or [])}
+
         result = []
         for sale in sales:
-            customer = customers_dict.get(sale["customer_id"], {})
-            
-            result.append(
-                {
+            buyer_type = sale.get("buyer_type", "customer")
+            if buyer_type == "distributor" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                result.append({
                     **sale,
-                    "customer_name": customer.get("name", ""),
-                    "village": customer.get("village", ""),
-                    "mobile": customer.get("mobile", ""),
-                }
-            )
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mobile", ""),
+                })
 
         return result
     except Exception as e:
@@ -197,9 +203,16 @@ def create_sale(
 ):
     """Create a new sale with items and auto-convert related demos"""
     try:
-        # Validate input
-        if not sale.customer_id:
-            raise HTTPException(status_code=400, detail="Customer ID is required")
+        # Validate input: need either customer_id (Sabhasad) or distributor_id (Distributor/Mantri)
+        buyer_type = sale.buyer_type or ("distributor" if sale.distributor_id else "customer")
+        is_distributor_sale = buyer_type == "distributor"
+
+        if is_distributor_sale:
+            if not sale.distributor_id:
+                raise HTTPException(status_code=400, detail="distributor_id is required for Distributor/Mantri sales")
+        else:
+            if not sale.customer_id:
+                raise HTTPException(status_code=400, detail="customer_id is required for Sabhasad/Field Officer sales")
 
         if not sale.items or len(sale.items) == 0:
             raise HTTPException(status_code=400, detail="At least one item is required")
@@ -262,7 +275,6 @@ def create_sale(
 
         # Build sale record with the generated/provided invoice_no
         sale_data: dict = {
-            "customer_id": sale.customer_id,
             "invoice_no": invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
@@ -270,7 +282,15 @@ def create_sale(
             "payment_status": "Pending",
             "notes": sale.notes or None,
             "payment_terms": sale.payment_terms or None,
+            "buyer_type": buyer_type,
         }
+        # Set only the relevant buyer FK — never both
+        if is_distributor_sale:
+            sale_data["distributor_id"] = sale.distributor_id
+            sale_data["customer_id"] = None
+        else:
+            sale_data["customer_id"] = sale.customer_id
+            sale_data["distributor_id"] = None
 
         try:
             sale_response = db.table("sales").insert(sale_data).execute()
@@ -285,11 +305,12 @@ def create_sale(
             print(f"[create_sale] INSERT failed: {err_str}")
 
             combined = err_str.lower() + err_body.lower()
-            # 23503 = foreign key violation (customer_id not in customers table)
-            if "23503" in combined or "foreign key" in combined or "customer_id_fkey" in combined:
+            # 23503 = foreign key violation
+            if "23503" in combined or "foreign key" in combined:
+                buyer_label = f"Distributor ID: {sale.distributor_id}" if is_distributor_sale else f"Customer ID: {sale.customer_id}"
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Selected customer (ID: {sale.customer_id}) does not exist. Please refresh and select a valid Sabhasad from the list.",
+                    detail=f"Selected buyer ({buyer_label}) does not exist. Please refresh and reselect.",
                 )
             # 23505 = unique constraint violation (duplicate invoice_no)
             if "23505" in combined or "duplicate" in combined or "unique" in combined:
@@ -333,16 +354,17 @@ def create_sale(
         # Insert sale items
         sale_items_data = []
         for item in sale.items:
-            sale_items_data.append(
-                {
-                    "sale_id": sale_id,
-                    "customer_id": sale.customer_id,  # ADDED: Include customer_id
-                    "product_id": item.product_id,
-                    "quantity": item.quantity,
-                    "rate": item.rate,
-                    "amount": item.amount,
-                }
-            )
+            item_row = {
+                "sale_id": sale_id,
+                "product_id": item.product_id,
+                "quantity": item.quantity,
+                "rate": item.rate,
+                "amount": item.amount,
+            }
+            # Only set customer_id on items for Sabhasad sales
+            if not is_distributor_sale and sale.customer_id:
+                item_row["customer_id"] = sale.customer_id
+            sale_items_data.append(item_row)
 
         if sale_items_data:
             items_response = db.table("sale_items").insert(sale_items_data).execute()
@@ -358,27 +380,24 @@ def create_sale(
         if user_email:
             try:
                 logger = get_activity_logger(db)
-                customer_response = (
-                    db.table("customers")
-                    .select("name")
-                    .eq("customer_id", sale.customer_id)
-                    .execute()
-                )
-                customer_name = (
-                    customer_response.data[0].get("name")
-                    if customer_response.data
-                    else f"Customer ID: {sale.customer_id}"
-                )
+                # Resolve buyer name based on type
+                if is_distributor_sale:
+                    buyer_resp = db.table("distributors").select("name").eq("distributor_id", sale.distributor_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Distributor ID: {sale.distributor_id}"
+                else:
+                    buyer_resp = db.table("customers").select("name").eq("customer_id", sale.customer_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Customer ID: {sale.customer_id}"
 
                 logger.log_create(
                     user_email=user_email,
                     entity_type="sale",
-                    entity_name=f"{invoice_no} - {customer_name}",
+                    entity_name=f"{invoice_no} - {buyer_name}",
                     entity_id=sale_id,
                     new_state=created_sale,
                     metadata={
                         "invoice_no": invoice_no,
-                        "customer_id": sale.customer_id,
+                        "buyer_type": buyer_type,
+                        "buyer_id": sale.distributor_id if is_distributor_sale else sale.customer_id,
                         "total_amount": total_amount,
                         "items_count": len(sale_items_data),
                     },

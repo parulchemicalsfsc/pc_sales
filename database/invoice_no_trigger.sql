@@ -1,5 +1,5 @@
 -- ============================================================
--- Invoice Number Generator: Supabase-Compatible RPC Approach
+-- Step 1: Invoice Number RPC Function (run this first)
 -- ============================================================
 -- IMPORTANT: Run ALL of this in Supabase Dashboard → SQL Editor
 --

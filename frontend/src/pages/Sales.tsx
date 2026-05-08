@@ -509,27 +509,13 @@ export default function Sales() {
           return;
         }
       } else {
-        // Validate existing customer selection
+        // Validate existing customer/distributor selection
         if (!customerId || customerId === 0) {
           setError(t("sales.selectCustomer", "Please select a Sabhasad"));
           return;
         }
-
-        // For Distributor / Mantri categories the dropdown is populated with
-        // distributor_id values (from the distributors table), NOT customer_id
-        // values from the customers table. If that ID doesn't exist in customers,
-        // the backend INSERT will fail with a FK violation (23503).
-        // Check now and show a clear, actionable error before hitting the API.
-        if (customerCategory === "Distributor" || customerCategory === "Mantri") {
-          const existsAsCustomer = customers.some(c => c.customer_id === customerId);
-          if (!existsAsCustomer) {
-            setError(
-              `The selected ${customerCategory} (ID: ${customerId}) does not have a matching Sabhasad record. ` +
-              `To record a sale for a ${customerCategory}, please switch to "New Sabhasad" mode and create a customer entry for them, or select "Sabhasad" category and choose from the customer list.`
-            );
-            return;
-          }
-        }
+        // No extra FK validation needed — the backend now handles both
+        // customer_id (Sabhasad) and distributor_id (Distributor/Mantri) correctly.
       }
 
       // Validate items
@@ -555,8 +541,13 @@ export default function Sales() {
         }
       }
 
+      const isDistributorSale = customerCategory === "Distributor" || customerCategory === "Mantri";
+
       const saleData = {
-        customer_id: customerId,
+        // Send the right buyer FK based on category
+        customer_id: isDistributorSale ? undefined : customerId,
+        distributor_id: isDistributorSale ? customerId : undefined,
+        buyer_type: isDistributorSale ? "distributor" : "customer",
         invoice_no: formData.invoice_no || undefined,
         sale_date: formData.sale_date,
         items: items.map((item) => ({
@@ -566,9 +557,9 @@ export default function Sales() {
           amount: item.amount!,
         })),
         notes: formData.notes || undefined,
-        payment_terms: JSON.stringify(paymentTerms), // Store payment terms as JSON string
-        paid_amount: formData.paid_amount || 0, // ADDED: Send initial payment amount
-        payment_method: "Cash", // Default to Cash for now, or add UI for it
+        payment_terms: JSON.stringify(paymentTerms),
+        paid_amount: formData.paid_amount || 0,
+        payment_method: "Cash",
       };
 
       console.log(`${editingSaleId ? "Updating" : "Creating"} sale:`, saleData);
