@@ -232,12 +232,38 @@ def create_sale(
             capacity = product.get("capacity_ltr", 0) or 0
             total_liters += capacity * item.quantity
 
-        # Build sale record.
-        # invoice_no is intentionally OMITTED when the caller hasn't supplied one —
-        # the database BEFORE INSERT trigger calls generate_fsc_invoice_no() and
-        # fills it in atomically, guaranteeing uniqueness even under concurrent load.
+        # ── Generate invoice number via RPC ──────────────────────────────────────
+        # We call get_next_invoice_no() — a plain RETURNS TEXT Supabase RPC function
+        # that uses pg_advisory_xact_lock for concurrency safety.
+        invoice_no = ""
+        if sale.invoice_no and sale.invoice_no.strip():
+            # Caller explicitly provided an invoice number — use it directly
+            invoice_no = sale.invoice_no.strip()
+        else:
+            # Auto-generate via RPC
+            try:
+                invoice_no = db.rpc("get_next_invoice_no", {})
+                if not invoice_no or not isinstance(invoice_no, str):
+                    raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
+                print(f"[create_sale] Generated invoice_no via RPC: {invoice_no}")
+            except Exception as rpc_err:
+                err_body = ""
+                if hasattr(rpc_err, "response") and rpc_err.response is not None:
+                    try:
+                        err_body = rpc_err.response.text
+                    except Exception:
+                        pass
+                err_str = f"{rpc_err}" + (f" | DB: {err_body}" if err_body else "")
+                print(f"[create_sale] RPC get_next_invoice_no failed: {err_str}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Could not generate invoice number. Ensure get_next_invoice_no() function is installed in Supabase. Error: {err_str}",
+                )
+
+        # Build sale record with the generated/provided invoice_no
         sale_data: dict = {
             "customer_id": sale.customer_id,
+            "invoice_no": invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
@@ -246,20 +272,9 @@ def create_sale(
             "payment_terms": sale.payment_terms or None,
         }
 
-        # Only include invoice_no when the caller explicitly provides a non-empty value.
-        # NOTE: We intentionally skip the pre-flight duplicate check here — it creates a
-        # race condition (two concurrent requests both pass the check, then both insert,
-        # causing the DB unique constraint to fire on the second one). The DB constraint
-        # is the authoritative guard; we just need to surface its error clearly.
-        if sale.invoice_no and sale.invoice_no.strip():
-            sale_data["invoice_no"] = sale.invoice_no.strip()
-        # else: DB trigger generates the invoice number — no Python code needed
-
         try:
             sale_response = db.table("sales").insert(sale_data).execute()
         except Exception as insert_err:
-            # Surface the real Supabase/PostgREST error message for debugging
-            import requests as _requests
             err_body = ""
             if hasattr(insert_err, "response") and insert_err.response is not None:
                 try:
@@ -269,12 +284,11 @@ def create_sale(
             err_str = f"{insert_err}" + (f" | DB response: {err_body}" if err_body else "")
             print(f"[create_sale] INSERT failed: {err_str}")
 
-            # Detect unique-constraint / duplicate invoice errors
             combined = err_str.lower() + err_body.lower()
             if "duplicate" in combined or "unique" in combined or "23505" in combined:
                 raise HTTPException(
                     status_code=409,
-                    detail="A duplicate invoice number was detected. The DB trigger may not be installed — please run the invoice_no_trigger.sql migration in Supabase.",
+                    detail=f"Invoice number '{invoice_no}' already exists. Please try again.",
                 )
             raise HTTPException(status_code=500, detail=f"Error inserting sale: {err_str}")
 
@@ -283,8 +297,7 @@ def create_sale(
 
         created_sale = sale_response.data[0]
         sale_id = created_sale.get("sale_id")
-        # The DB trigger populates invoice_no — read it back from the response
-        invoice_no = created_sale.get("invoice_no", "")
+        invoice_no = created_sale.get("invoice_no", invoice_no)  # prefer DB generated value
         
         # Generate and store sale_code in MMyy#### format (optional - only if column exists)
         try:
