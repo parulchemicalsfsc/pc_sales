@@ -134,7 +134,55 @@ def run_nightly_scoring():
         logger.error(f"Nightly scoring failed: {e}")
 
 
+def check_overdue_leads_job():
+    """Daily 9:00 AM IST: create in-app notifications for leads with overdue follow-up dates."""
+    try:
+        from datetime import date as _date
+        db = get_supabase()
+        today = _date.today().isoformat()
+        logger.info(f"[SCHEDULER] ⏰ check_overdue_leads_job — checking for overdue leads as of {today}")
+
+        res = db.table("leads").select("lead_id, full_name, assigned_to, follow_up_date") \
+            .lt("follow_up_date", today) \
+            .neq("status", "Converted") \
+            .neq("status", "Rejected") \
+            .execute()
+
+        leads = res.data or []
+        logger.info(f"[SCHEDULER] Found {len(leads)} overdue lead(s)")
+
+        for lead in leads:
+            assigned_to = lead.get("assigned_to")
+            if not assigned_to:
+                continue
+            # Dedup: skip if a notification for this lead+today already exists
+            existing = db.table("notifications").select("notification_id") \
+                .eq("user_email", assigned_to) \
+                .eq("entity_type", "lead") \
+                .eq("action_url", "/lead-workspace") \
+                .ilike("title", f"%{lead['lead_id']}%") \
+                .gte("created_at", today) \
+                .execute()
+            if existing.data:
+                continue
+
+            db.table("notifications").insert({
+                "user_email": assigned_to,
+                "title": f"Follow-up Overdue: {lead['lead_id']}",
+                "message": f"Your follow-up for lead {lead['lead_id']} ({lead.get('full_name', '')}) was due on {lead['follow_up_date']}.",
+                "notification_type": "warning",
+                "entity_type": "lead",
+                "action_url": "/lead-workspace",
+                "is_read": False,
+            }).execute()
+
+        logger.info(f"[SCHEDULER] ✅ Overdue lead check complete")
+    except Exception as e:
+        logger.error(f"[SCHEDULER] ❌ check_overdue_leads_job FAILED: {e}", exc_info=True)
+
+
 def start_scheduler():
+
     """
     Start APScheduler with single-worker guard.
     Only runs if SCHEDULER_ENABLED=1 env var is set (set on one worker only).
@@ -172,8 +220,16 @@ def start_scheduler():
             replace_existing=True,
             misfire_grace_time=None
         )
+        # 9:00 AM IST — overdue lead follow-up alerts
+        scheduler.add_job(
+            check_overdue_leads_job,
+            trigger=CronTrigger(hour=9, minute=0, timezone=ist),
+            id="overdue_leads_check",
+            name="Overdue Lead Follow-up Alerts at 9:00 AM IST",
+            replace_existing=True
+        )
         scheduler.start()
-        logger.info("✅ Scheduler ENABLED — midnight refresh + 10:00 AM distribution + 11:45 PM scoring")
+        logger.info("✅ Scheduler ENABLED — midnight refresh + 9:00 AM overdue leads + 10:00 AM distribution + 11:45 PM scoring")
     else:
         logger.info("⏸️ Scheduler DISABLED — set SCHEDULER_ENABLED=1 to enable")
 

@@ -20,7 +20,12 @@
     "callDistribution": "Call Distribution",
     "userManagement": "User Management",
     "shopkeepers": "Shopkeepers",
-    "doctors": "Doctors"
+    "doctors": "Doctors",
+    "leads": "Leads",
+    "leadDashboard": "Lead Dashboard",
+    "leadPipeline": "Lead Pipeline",
+    "leadWorkspace": "Lead Workspace",
+    "leadHistory": "All My Leads"
   },
   "common": {
     "add": "Add",

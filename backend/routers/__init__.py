@@ -19,3 +19,4 @@ from .forecasting import router as forecasting
 from .shopkeepers import router as shopkeepers
 from .doctors import router as doctors
 from .attendance import router as attendance
+from .leads import router as leads

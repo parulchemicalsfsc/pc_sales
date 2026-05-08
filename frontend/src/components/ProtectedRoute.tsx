@@ -35,14 +35,19 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
 
   // Check for required permission
   if (requiredPermission && !hasPermission(requiredPermission)) {
-    // If they lack permission, redirect to dashboard by default.
-    // Ensure we don't loop if they are trying to access dashboard itself.
+    // Prevent infinite loop if they are trying to access dashboard itself
     if (requiredPermission === 'view_dashboard') {
-      // If they can't even view dashboard, logout or show error page?
-      // Let's redirect to login for now as a safe fallback
+      if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
+      if (hasPermission('work_leads')) return <Navigate to="/lead-workspace" replace />;
+      if (hasPermission('view_calling_list')) return <Navigate to="/calling-list" replace />;
       return <Navigate to="/login" replace />;
     }
-    return <Navigate to="/dashboard" replace />;
+    
+    // Default fallback
+    if (hasPermission('view_dashboard')) return <Navigate to="/dashboard" replace />;
+    if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
+    if (hasPermission('work_leads')) return <Navigate to="/lead-workspace" replace />;
+    return <Navigate to="/" replace />;
   }
 
   // User is authenticated, render the protected content

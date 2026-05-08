@@ -22,7 +22,7 @@ const resolveApiBaseUrl = (): string => {
 const API_BASE_URL = resolveApiBaseUrl();
 console.info(`[API] Using base URL: ${API_BASE_URL || "(not set)"}`);
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: API_BASE_URL,
 
   timeout: 30000, // 30 second timeout
