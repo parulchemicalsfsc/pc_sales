@@ -514,6 +514,22 @@ export default function Sales() {
           setError(t("sales.selectCustomer", "Please select a Sabhasad"));
           return;
         }
+
+        // For Distributor / Mantri categories the dropdown is populated with
+        // distributor_id values (from the distributors table), NOT customer_id
+        // values from the customers table. If that ID doesn't exist in customers,
+        // the backend INSERT will fail with a FK violation (23503).
+        // Check now and show a clear, actionable error before hitting the API.
+        if (customerCategory === "Distributor" || customerCategory === "Mantri") {
+          const existsAsCustomer = customers.some(c => c.customer_id === customerId);
+          if (!existsAsCustomer) {
+            setError(
+              `The selected ${customerCategory} (ID: ${customerId}) does not have a matching Sabhasad record. ` +
+              `To record a sale for a ${customerCategory}, please switch to "New Sabhasad" mode and create a customer entry for them, or select "Sabhasad" category and choose from the customer list.`
+            );
+            return;
+          }
+        }
       }
 
       // Validate items

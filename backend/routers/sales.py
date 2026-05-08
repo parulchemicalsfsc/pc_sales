@@ -285,7 +285,14 @@ def create_sale(
             print(f"[create_sale] INSERT failed: {err_str}")
 
             combined = err_str.lower() + err_body.lower()
-            if "duplicate" in combined or "unique" in combined or "23505" in combined:
+            # 23503 = foreign key violation (customer_id not in customers table)
+            if "23503" in combined or "foreign key" in combined or "customer_id_fkey" in combined:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Selected customer (ID: {sale.customer_id}) does not exist. Please refresh and select a valid Sabhasad from the list.",
+                )
+            # 23505 = unique constraint violation (duplicate invoice_no)
+            if "23505" in combined or "duplicate" in combined or "unique" in combined:
                 raise HTTPException(
                     status_code=409,
                     detail=f"Invoice number '{invoice_no}' already exists. Please try again.",
