@@ -12,10 +12,12 @@ document.addEventListener(
   (e) => {
     const el = e.target as HTMLElement;
     if (el instanceof HTMLInputElement && el.type === 'number') {
-      el.select();
+      // Defer select() so it runs AFTER MUI's own focus handlers,
+      // which would otherwise clear our selection.
+      setTimeout(() => el.select(), 0);
     }
   },
-  true, // capture phase so it fires before React's own handlers
+  true,
 );
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
