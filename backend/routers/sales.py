@@ -216,7 +216,8 @@ def create_sale(
     try:
         # Validate input: need either customer_id (Sabhasad) or distributor_id (Distributor/Mantri)
         buyer_type = sale.buyer_type or ("distributor" if sale.distributor_id else "customer")
-        is_distributor_sale = buyer_type == "distributor"
+        # Both 'distributor' and 'mantri' use the distributor_id FK path
+        is_distributor_sale = buyer_type in ("distributor", "mantri")
 
         if is_distributor_sale:
             if not sale.distributor_id:
