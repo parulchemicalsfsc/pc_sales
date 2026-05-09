@@ -586,30 +586,51 @@ export default function Sales() {
       if (response.sale) {
         try {
           const newSale = response.sale;
-          let customer = customers.find(c => c.customer_id === newSale.customer_id);
-          
-          if (!customer && customerMode === "new") {
-            customer = {
-              customer_id: customerId,
-              name: newCustomerData.name,
-              village: newCustomerData.village,
-              mobile: newCustomerData.mobile
-            } as any;
+          let enrichedName = "";
+          let enrichedVillage = "";
+          let enrichedMobile = "";
+
+          if (buyerType === "mantri" || buyerType === "distributor") {
+            // Look up from distributors array
+            const dist = distributors.find((d: any) => d.distributor_id === customerId);
+            if (dist) {
+              enrichedName = buyerType === "mantri"
+                ? (dist.mantri_name || dist.name || "")
+                : (dist.name || "");
+              enrichedVillage = dist.village || "";
+              enrichedMobile = buyerType === "mantri"
+                ? (dist.mantri_mobile || dist.mobile || "")
+                : (dist.mobile || "");
+            }
+          } else {
+            // Sabhasad: look up from customers array
+            let customer = customers.find(c => c.customer_id === newSale.customer_id);
+            if (!customer && customerMode === "new") {
+              customer = {
+                customer_id: customerId,
+                name: newCustomerData.name,
+                village: newCustomerData.village,
+                mobile: newCustomerData.mobile
+              } as any;
+            }
+            if (customer) {
+              enrichedName = customer.name;
+              enrichedVillage = customer.village || "";
+              enrichedMobile = customer.mobile || "";
+            }
           }
 
-          if (customer) {
-            const enrichedSale = {
-              ...newSale,
-              customer_name: customer.name,
-              village: customer.village,
-              mobile: customer.mobile
-            };
+          const enrichedSale = {
+            ...newSale,
+            customer_name: enrichedName,
+            village: enrichedVillage,
+            mobile: enrichedMobile,
+          };
 
-            if (editingSaleId) {
-              setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
-            } else {
-              setSales(prev => [enrichedSale, ...prev]);
-            }
+          if (editingSaleId) {
+            setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
+          } else {
+            setSales(prev => [enrichedSale, ...prev]);
           }
         } catch (e) {
           console.log("Optimistic update failed, waiting for refresh");
