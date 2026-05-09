@@ -103,6 +103,7 @@ export default function Sales() {
   const [selectedActionSale, setSelectedActionSale] = useState<Sale | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<{ name: string; village: string; mobile: string } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -210,6 +211,7 @@ export default function Sales() {
     });
     setCustomerMode("existing");
     setCustomerCategory("Sabhasad");
+    setSelectedEntity(null);
     setItems([{ product_id: 0, quantity: 1, rate: 0, amount: 0 }]);
     setPaymentTerms({
       type: 'after_delivery',
@@ -419,6 +421,7 @@ export default function Sales() {
               label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
               name: d.mantri_name,
               village: d.village || '',
+              mobile: d.mantri_mobile || d.mobile || '',
             });
           }
         }
@@ -430,6 +433,7 @@ export default function Sales() {
         label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
         name: d.name || '',
         village: d.village || '',
+        mobile: d.mobile || d.contact_mobile || '',
       }));
     } else {
       return customers.map((c) => ({
@@ -437,6 +441,7 @@ export default function Sales() {
         label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
         name: c.name,
         village: c.village || '',
+        mobile: c.mobile || '',
       }));
     }
   };
@@ -590,38 +595,20 @@ export default function Sales() {
           let enrichedVillage = "";
           let enrichedMobile = "";
 
-          if (buyerType === "mantri" || buyerType === "distributor") {
-            // Look up from distributors array
-            const dist = distributors.find((d: any) => d.distributor_id === customerId);
-            if (dist) {
-              enrichedName = buyerType === "mantri"
-                ? (dist.mantri_name || dist.name || "")
-                : (dist.name || "");
-              enrichedVillage = dist.village || "";
-              enrichedMobile = buyerType === "mantri"
-                ? (dist.mantri_mobile || dist.mobile || "")
-                : (dist.mobile || "");
-            }
-          } else {
-            // Sabhasad: look up from customers array
-            let customer = customers.find(c => c.customer_id === newSale.customer_id);
-            if (!customer && customerMode === "new") {
-              customer = {
-                customer_id: customerId,
-                name: newCustomerData.name,
-                village: newCustomerData.village,
-                mobile: newCustomerData.mobile
-              } as any;
-            }
-            if (customer) {
-              enrichedName = customer.name;
-              enrichedVillage = customer.village || "";
-              enrichedMobile = customer.mobile || "";
-            }
+          // Use the selectedEntity captured at selection time (most reliable source)
+          if (selectedEntity) {
+            enrichedName = selectedEntity.name;
+            enrichedVillage = selectedEntity.village;
+            enrichedMobile = selectedEntity.mobile;
+          } else if (customerMode === "new") {
+            enrichedName = newCustomerData.name;
+            enrichedVillage = newCustomerData.village;
+            enrichedMobile = newCustomerData.mobile;
           }
 
           const enrichedSale = {
             ...newSale,
+            buyer_type: buyerType,
             customer_name: enrichedName,
             village: enrichedVillage,
             mobile: enrichedMobile,
@@ -1060,6 +1047,7 @@ export default function Sales() {
                         ...formData,
                         customer_id: newId,
                       });
+                      setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
                       recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
                     }}
                     renderInput={(params: any) => (
