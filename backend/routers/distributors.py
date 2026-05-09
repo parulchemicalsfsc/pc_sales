@@ -13,17 +13,26 @@ router = APIRouter()
 def get_distributors(db: SupabaseClient = Depends(get_supabase)):
     """Get all distributors"""
     try:
-        response = (
-            db.table("distributors")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
+        # Paginate to bypass Supabase's 1000-row server cap
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = (
+                db.table("distributors")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
 
-        if not response.data:
-            return []
-
-        return response.data
+        return all_rows
     except Exception as e:
         print("❌ GET ERROR:", str(e))
         raise HTTPException(

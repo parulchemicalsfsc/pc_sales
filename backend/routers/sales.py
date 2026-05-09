@@ -23,17 +23,34 @@ router = APIRouter()
 def get_sales(db: SupabaseClient = Depends(get_supabase)):
     """Get all sales with customer/distributor information"""
     try:
-        sales_response = db.table("sales").select("*").order("created_at", desc=True).limit(10000).execute()
-        if not sales_response.data:
+        # Helper to paginate past Supabase's 1000-row server cap
+        def fetch_all(table, select="*", order_col=None, order_desc=False):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                if order_col:
+                    q = q.order(order_col, desc=order_desc)
+                resp = q.execute()
+                if not resp.data:
+                    break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch:
+                    break
+                offset += batch
+            return all_rows
+
+        sales = fetch_all("sales", "*", order_col="created_at", order_desc=True)
+        if not sales:
             return []
-        sales = sales_response.data
 
-        # Fetch both lookup tables — use high limit to avoid Supabase default 1000-row cap
-        customers_response = db.table("customers").select("customer_id, name, village, mobile").limit(10000).execute()
-        customers_dict = {c["customer_id"]: c for c in (customers_response.data or [])}
+        # Fetch ALL customers and distributors via pagination
+        customers_list = fetch_all("customers", "customer_id, name, village, mobile")
+        customers_dict = {c["customer_id"]: c for c in customers_list}
 
-        distributors_response = db.table("distributors").select("*").limit(10000).execute()
-        distributors_dict = {d["distributor_id"]: d for d in (distributors_response.data or [])}
+        distributors_list = fetch_all("distributors")
+        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
         print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, {len(distributors_dict)} distributors")
 
         result = []
