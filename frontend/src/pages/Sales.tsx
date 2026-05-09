@@ -138,7 +138,24 @@ export default function Sales() {
       ]);
 
       if (salesResult.status === "fulfilled") {
-        setSales(salesResult.value);
+        const salesData = salesResult.value;
+        // DEBUG: Log mantri/distributor sales with blank names
+        const blankMantriSales = salesData.filter((s: any) => 
+          (s.buyer_type === 'mantri' || s.buyer_type === 'distributor') && !s.customer_name
+        );
+        if (blankMantriSales.length > 0) {
+          console.warn('[DEBUG] Mantri/Distributor sales with blank names from server:', 
+            blankMantriSales.map((s: any) => ({
+              sale_id: s.sale_id, 
+              buyer_type: s.buyer_type, 
+              distributor_id: s.distributor_id, 
+              customer_id: s.customer_id,
+              customer_name: s.customer_name,
+              village: s.village,
+            }))
+          );
+        }
+        setSales(salesData);
       } else {
         console.error("Error loading sales:", salesResult.reason);
         setError(salesResult.reason?.response?.data?.detail || salesResult.reason?.message || t("messages.error"));

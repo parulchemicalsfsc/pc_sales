@@ -41,9 +41,12 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
             if buyer_type == "mantri" and sale.get("distributor_id"):
                 # Mantri: name stored in mantri_name field on the distributor row
                 entity = distributors_dict.get(sale["distributor_id"], {})
+                resolved_name = entity.get("mantri_name") or entity.get("name", "")
+                if not resolved_name:
+                    print(f"[GET /sales] WARNING: Blank name for mantri sale {sale.get('sale_id')} / dist_id={sale['distributor_id']} / entity_keys={list(entity.keys()) if entity else 'NOT_FOUND'} / mantri_name={entity.get('mantri_name')!r} / name={entity.get('name')!r}")
                 result.append({
                     **sale,
-                    "customer_name": entity.get("mantri_name") or entity.get("name", ""),
+                    "customer_name": resolved_name,
                     "village": entity.get("village", ""),
                     "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
                 })
@@ -59,6 +62,8 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                 })
             else:
                 entity = customers_dict.get(sale.get("customer_id"), {})
+                if buyer_type not in (None, "customer") and not entity:
+                    print(f"[GET /sales] WARNING: Sale {sale.get('sale_id')} has buyer_type={buyer_type!r} but fell into customer branch. dist_id={sale.get('distributor_id')!r}, cust_id={sale.get('customer_id')!r}")
                 result.append({
                     **sale,
                     "customer_name": entity.get("name", ""),
