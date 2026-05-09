@@ -32,7 +32,7 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         customers_response = db.table("customers").select("customer_id, name, village, mobile").limit(10000).execute()
         customers_dict = {c["customer_id"]: c for c in (customers_response.data or [])}
 
-        distributors_response = db.table("distributors").select("distributor_id, name, village, mantri_name, mantri_mobile, mobile").limit(10000).execute()
+        distributors_response = db.table("distributors").select("*").limit(10000).execute()
         distributors_dict = {d["distributor_id"]: d for d in (distributors_response.data or [])}
         print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, {len(distributors_dict)} distributors")
 
