@@ -23,17 +23,18 @@ router = APIRouter()
 def get_sales(db: SupabaseClient = Depends(get_supabase)):
     """Get all sales with customer/distributor information"""
     try:
-        sales_response = db.table("sales").select("*").order("created_at", desc=True).execute()
+        sales_response = db.table("sales").select("*").order("created_at", desc=True).limit(10000).execute()
         if not sales_response.data:
             return []
         sales = sales_response.data
 
-        # Fetch both lookup tables in parallel
-        customers_response = db.table("customers").select("customer_id, name, village, mobile").execute()
+        # Fetch both lookup tables — use high limit to avoid Supabase default 1000-row cap
+        customers_response = db.table("customers").select("customer_id, name, village, mobile").limit(10000).execute()
         customers_dict = {c["customer_id"]: c for c in (customers_response.data or [])}
 
-        distributors_response = db.table("distributors").select("*").execute()
+        distributors_response = db.table("distributors").select("distributor_id, name, village, mantri_name, mantri_mobile, mobile").limit(10000).execute()
         distributors_dict = {d["distributor_id"]: d for d in (distributors_response.data or [])}
+        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, {len(distributors_dict)} distributors")
 
         result = []
         for sale in sales:
@@ -83,7 +84,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
     try:
         # Get all sales
         sales_response = (
-            db.table("sales").select("*").order("sale_date", desc=True).execute()
+            db.table("sales").select("*").order("sale_date", desc=True).limit(10000).execute()
         )
 
         if not sales_response.data:
@@ -91,7 +92,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
 
         # Get all customers
         customers_response = (
-            db.table("customers").select("customer_id, name, village").execute()
+            db.table("customers").select("customer_id, name, village").limit(10000).execute()
         )
         customers_dict = (
             {c["customer_id"]: c for c in customers_response.data}
@@ -100,12 +101,12 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
         )
 
         # Get all products for summary
-        products_response = db.table("products").select("product_id, product_name").execute()
+        products_response = db.table("products").select("product_id, product_name").limit(10000).execute()
         products_dict = {p["product_id"]: p["product_name"] for p in products_response.data} if products_response.data else {}
         print(f"DEBUG: Fetched {len(products_dict)} products")
 
         # Get all sale items
-        items_response = db.table("sale_items").select("sale_id, product_id, quantity").execute()
+        items_response = db.table("sale_items").select("sale_id, product_id, quantity").limit(10000).execute()
         items_by_sale = {}
         if items_response.data:
             print(f"DEBUG: Fetched {len(items_response.data)} sale items")
@@ -123,7 +124,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
             print("DEBUG: No sale items found")
 
         # Get all payments
-        payments_response = db.table("payments").select("sale_id, amount").execute()
+        payments_response = db.table("payments").select("sale_id, amount").limit(10000).execute()
 
         # Calculate paid amounts per sale
         paid_by_sale = {}
