@@ -18,26 +18,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { PERMISSIONS } from "../config/permissions";
-import {
-  Box,
-  Typography,
-  Tabs,
-  Tab,
-  Paper,
-  Button,
-  IconButton,
-  Chip,
-  Stack,
-  Alert,
-  CircularProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
+
   Snackbar,
   Tooltip,
   TablePagination,
