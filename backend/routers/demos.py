@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import date, datetime, timedelta
 
 import requests
 from activity_logger import get_activity_logger
@@ -10,6 +11,151 @@ from rbac_utils import verify_permission
 from routers.notifications import create_notification_helper
 
 router = APIRouter()
+
+
+# ======================
+# Demo Suggestions Algorithm
+# ======================
+@router.get("/suggestions", dependencies=[Depends(verify_permission("view_demos"))])
+def get_demo_suggestions(limit: int = 20, db: SupabaseClient = Depends(get_supabase)):
+    """
+    Smart Demo Suggestion Algorithm:
+    Scores each active distributor on 4 signals:
+      1. priority_score  – from the nightly scoring engine (0–100)
+      2. recency_score   – how long since last demo (longer gap = higher urgency)
+      3. group_size      – contact_in_group (more contacts = higher impact)
+      4. no_demo_bonus   – large bonus if they have NEVER had a demo
+    Final suggestion_score = weighted sum of signals (0–100).
+    """
+    try:
+        today = date.today()
+
+        # 1. Fetch all active distributors
+        dist_resp = (
+            db.table("distributors")
+            .select("distributor_id, mantri_name, village, taluka, district, contact_in_group, sabhasad_count, priority_score, priority_label, status")
+            .eq("status", "Active")
+            .execute()
+        )
+        distributors = dist_resp.data or []
+        if not distributors:
+            return []
+
+        # 2. Fetch all demos — to compute last-demo date per distributor
+        demos_resp = (
+            db.table("demos")
+            .select("distributor_id, demo_date, conversion_status")
+            .execute()
+        )
+        demos = demos_resp.data or []
+
+        # Build: distributor_id → list of demo dates
+        from collections import defaultdict
+        demo_map = defaultdict(list)
+        for d in demos:
+            did = d.get("distributor_id")
+            if did:
+                demo_map[did].append({
+                    "date": d.get("demo_date"),
+                    "status": d.get("conversion_status"),
+                })
+
+        # 3. Score each distributor
+        MAX_DAYS_RECENCY = 180   # 6 months is our "cold" threshold
+        MAX_GROUP_SIZE   = 100   # normalise group size against this
+
+        scored = []
+        for dist in distributors:
+            did = dist["distributor_id"]
+            entries = demo_map.get(did, [])
+
+            # ── Recency signal ──────────────────────────────
+            if entries:
+                valid_dates = [e["date"] for e in entries if e.get("date")]
+                if valid_dates:
+                    latest_str = max(valid_dates)
+                    try:
+                        # demo_date is stored as text "YYYY-MM-DD"
+                        latest_date = datetime.strptime(latest_str[:10], "%Y-%m-%d").date()
+                        days_gap = (today - latest_date).days
+                    except Exception:
+                        days_gap = MAX_DAYS_RECENCY
+                else:
+                    days_gap = MAX_DAYS_RECENCY
+                no_demo_bonus = 0
+            else:
+                days_gap = MAX_DAYS_RECENCY
+                no_demo_bonus = 20   # never had a demo → high urgency bonus
+
+            recency_score = min(days_gap / MAX_DAYS_RECENCY, 1.0) * 35   # max 35 pts
+
+            # ── Priority signal (from nightly engine) ───────
+            raw_priority = float(dist.get("priority_score") or 0)
+            priority_score_norm = min(raw_priority / 100.0, 1.0) * 30   # max 30 pts
+
+            # ── Group size signal ────────────────────────────
+            group = int(dist.get("contact_in_group") or dist.get("sabhasad_count") or 0)
+            group_score = min(group / MAX_GROUP_SIZE, 1.0) * 15   # max 15 pts
+
+            # ── Total ────────────────────────────────────────
+            total = round(recency_score + priority_score_norm + group_score + no_demo_bonus, 1)
+            total = min(total, 100.0)
+
+            # ── Last demo meta for display ───────────────────
+            last_demo = None
+            last_status = None
+            if entries:
+                valid = [(e["date"], e["status"]) for e in entries if e.get("date")]
+                if valid:
+                    last_demo, last_status = max(valid, key=lambda x: x[0])
+
+            scored.append({
+                "distributor_id": did,
+                "mantri_name": dist.get("mantri_name"),
+                "village": dist.get("village"),
+                "taluka": dist.get("taluka"),
+                "district": dist.get("district"),
+                "contact_in_group": group,
+                "priority_label": dist.get("priority_label", "LOW"),
+                "priority_score": raw_priority,
+                "total_demos": len(entries),
+                "last_demo_date": last_demo,
+                "last_demo_status": last_status,
+                "days_since_last_demo": days_gap if entries else None,
+                "suggestion_score": total,
+                "reason": _build_reason(days_gap, raw_priority, group, not bool(entries)),
+            })
+
+        # 4. Sort by suggestion_score descending, return top N
+        scored.sort(key=lambda x: x["suggestion_score"], reverse=True)
+        return scored[:limit]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating suggestions: {str(e)}")
+
+
+def _build_reason(days_gap: int, priority: float, group: int, never_had_demo: bool) -> str:
+    parts = []
+    if never_had_demo:
+        parts.append("Never had a demo")
+    elif days_gap >= 90:
+        parts.append(f"No demo in {days_gap} days")
+    elif days_gap >= 30:
+        parts.append(f"Last demo was {days_gap} days ago")
+
+    if priority >= 70:
+        parts.append("High priority score")
+    elif priority >= 40:
+        parts.append("Medium priority score")
+
+    if group >= 20:
+        parts.append(f"Large group ({group} contacts)")
+    elif group >= 10:
+        parts.append(f"Active group ({group} contacts)")
+
+    return " · ".join(parts) if parts else "Routine follow-up"
+
+
 
 
 # ======================

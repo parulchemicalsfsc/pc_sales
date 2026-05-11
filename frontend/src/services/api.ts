@@ -530,6 +530,16 @@ export const demoAPI = {
     const response = await apiClient.delete(`/api/demos/${id}`);
     return response.data;
   },
+  updateStatus: async (id: number, status: string, notes?: string) => {
+    const response = await apiClient.put(`/api/demos/${id}/status`, null, {
+      params: { conversion_status: status, notes },
+    });
+    return response.data;
+  },
+  getSuggestions: async (limit = 20) => {
+    const response = await apiClient.get("/api/demos/suggestions", { params: { limit } });
+    return response.data;
+  },
 };
 
 export const automationAPI = {

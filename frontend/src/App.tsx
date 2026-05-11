@@ -18,6 +18,7 @@ import Customers from "./pages/Customers";
 import Sales from "./pages/Sales";
 import Payments from "./pages/Payments";
 import Demos from "./pages/Demos";
+import DemoScheduler from "./pages/DemoScheduler";
 import Distributors from "./pages/Distributors";
 import Shopkeepers from "./pages/Shopkeepers";
 import Doctors from "./pages/Doctors";
@@ -126,6 +127,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DEMOS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Demos />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/demo-scheduler"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DEMOS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <DemoScheduler />
                       </Layout>
                     </ProtectedRoute>
                   }
