@@ -65,11 +65,11 @@ interface Suggestion {
 
 // ── Helpers ────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; color: string; icon: JSX.Element }> = {
-  Scheduled: { label: "Scheduled", color: "#2563eb", icon: <PendingIcon sx={{ fontSize: 15 }} /> },
-  Completed:  { label: "Completed",  color: "#16a34a", icon: <DoneIcon  sx={{ fontSize: 15 }} /> },
-  Converted:  { label: "Converted",  color: "#7c3aed", icon: <DoneIcon  sx={{ fontSize: 15 }} /> },
+  Scheduled: { label: "Scheduled",  color: "#2563eb", icon: <PendingIcon  sx={{ fontSize: 15 }} /> },
+  Completed:  { label: "Completed",  color: "#16a34a", icon: <DoneIcon    sx={{ fontSize: 15 }} /> },
+  Converted:  { label: "Converted",  color: "#7c3aed", icon: <DoneIcon    sx={{ fontSize: 15 }} /> },
   Cancelled:  { label: "Cancelled",  color: "#dc2626", icon: <CancelledIcon sx={{ fontSize: 15 }} /> },
-  "No Show":  { label: "No Show",    color: "#ea580c", icon: <CancelledIcon sx={{ fontSize: 15 }} /> },
+  "No Show":  { label: "No Show",   color: "#ea580c", icon: <CancelledIcon sx={{ fontSize: 15 }} /> },
 };
 
 const PRIORITY_COLOR: Record<string, string> = {
@@ -154,8 +154,9 @@ export default function DemoScheduler() {
   // ── Derived stats ──────────────────────────────────────────────
   const scheduled  = demos.filter(d => d.conversion_status === "Scheduled");
   const completed  = demos.filter(d => ["Completed", "Converted"].includes(d.conversion_status));
-  const pending    = demos.filter(d => !["Completed", "Converted", "Cancelled"].includes(d.conversion_status));
-  const cancelled  = demos.filter(d => ["Cancelled", "No Show"].includes(d.conversion_status));
+  const pending    = demos.filter(d => !["Completed", "Converted", "Cancelled", "No Show"].includes(d.conversion_status));
+  const cancelled  = demos.filter(d => d.conversion_status === "Cancelled");
+  const noShow     = demos.filter(d => d.conversion_status === "No Show");
   const convRate   = demos.length > 0 ? Math.round((completed.length / demos.length) * 100) : 0;
 
   const tabDemos = tab === 0 ? demos
@@ -368,11 +369,12 @@ export default function DemoScheduler() {
       {!loadingDemos && (
         <Grid container spacing={2} mb={3}>
           {[
-            { label: "Total", value: demos.length, color: "#2563eb" },
-            { label: "Scheduled", value: scheduled.length, color: "#ea580c" },
-            { label: "Completed", value: completed.length, color: "#16a34a" },
-            { label: "Cancelled", value: cancelled.length, color: "#dc2626" },
-            { label: "Conv. Rate", value: `${convRate}%`, color: "#7c3aed" },
+            { label: "Total",      value: demos.length,      color: "#2563eb" },
+            { label: "Scheduled",  value: scheduled.length,  color: "#ea580c" },
+            { label: "Completed",  value: completed.length,  color: "#16a34a" },
+            { label: "Cancelled",  value: cancelled.length,  color: "#dc2626" },
+            { label: "No Show",    value: noShow.length,     color: "#ea580c" },
+            { label: "Conv. Rate", value: `${convRate}%`,    color: "#7c3aed" },
           ].map(s => (
             <Grid item xs={6} sm={4} md={2.4} key={s.label}>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, bgcolor: surface, borderColor: border, textAlign: "center" }}>
@@ -410,6 +412,7 @@ export default function DemoScheduler() {
               { label: "Scheduled", count: scheduled.length, color: "#2563eb" },
               { label: "Completed", count: completed.length, color: "#16a34a" },
               { label: "Cancelled", count: cancelled.length, color: "#dc2626" },
+              { label: "No Show",   count: noShow.length,    color: "#ea580c" },
             ].map(s => (
               <Stack key={s.label} direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: s.color }} />
