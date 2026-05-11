@@ -177,7 +177,7 @@ export default function CallingList() {
     if (mantris.length === 0) {
       setCalcLoading(true);
       try {
-        const data = await distributorAPI.getAll({ limit: 1000 });
+        const data = await distributorAPI.getForCalculator();
         setMantris(data || []);
       } catch (err) {
         setToast({ msg: "Failed to load mantris", sev: "error" });

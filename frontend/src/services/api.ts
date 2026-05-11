@@ -394,6 +394,10 @@ export const distributorAPI = {
     const response = await apiClient.delete(`/api/distributors/${id}`);
     return response.data;
   },
+  getForCalculator: async () => {
+    const response = await apiClient.get("/api/distributors/calculator");
+    return response.data;
+  },
 };
 
 // Shopkeeper API
