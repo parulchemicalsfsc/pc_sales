@@ -33,6 +33,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Autocomplete,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -692,21 +693,17 @@ export default function CallingList() {
           ) : (
             <Stack spacing={3}>
               <FormControl fullWidth>
-                <InputLabel>Select Mantri / Distributor</InputLabel>
-                <Select
-                  value={selectedMantriId}
-                  label="Select Mantri / Distributor"
-                  onChange={(e) => setSelectedMantriId(e.target.value as string)}
-                  sx={{ borderRadius: 2 }}
-                  MenuProps={{ PaperProps: { style: { maxHeight: 300 } } }}
-                >
-                  <MenuItem value=""><em>None</em></MenuItem>
-                  {mantris.map((m) => (
-                    <MenuItem key={m.distributor_id} value={m.distributor_id}>
-                      {m.mantri_name || m.name} {m.village ? `(${m.village})` : ""}
-                    </MenuItem>
-                  ))}
-                </Select>
+                <Autocomplete
+                  options={mantris}
+                  getOptionLabel={(m) => `${m.mantri_name || m.name || ""} ${m.village ? `(${m.village})` : ""}`}
+                  value={mantris.find(m => m.distributor_id === Number(selectedMantriId)) || null}
+                  onChange={(e, newValue) => {
+                    setSelectedMantriId(newValue ? String(newValue.distributor_id) : "");
+                  }}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Select Mantri / Distributor" sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                  )}
+                />
               </FormControl>
 
               {(() => {
