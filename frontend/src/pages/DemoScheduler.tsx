@@ -433,7 +433,7 @@ export default function DemoScheduler() {
           <Tab label={`Scheduled (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab label={`Completed (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab
-            label="AI Suggestions"
+            label="Demo Suggestions"
             icon={<Badge badgeContent={suggestions.length || undefined} color="error"><AIIcon sx={{ fontSize: 16 }} /></Badge>}
             iconPosition="start"
           />
@@ -465,7 +465,7 @@ export default function DemoScheduler() {
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
               <AIIcon sx={{ color: "#7c3aed", mt: 0.3 }} />
               <Box>
-                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>AI-Powered Demo Suggestions</Typography>
+                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>Demo Suggestions</Typography>
                 <Typography fontSize={12} color="text.secondary" mt={0.3}>
                   Distributors are ranked by a composite score: recency of last demo (35 pts) + priority score (30 pts) + group size (15 pts) + never-demoed bonus (20 pts). Higher score = schedule a demo sooner.
                 </Typography>
