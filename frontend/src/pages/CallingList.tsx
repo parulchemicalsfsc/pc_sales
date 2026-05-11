@@ -268,11 +268,28 @@ export default function CallingList() {
           </Box>
           <Stack direction="row" spacing={1}>
             <Tooltip title="Estimation Calculator">
-              <IconButton size="small" onClick={openCalculator} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
-                <CalculateIcon fontSize="small" />
-              </IconButton>
+              <Button
+                variant="outlined"
+                onClick={openCalculator}
+                startIcon={<CalculateIcon />}
+                sx={{
+                  borderRadius: 2,
+                  fontWeight: 700,
+                  textTransform: "none",
+                  color: "#2563eb",
+                  border: `2px solid ${alpha("#2563eb", 0.3)}`,
+                  bgcolor: alpha("#2563eb", 0.05),
+                  px: 2,
+                  "&:hover": {
+                    border: `2px solid #2563eb`,
+                    bgcolor: alpha("#2563eb", 0.1),
+                  }
+                }}
+              >
+                Calculator
+              </Button>
             </Tooltip>
-            <IconButton size="small" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
+            <IconButton size="medium" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
               <RefreshIcon fontSize="small" />
             </IconButton>
           </Stack>
@@ -681,6 +698,7 @@ export default function CallingList() {
                   label="Select Mantri / Distributor"
                   onChange={(e) => setSelectedMantriId(e.target.value as string)}
                   sx={{ borderRadius: 2 }}
+                  MenuProps={{ PaperProps: { style: { maxHeight: 300 } } }}
                 >
                   <MenuItem value=""><em>None</em></MenuItem>
                   {mantris.map((m) => (
@@ -695,7 +713,7 @@ export default function CallingList() {
                 const selectedMantri = mantris.find(m => m.distributor_id === Number(selectedMantriId));
                 if (!selectedMantri) return null;
 
-                const sabhasadCount = selectedMantri.sabhasad_count || 0;
+                const sabhasadCount = selectedMantri.contact_in_group || 0;
                 const totalLiter = sabhasadCount * (approxLiter || 0);
 
                 return (
