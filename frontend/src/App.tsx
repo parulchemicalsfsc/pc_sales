@@ -18,6 +18,7 @@ import Customers from "./pages/Customers";
 import Sales from "./pages/Sales";
 import Payments from "./pages/Payments";
 import Demos from "./pages/Demos";
+import DemoScheduler from "./pages/DemoScheduler";
 import Distributors from "./pages/Distributors";
 import Shopkeepers from "./pages/Shopkeepers";
 import Doctors from "./pages/Doctors";
@@ -35,6 +36,10 @@ import Notifications from "./pages/Notifications";
 import RoleManagement from "./pages/RoleManagement";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
+import LeadDashboard from "./pages/LeadDashboard";
+import LeadPipeline from "./pages/LeadPipeline";
+import LeadWorkspace from "./pages/LeadWorkspace";
+import LeadHistory from "./pages/LeadHistory";
 import { createAppTheme } from "./theme/theme";
 import { PERMISSIONS } from "./config/permissions";
 
@@ -122,6 +127,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DEMOS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Demos />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/demo-scheduler"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DEMOS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <DemoScheduler />
                       </Layout>
                     </ProtectedRoute>
                   }
@@ -293,6 +308,46 @@ function App() {
                     <ProtectedRoute>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Chat />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/lead-dashboard"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_LEAD_DASHBOARD}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <LeadDashboard />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/leads"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_ALL_LEADS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <LeadPipeline />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/lead-workspace"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.WORK_LEADS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <LeadWorkspace />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/lead-history"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.WORK_LEADS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <LeadHistory />
                       </Layout>
                     </ProtectedRoute>
                   }

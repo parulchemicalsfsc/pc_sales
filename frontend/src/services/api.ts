@@ -22,7 +22,7 @@ const resolveApiBaseUrl = (): string => {
 const API_BASE_URL = resolveApiBaseUrl();
 console.info(`[API] Using base URL: ${API_BASE_URL || "(not set)"}`);
 
-const apiClient = axios.create({
+export const apiClient = axios.create({
   baseURL: API_BASE_URL,
 
   timeout: 30000, // 30 second timeout
@@ -394,6 +394,10 @@ export const distributorAPI = {
     const response = await apiClient.delete(`/api/distributors/${id}`);
     return response.data;
   },
+  getForCalculator: async () => {
+    const response = await apiClient.get("/api/distributors/calculator");
+    return response.data;
+  },
 };
 
 // Shopkeeper API
@@ -524,6 +528,16 @@ export const demoAPI = {
   },
   delete: async (id: number) => {
     const response = await apiClient.delete(`/api/demos/${id}`);
+    return response.data;
+  },
+  updateStatus: async (id: number, status: string, notes?: string) => {
+    const response = await apiClient.put(`/api/demos/${id}/status`, null, {
+      params: { conversion_status: status, notes },
+    });
+    return response.data;
+  },
+  getSuggestions: async (limit = 20) => {
+    const response = await apiClient.get("/api/demos/suggestions", { params: { limit } });
     return response.data;
   },
 };

@@ -176,33 +176,21 @@ def update_role_permissions(
     if role_key == "admin" and len(permission_ids) == 0:
         raise HTTPException(status_code=400, detail="Cannot strip all permissions from admin role.")
 
-    # Replace permissions in junction table
+    # Replace permissions in junction table (legacy/fallback) in junction table
     db.table("role_permissions").eq("role_id", role_id).delete().execute()
     if permission_ids:
         inserts = [{"role_id": role_id, "permission_id": pid} for pid in permission_ids]
         db.table("role_permissions").insert(inserts).execute()
 
-    # ── Sync permission_keys[] on the roles row (fast-path cache) ─────────────
-    # Best-effort: if RLS or client serialization rejects it, we fall back to
-    # the junction-table walk on next request. Never let this crash the save.
-    perm_keys: list = []
-    try:
-        if permission_ids:
-            pk_res = (
-                db.table("permissions")
-                .select("permission_key")
-                .in_("permission_id", permission_ids)
-                .execute()
-            )
-            perm_keys = [p["permission_key"] for p in (pk_res.data or [])]
+    # Update optimized permission_keys array on roles table
+    perm_keys = []
+    if permission_ids:
+        p_res = db.table("permissions").select("permission_key").in_("permission_id", permission_ids).execute()
+        perm_keys = [p["permission_key"] for p in (p_res.data or [])]
+    
+    db.table("roles").eq("role_id", role_id).update({"permission_keys": perm_keys}).execute()
 
-        db.table("roles").update({"permission_keys": perm_keys}).eq("role_id", role_id).execute()
-        print(f"[RBAC] Synced permission_keys[] for role_id={role_id} ({len(perm_keys)} keys)")
-    except Exception as sync_err:
-        # Log and continue — junction table is still correct; cache is cleared below
-        print(f"[RBAC WARNING] Could not sync permission_keys[] for role_id={role_id}: {sync_err}")
-
-    # Invalidate ALL cached permissions — next request re-fetches from junction table
+    # Invalidate ALL cached permissions — next request will re-fetch from DB
     clear_user_permission_cache()
 
     return {"message": f"Permissions updated for '{role_res.data[0]['display_name']}'. {len(perm_keys) if perm_keys else len(permission_ids)} permissions assigned."}

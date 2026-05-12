@@ -80,7 +80,9 @@ class SaleItem(BaseModel):
 
 
 class SaleCreate(BaseModel):
-    customer_id: int
+    customer_id: Optional[int] = None       # Set for Sabhasad / Field Officer sales
+    distributor_id: Optional[int] = None    # Set for Distributor / Mantri sales
+    buyer_type: Optional[str] = "customer"  # 'customer' | 'distributor'
     invoice_no: Optional[str] = None
     sale_date: str
     items: List[SaleItem]

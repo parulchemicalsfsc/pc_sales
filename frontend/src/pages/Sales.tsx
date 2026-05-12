@@ -103,6 +103,7 @@ export default function Sales() {
   const [selectedActionSale, setSelectedActionSale] = useState<Sale | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<{ name: string; village: string; mobile: string } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -137,7 +138,24 @@ export default function Sales() {
       ]);
 
       if (salesResult.status === "fulfilled") {
-        setSales(salesResult.value);
+        const salesData = salesResult.value;
+        // DEBUG: Log mantri/distributor sales with blank names
+        const blankMantriSales = salesData.filter((s: any) => 
+          (s.buyer_type === 'mantri' || s.buyer_type === 'distributor') && !s.customer_name
+        );
+        if (blankMantriSales.length > 0) {
+          console.warn('[DEBUG] Mantri/Distributor sales with blank names from server:', 
+            blankMantriSales.map((s: any) => ({
+              sale_id: s.sale_id, 
+              buyer_type: s.buyer_type, 
+              distributor_id: s.distributor_id, 
+              customer_id: s.customer_id,
+              customer_name: s.customer_name,
+              village: s.village,
+            }))
+          );
+        }
+        setSales(salesData);
       } else {
         console.error("Error loading sales:", salesResult.reason);
         setError(salesResult.reason?.response?.data?.detail || salesResult.reason?.message || t("messages.error"));
@@ -210,6 +228,7 @@ export default function Sales() {
     });
     setCustomerMode("existing");
     setCustomerCategory("Sabhasad");
+    setSelectedEntity(null);
     setItems([{ product_id: 0, quantity: 1, rate: 0, amount: 0 }]);
     setPaymentTerms({
       type: 'after_delivery',
@@ -419,6 +438,7 @@ export default function Sales() {
               label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
               name: d.mantri_name,
               village: d.village || '',
+              mobile: d.mantri_mobile || d.mobile || '',
             });
           }
         }
@@ -430,6 +450,7 @@ export default function Sales() {
         label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
         name: d.name || '',
         village: d.village || '',
+        mobile: d.mobile || d.contact_mobile || '',
       }));
     } else {
       return customers.map((c) => ({
@@ -437,6 +458,7 @@ export default function Sales() {
         label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
         name: c.name,
         village: c.village || '',
+        mobile: c.mobile || '',
       }));
     }
   };
@@ -509,11 +531,13 @@ export default function Sales() {
           return;
         }
       } else {
-        // Validate existing customer selection
+        // Validate existing customer/distributor selection
         if (!customerId || customerId === 0) {
           setError(t("sales.selectCustomer", "Please select a Sabhasad"));
           return;
         }
+        // No extra FK validation needed — the backend now handles both
+        // customer_id (Sabhasad) and distributor_id (Distributor/Mantri) correctly.
       }
 
       // Validate items
@@ -539,8 +563,18 @@ export default function Sales() {
         }
       }
 
+      const isDistributorSale = customerCategory === "Distributor" || customerCategory === "Mantri";
+
+      // buyer_type distinguishes mantri (uses mantri_name) from distributor (uses name)
+      const buyerType = customerCategory === "Mantri" ? "mantri"
+        : customerCategory === "Distributor" ? "distributor"
+        : "customer";
+
       const saleData = {
-        customer_id: customerId,
+        // Send the right buyer FK based on category
+        customer_id: isDistributorSale ? undefined : customerId,
+        distributor_id: isDistributorSale ? customerId : undefined,
+        buyer_type: buyerType,
         invoice_no: formData.invoice_no || undefined,
         sale_date: formData.sale_date,
         items: items.map((item) => ({
@@ -550,9 +584,9 @@ export default function Sales() {
           amount: item.amount!,
         })),
         notes: formData.notes || undefined,
-        payment_terms: JSON.stringify(paymentTerms), // Store payment terms as JSON string
-        paid_amount: formData.paid_amount || 0, // ADDED: Send initial payment amount
-        payment_method: "Cash", // Default to Cash for now, or add UI for it
+        payment_terms: JSON.stringify(paymentTerms),
+        paid_amount: formData.paid_amount || 0,
+        payment_method: "Cash",
       };
 
       console.log(`${editingSaleId ? "Updating" : "Creating"} sale:`, saleData);
@@ -574,30 +608,33 @@ export default function Sales() {
       if (response.sale) {
         try {
           const newSale = response.sale;
-          let customer = customers.find(c => c.customer_id === newSale.customer_id);
-          
-          if (!customer && customerMode === "new") {
-            customer = {
-              customer_id: customerId,
-              name: newCustomerData.name,
-              village: newCustomerData.village,
-              mobile: newCustomerData.mobile
-            } as any;
+          let enrichedName = "";
+          let enrichedVillage = "";
+          let enrichedMobile = "";
+
+          // Use the selectedEntity captured at selection time (most reliable source)
+          if (selectedEntity) {
+            enrichedName = selectedEntity.name;
+            enrichedVillage = selectedEntity.village;
+            enrichedMobile = selectedEntity.mobile;
+          } else if (customerMode === "new") {
+            enrichedName = newCustomerData.name;
+            enrichedVillage = newCustomerData.village;
+            enrichedMobile = newCustomerData.mobile;
           }
 
-          if (customer) {
-            const enrichedSale = {
-              ...newSale,
-              customer_name: customer.name,
-              village: customer.village,
-              mobile: customer.mobile
-            };
+          const enrichedSale = {
+            ...newSale,
+            buyer_type: buyerType,
+            customer_name: enrichedName,
+            village: enrichedVillage,
+            mobile: enrichedMobile,
+          };
 
-            if (editingSaleId) {
-              setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
-            } else {
-              setSales(prev => [enrichedSale, ...prev]);
-            }
+          if (editingSaleId) {
+            setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
+          } else {
+            setSales(prev => [enrichedSale, ...prev]);
           }
         } catch (e) {
           console.log("Optimistic update failed, waiting for refresh");
@@ -657,9 +694,36 @@ export default function Sales() {
     },
     {
       field: "customer_name",
-      headerName: t("customers.customerName"),
+      headerName: "Name",
       flex: 1,
-      minWidth: 200,
+      minWidth: 220,
+      renderCell: (params) => {
+        const buyerType = params.row.buyer_type;
+        const badgeColor: Record<string, "default" | "warning" | "info" | "secondary"> = {
+          mantri: "warning",
+          distributor: "info",
+          field_officer: "secondary",
+        };
+        const badgeLabel: Record<string, string> = {
+          mantri: "Mantri",
+          distributor: "Distributor",
+          field_officer: "Field Officer",
+        };
+        const showBadge = buyerType && buyerType !== "customer";
+        return (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2" noWrap>{params.value || "—"}</Typography>
+            {showBadge && (
+              <Chip
+                label={badgeLabel[buyerType] || buyerType}
+                size="small"
+                color={badgeColor[buyerType] || "default"}
+                sx={{ fontSize: "0.65rem", height: 18 }}
+              />
+            )}
+          </Box>
+        );
+      },
     },
     {
       field: "village",
@@ -1000,6 +1064,7 @@ export default function Sales() {
                         ...formData,
                         customer_id: newId,
                       });
+                      setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
                       recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
                     }}
                     renderInput={(params: any) => (

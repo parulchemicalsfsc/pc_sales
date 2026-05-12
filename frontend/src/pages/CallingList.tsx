@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+
   Snackbar,
   Tooltip,
   TablePagination,
@@ -28,6 +29,11 @@ import {
   alpha,
   useMediaQuery,
   Avatar,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Autocomplete,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -45,8 +51,9 @@ import {
   AccountBalanceWallet as WalletIcon,
   TrendingUp as TrendingUpIcon,
   LocationOn as LocationIcon,
+  Calculate as CalculateIcon,
 } from "@mui/icons-material";
-import { automationAPI, customerAPI } from "../services/api";
+import { automationAPI, customerAPI, distributorAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
 
@@ -134,6 +141,13 @@ export default function CallingList() {
   const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Estimation Calculator Dialog
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [mantris, setMantris] = useState<any[]>([]);
+  const [selectedMantriId, setSelectedMantriId] = useState<string>("");
+  const [approxLiter, setApproxLiter] = useState<number>(5);
+
 
 
   // ── Data ────────────────────────────────────────────────
@@ -158,6 +172,21 @@ export default function CallingList() {
 
 
   // ── Handlers ────────────────────────────────────────────
+  const openCalculator = async () => {
+    setCalcOpen(true);
+    if (mantris.length === 0) {
+      setCalcLoading(true);
+      try {
+        const data = await distributorAPI.getForCalculator();
+        setMantris(data || []);
+      } catch (err) {
+        setToast({ msg: "Failed to load mantris", sev: "error" });
+      } finally {
+        setCalcLoading(false);
+      }
+    }
+  };
+
   const openHistoryDialog = (a: Assignment) => {
     setHistoryItem(a);
     setHistoryOpen(true);
@@ -238,9 +267,33 @@ export default function CallingList() {
               {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short", year: "numeric" })}
             </Typography>
           </Box>
-          <IconButton size="small" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
-            <RefreshIcon fontSize="small" />
-          </IconButton>
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Estimation Calculator">
+              <Button
+                variant="outlined"
+                onClick={openCalculator}
+                startIcon={<CalculateIcon />}
+                sx={{
+                  borderRadius: 2,
+                  fontWeight: 700,
+                  textTransform: "none",
+                  color: "#2563eb",
+                  border: `2px solid ${alpha("#2563eb", 0.3)}`,
+                  bgcolor: alpha("#2563eb", 0.05),
+                  px: 2,
+                  "&:hover": {
+                    border: `2px solid #2563eb`,
+                    bgcolor: alpha("#2563eb", 0.1),
+                  }
+                }}
+              >
+                Calculator
+              </Button>
+            </Tooltip>
+            <IconButton size="medium" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Stack>
         </Stack>
 
 
@@ -619,6 +672,80 @@ export default function CallingList() {
           >
             {submitting ? "Saving…" : "Submit"}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Estimation Calculator Dialog ── */}
+      <Dialog open={calcOpen} onClose={() => setCalcOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
+          <Stack direction="row" alignItems="center" gap={1}>
+            <CalculateIcon color="primary" />
+            Estimation Calculator
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Estimate potential milk collection volume based on Sabhasad count.
+          </Typography>
+
+          {calcLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}><CircularProgress /></Box>
+          ) : (
+            <Stack spacing={3}>
+              <FormControl fullWidth>
+                <Autocomplete
+                  options={mantris}
+                  getOptionLabel={(m) => `${m.mantri_name || m.name || ""} ${m.village ? `(${m.village})` : ""}`}
+                  value={mantris.find(m => m.distributor_id === Number(selectedMantriId)) || null}
+                  onChange={(e, newValue) => {
+                    setSelectedMantriId(newValue ? String(newValue.distributor_id) : "");
+                  }}
+                  renderInput={(params) => (
+                    <TextField {...params} label="Select Mantri / Distributor" sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                  )}
+                />
+              </FormControl>
+
+              {(() => {
+                const selectedMantri = mantris.find(m => m.distributor_id === Number(selectedMantriId));
+                if (!selectedMantri) return null;
+
+                const sabhasadCount = selectedMantri.contact_in_group || 0;
+                const totalLiter = sabhasadCount * (approxLiter || 0);
+
+                return (
+                  <Paper sx={{ p: 2.5, borderRadius: 2, bgcolor: alpha(theme.palette.primary.main, 0.04), border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}` }}>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid item xs={12} sm={4}>
+                        <Typography variant="caption" color="text.secondary">Sabhasads in Group</Typography>
+                        <Typography variant="h6" fontWeight={700}>{sabhasadCount}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <TextField
+                          label="Approx Liter/Sabhasad"
+                          type="number"
+                          size="small"
+                          fullWidth
+                          value={approxLiter}
+                          onChange={(e) => setApproxLiter(Number(e.target.value))}
+                          inputProps={{ min: 0, step: 0.5 }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: "#2563eb", color: "#fff", textAlign: "center" }}>
+                          <Typography variant="caption" sx={{ opacity: 0.8, display: "block" }}>Estimated Total</Typography>
+                          <Typography variant="h6" fontWeight={800}>{totalLiter} L</Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                );
+              })()}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setCalcOpen(false)} sx={{ borderRadius: 2, textTransform: "none" }}>Close</Button>
         </DialogActions>
       </Dialog>
 

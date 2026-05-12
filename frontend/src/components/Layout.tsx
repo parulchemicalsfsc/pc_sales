@@ -62,6 +62,7 @@ import {
   TrendingUp as TrendingUpIcon,
   ExpandLess,
   ExpandMore,
+  EventNote as EventNoteIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -100,6 +101,10 @@ const TOP_LEVEL_ROUTES = new Set([
   "/notifications",
   "/chat",
   "/forecasting",
+  "/lead-dashboard",
+  "/demo-scheduler",
+  "/leads",
+  "/lead-workspace",
 ]);
 
 interface LayoutProps {
@@ -191,6 +196,13 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.VIEW_DEMOS,
   },
   {
+    id: "demo-scheduler",
+    labelKey: "nav.demoScheduler",
+    icon: <EventNoteIcon />,
+    path: "/demo-scheduler",
+    permission: PERMISSIONS.VIEW_DEMOS,
+  },
+  {
     id: "reports",
     labelKey: "nav.reports",
     icon: <AssessmentIcon />,
@@ -217,6 +229,34 @@ const navigationItems: NavItem[] = [
     icon: <CloudUploadIcon />,
     path: "/import",
     permission: PERMISSIONS.IMPORT_DATA,
+  },
+  {
+    id: "lead-dashboard",
+    labelKey: "nav.leadDashboard",
+    icon: <TrendingUpIcon />,
+    path: "/lead-dashboard",
+    permission: PERMISSIONS.VIEW_LEAD_DASHBOARD,
+  },
+  {
+    id: "leads",
+    labelKey: "nav.leadPipeline",
+    icon: <AssessmentIcon />,
+    path: "/leads",
+    permission: PERMISSIONS.VIEW_ALL_LEADS,
+  },
+  {
+    id: "lead-workspace",
+    labelKey: "nav.leadWorkspace",
+    icon: <MoneyIcon />,
+    path: "/lead-workspace",
+    permission: PERMISSIONS.WORK_LEADS,
+  },
+  {
+    id: "lead-history",
+    labelKey: "nav.leadHistory",
+    icon: <HistoryIcon />,
+    path: "/lead-history",
+    permission: PERMISSIONS.WORK_LEADS,
   },
   {
     id: "chat",
@@ -594,6 +634,10 @@ export default function Layout({
       <List sx={{ flex: 1, py: 2, px: 1 }}>
         {navigationItems
           .filter((item) => {
+            if (item.children) {
+              const accessibleChildren = item.children.filter((child) => !child.permission || hasPermission(child.permission));
+              return accessibleChildren.length > 0;
+            }
             if (item.permission) {
               return hasPermission(item.permission);
             }
@@ -680,7 +724,9 @@ export default function Layout({
                 {item.children && sidebarExpanded && (
                   <Collapse in={openSubMenus[item.id]} timeout="auto" unmountOnExit>
                     <List component="div" disablePadding>
-                      {item.children.map((child) => (
+                      {item.children
+                        .filter((child) => !child.permission || hasPermission(child.permission))
+                        .map((child) => (
                         <ListItem key={child.id} disablePadding sx={{ mb: 0.5 }}>
                           <ListItemButton
                             onClick={() => handleNavigation(child.path)}
