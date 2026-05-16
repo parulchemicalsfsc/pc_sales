@@ -447,8 +447,8 @@ export default function Sales() {
     } else if (customerCategory === "Distributor") {
       return distributors.map((d: any) => ({
         id: d.distributor_id,
-        label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
-        name: d.name || '',
+        label: `${d.name || d.village || 'Unknown'}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
+        name: d.name || d.village || '',
         village: d.village || '',
         mobile: d.mobile || d.contact_mobile || '',
       }));
