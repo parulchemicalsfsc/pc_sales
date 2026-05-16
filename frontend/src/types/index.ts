@@ -25,6 +25,7 @@ export interface Product {
   rate_gujarat?: number;
   rate_maharashtra?: number;
   rate_mp?: number;
+  custom_rates?: Record<string, Record<string, number>>;
   is_active?: number;
   created_date?: string;
 }

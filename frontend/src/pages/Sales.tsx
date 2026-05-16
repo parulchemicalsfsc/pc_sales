@@ -377,12 +377,14 @@ export default function Sales() {
         }
 
         // Apply region and category rate
+        const customRate = product.custom_rates?.[customerState]?.[customerCategory];
+        
         const rKey = customerState === "Madhya Pradesh" ? "mp" : customerState.toLowerCase();
         const catKey = customerCategory.toLowerCase().replace(" ", "_");
         const priceField = `rate_${rKey}_${catKey}` as keyof Product;
         const baseField = `rate_${rKey}` as keyof Product;
 
-        rate = (product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0;
+        rate = customRate !== undefined ? customRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
 
         newItems[index].rate = rate;
       }
@@ -414,7 +416,8 @@ export default function Sales() {
       const product = products.find(p => p.product_id === item.product_id);
       if (!product) return item;
 
-      const rate = (product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0;
+      const itemCustomRate = product.custom_rates?.[customerState]?.[newCategory];
+      const rate = itemCustomRate !== undefined ? itemCustomRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
       return {
         ...item,
         rate,
@@ -488,45 +491,90 @@ export default function Sales() {
           return;
         }
 
-        // Create new customer
+        // Create new customer or distributor
         try {
-          // CHECK FOR DUPLICATE CUSTOMER FIRST
-          // Check if customer with same name+village+mobile exists
-          const existingCustomer = customers.find(
-            c =>
-              c.mobile === newCustomerData.mobile &&
-              c.name.toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
-              (c.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim()
-          );
+          // CHECK FOR DUPLICATE FIRST
+          let isDuplicate = false;
+          let duplicateEntityName = "";
+          let duplicateEntityId = 0;
+          let duplicateEntityVillage = "";
 
-          if (existingCustomer) {
-            // Use existing customer
-            customerId = existingCustomer.customer_id || 0;
-            // Notify user
-            console.log("Duplicate Sabhasad found, using existing: " + existingCustomer.name);
+          const isDistributorCategory = customerCategory === "Mantri" || customerCategory === "Distributor";
+
+          if (isDistributorCategory) {
+            const isMantri = customerCategory === "Mantri";
+            const existingDistributor = distributors.find(d => {
+                const nameMatch = isMantri 
+                    ? (d.mantri_name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim()
+                    : (d.name || d.village || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim();
+                const mobileMatch = d.mantri_mobile === newCustomerData.mobile || d.contact_mobile === newCustomerData.mobile || d.mobile === newCustomerData.mobile;
+                const villageMatch = (d.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim();
+                return nameMatch && mobileMatch && villageMatch;
+            });
+            if (existingDistributor) {
+                isDuplicate = true;
+                duplicateEntityName = isMantri ? existingDistributor.mantri_name : (existingDistributor.name || existingDistributor.village);
+                duplicateEntityVillage = existingDistributor.village;
+                duplicateEntityId = existingDistributor.distributor_id;
+            }
+          } else {
+            const existingCustomer = customers.find(
+              c =>
+                c.mobile === newCustomerData.mobile &&
+                c.name.toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+                (c.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim()
+            );
+            if (existingCustomer) {
+                isDuplicate = true;
+                duplicateEntityName = existingCustomer.name;
+                duplicateEntityVillage = existingCustomer.village;
+                duplicateEntityId = existingCustomer.customer_id;
+            }
+          }
+
+          if (isDuplicate) {
+            // Use existing
+            customerId = duplicateEntityId;
+            console.log(`Duplicate ${customerCategory} found, using existing: ` + duplicateEntityName);
             if (!window.confirm(
-              t("sales.duplicateCustomerConfirm", "Sabhasad \"{name}\" from {village} with mobile {mobile} already exists. Use existing Sabhasad?")
-                .replace("{name}", existingCustomer.name)
-                .replace("{village}", existingCustomer.village || 'N/A')
+              t("sales.duplicateCustomerConfirm", `${customerCategory} "{name}" from {village} with mobile {mobile} already exists. Use existing ${customerCategory}?`)
+                .replace("{name}", duplicateEntityName || 'Unknown')
+                .replace("{village}", duplicateEntityVillage || 'N/A')
                 .replace("{mobile}", newCustomerData.mobile)
             )) {
               return;
             }
           } else {
-            const newCustomer = await customerAPI.create(
-              newCustomerData as Customer,
-            );
-            customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
-            // Reload customers list synchronously so autocomplete reflects it if needed later
-            const customersData = await customerAPI.getAll({ limit: 1000 });
-            setCustomers(customersData.data || []);
+            if (isDistributorCategory) {
+              const newDistributorData = {
+                name: customerCategory === "Distributor" ? newCustomerData.name : undefined,
+                mantri_name: customerCategory === "Mantri" ? newCustomerData.name : undefined,
+                mantri_mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newDist = await distributorAPI.create(newDistributorData);
+              customerId = newDist.distributor?.distributor_id || newDist.data?.distributor_id || newDist.distributor_id || 0;
+              // Reload distributors list synchronously
+              const distData = await distributorAPI.getAll({ limit: 1000 });
+              setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+            } else {
+              const newCustomer = await customerAPI.create(newCustomerData as Customer);
+              customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
+              // Reload customers list synchronously
+              const customersData = await customerAPI.getAll({ limit: 1000 });
+              setCustomers(customersData.data || []);
+            }
           }
         } catch (err: any) {
-          console.error("Error creating customer:", err);
+          console.error("Error creating entity:", err);
           const errorMessage =
             err?.response?.data?.detail ||
             err?.message ||
-            t("customers.createError", "Failed to create customer");
+            t("customers.createError", "Failed to create entity");
           setError(errorMessage);
           return;
         }
