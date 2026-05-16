@@ -42,7 +42,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI, distributorAPI } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -59,10 +59,13 @@ export default function Sales() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [distributors, setDistributors] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [shopkeepers, setShopkeepers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [buyerTypeFilter, setBuyerTypeFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
   const [customerMode, setCustomerMode] = useState<"existing" | "new">(
     "existing",
@@ -130,32 +133,17 @@ export default function Sales() {
       setError(null);
 
       // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult, distributorsResult] = await Promise.allSettled([
+      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
+        doctorAPI.getAll({ limit: 1000 }),
+        shopkeeperAPI.getAll({ limit: 1000 }),
       ]);
 
       if (salesResult.status === "fulfilled") {
-        const salesData = salesResult.value;
-        // DEBUG: Log mantri/distributor sales with blank names
-        const blankMantriSales = salesData.filter((s: any) => 
-          (s.buyer_type === 'mantri' || s.buyer_type === 'distributor') && !s.customer_name
-        );
-        if (blankMantriSales.length > 0) {
-          console.warn('[DEBUG] Mantri/Distributor sales with blank names from server:', 
-            blankMantriSales.map((s: any) => ({
-              sale_id: s.sale_id, 
-              buyer_type: s.buyer_type, 
-              distributor_id: s.distributor_id, 
-              customer_id: s.customer_id,
-              customer_name: s.customer_name,
-              village: s.village,
-            }))
-          );
-        }
-        setSales(salesData);
+        setSales(salesResult.value);
       } else {
         console.error("Error loading sales:", salesResult.reason);
         setError(salesResult.reason?.response?.data?.detail || salesResult.reason?.message || t("messages.error"));
@@ -178,6 +166,18 @@ export default function Sales() {
       } else {
         console.warn("Could not load distributors:", distributorsResult.reason?.message);
       }
+      if (doctorsResult.status === "fulfilled") {
+        const docData = doctorsResult.value;
+        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+      } else {
+        console.warn("Could not load doctors:", doctorsResult.reason?.message);
+      }
+      if (shopkeepersResult.status === "fulfilled") {
+        const skData = shopkeepersResult.value;
+        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
+      } else {
+        console.warn("Could not load shopkeepers:", shopkeepersResult.reason?.message);
+      }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
       const errorMessage =
@@ -190,9 +190,11 @@ export default function Sales() {
 
   const fetchDropdownData = async () => {
     try {
-      const [customersResult, distributorsResult] = await Promise.allSettled([
+      const [customersResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
         customerAPI.getAll({ limit: 1000 }),
         distributorAPI.getAll({ limit: 1000 }),
+        doctorAPI.getAll({ limit: 1000 }),
+        shopkeeperAPI.getAll({ limit: 1000 }),
       ]);
       if (customersResult.status === "fulfilled") {
         setCustomers(customersResult.value.data || []);
@@ -200,6 +202,14 @@ export default function Sales() {
       if (distributorsResult.status === "fulfilled") {
         const distData = distributorsResult.value;
         setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+      }
+      if (doctorsResult.status === "fulfilled") {
+        const docData = doctorsResult.value;
+        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+      }
+      if (shopkeepersResult.status === "fulfilled") {
+        const skData = shopkeepersResult.value;
+        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
       }
     } catch (e) {
       console.warn("Background fetch failed", e);
@@ -447,15 +457,26 @@ export default function Sales() {
         }
       });
       return Array.from(mantriMap.values());
-    } else if (customerCategory === "Distributor") {
-      return distributors.map((d: any) => ({
-        id: d.distributor_id,
-        label: `${d.name || d.village || 'Unknown'}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
-        name: d.name || d.village || '',
+    } else if (customerCategory === "Doctor") {
+      return doctors.map((d: any) => ({
+        id: d.doctor_id,
+        label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mobile ? ` (${d.mobile})` : ''}`,
+        name: d.name || '',
         village: d.village || '',
-        mobile: d.mobile || d.contact_mobile || '',
+        mobile: d.mobile || '',
+        entity_type: 'doctor',
+      }));
+    } else if (customerCategory === "Shopkeeper") {
+      return shopkeepers.map((s: any) => ({
+        id: s.shopkeeper_id,
+        label: `${s.name || 'Unknown'}${s.village ? ` - ${s.village}` : ''}${s.mobile ? ` (${s.mobile})` : ''}`,
+        name: s.name || '',
+        village: s.village || '',
+        mobile: s.mobile || '',
+        entity_type: 'shopkeeper',
       }));
     } else {
+      // Sabhasad, Field Officer
       return customers.map((c) => ({
         id: c.customer_id,
         label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
@@ -463,6 +484,17 @@ export default function Sales() {
         village: c.village || '',
         mobile: c.mobile || '',
       }));
+    }
+  };
+
+  // Get human-readable label for each category
+  const getCategoryLabel = () => {
+    switch (customerCategory) {
+      case "Mantri": return "Mantri";
+      case "Doctor": return "Doctor";
+      case "Shopkeeper": return "Shopkeeper";
+      case "Field Officer": return "Field Officer";
+      default: return "Sabhasad";
     }
   };
 
@@ -499,23 +531,44 @@ export default function Sales() {
           let duplicateEntityId = 0;
           let duplicateEntityVillage = "";
 
-          const isDistributorCategory = customerCategory === "Mantri" || customerCategory === "Distributor";
+          const isDistributorCategory = customerCategory === "Mantri";
+          const isDoctorCategory = customerCategory === "Doctor";
+          const isShopkeeperCategory = customerCategory === "Shopkeeper";
 
           if (isDistributorCategory) {
-            const isMantri = customerCategory === "Mantri";
             const existingDistributor = distributors.find(d => {
-                const nameMatch = isMantri 
-                    ? (d.mantri_name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim()
-                    : (d.name || d.village || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim();
-                const mobileMatch = d.mantri_mobile === newCustomerData.mobile || d.contact_mobile === newCustomerData.mobile || d.mobile === newCustomerData.mobile;
+                const nameMatch = (d.mantri_name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim();
+                const mobileMatch = d.mantri_mobile === newCustomerData.mobile || d.mobile === newCustomerData.mobile;
                 const villageMatch = (d.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim();
                 return nameMatch && mobileMatch && villageMatch;
             });
             if (existingDistributor) {
                 isDuplicate = true;
-                duplicateEntityName = (isMantri ? existingDistributor.mantri_name : (existingDistributor.name || existingDistributor.village)) || "";
+                duplicateEntityName = existingDistributor.mantri_name || "";
                 duplicateEntityVillage = existingDistributor.village || "";
                 duplicateEntityId = existingDistributor.distributor_id || 0;
+            }
+          } else if (isDoctorCategory) {
+            const existingDoctor = doctors.find(d =>
+              (d.name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+              d.mobile === newCustomerData.mobile
+            );
+            if (existingDoctor) {
+                isDuplicate = true;
+                duplicateEntityName = existingDoctor.name || "";
+                duplicateEntityVillage = existingDoctor.village || "";
+                duplicateEntityId = existingDoctor.doctor_id || 0;
+            }
+          } else if (isShopkeeperCategory) {
+            const existingShopkeeper = shopkeepers.find(s =>
+              (s.name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+              s.mobile === newCustomerData.mobile
+            );
+            if (existingShopkeeper) {
+                isDuplicate = true;
+                duplicateEntityName = existingShopkeeper.name || "";
+                duplicateEntityVillage = existingShopkeeper.village || "";
+                duplicateEntityId = existingShopkeeper.shopkeeper_id || 0;
             }
           } else {
             const existingCustomer = customers.find(
@@ -533,22 +586,17 @@ export default function Sales() {
           }
 
           if (isDuplicate) {
-            // Use existing
             customerId = duplicateEntityId;
-            console.log(`Duplicate ${customerCategory} found, using existing: ` + duplicateEntityName);
+            console.log(`Duplicate ${getCategoryLabel()} found, using existing: ` + duplicateEntityName);
             if (!window.confirm(
-              t("sales.duplicateCustomerConfirm", `${customerCategory} "{name}" from {village} with mobile {mobile} already exists. Use existing ${customerCategory}?`)
-                .replace("{name}", duplicateEntityName || 'Unknown')
-                .replace("{village}", duplicateEntityVillage || 'N/A')
-                .replace("{mobile}", newCustomerData.mobile)
+              `${getCategoryLabel()} "${duplicateEntityName || 'Unknown'}" from ${duplicateEntityVillage || 'N/A'} with mobile ${newCustomerData.mobile} already exists. Use existing ${getCategoryLabel()}?`
             )) {
               return;
             }
           } else {
             if (isDistributorCategory) {
               const newDistributorData = {
-                name: customerCategory === "Distributor" ? newCustomerData.name : undefined,
-                mantri_name: customerCategory === "Mantri" ? newCustomerData.name : undefined,
+                mantri_name: newCustomerData.name,
                 mantri_mobile: newCustomerData.mobile,
                 village: newCustomerData.village,
                 taluka: newCustomerData.taluka,
@@ -558,13 +606,39 @@ export default function Sales() {
               };
               const newDist = await distributorAPI.create(newDistributorData);
               customerId = newDist.distributor?.distributor_id || newDist.data?.distributor_id || newDist.distributor_id || 0;
-              // Reload distributors list synchronously
               const distData = await distributorAPI.getAll({ limit: 1000 });
               setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+            } else if (isDoctorCategory) {
+              const newDoctorData = {
+                name: newCustomerData.name,
+                mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newDoc = await doctorAPI.create(newDoctorData);
+              customerId = newDoc.doctor?.doctor_id || newDoc.data?.doctor_id || newDoc.doctor_id || 0;
+              const docData = await doctorAPI.getAll({ limit: 1000 });
+              setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+            } else if (isShopkeeperCategory) {
+              const newShopkeeperData = {
+                name: newCustomerData.name,
+                mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newSk = await shopkeeperAPI.create(newShopkeeperData);
+              customerId = newSk.shopkeeper?.shopkeeper_id || newSk.data?.shopkeeper_id || newSk.shopkeeper_id || 0;
+              const skData = await shopkeeperAPI.getAll({ limit: 1000 });
+              setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
             } else {
               const newCustomer = await customerAPI.create(newCustomerData as Customer);
               customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
-              // Reload customers list synchronously
               const customersData = await customerAPI.getAll({ limit: 1000 });
               setCustomers(customersData.data || []);
             }
@@ -574,14 +648,14 @@ export default function Sales() {
           const errorMessage =
             err?.response?.data?.detail ||
             err?.message ||
-            t("customers.createError", "Failed to create entity");
+            `Failed to create ${getCategoryLabel()}`;
           setError(errorMessage);
           return;
         }
       } else {
         // Validate existing customer/distributor selection
         if (!customerId || customerId === 0) {
-          setError(t("sales.selectCustomer", "Please select a Sabhasad"));
+          setError(`Please select a ${getCategoryLabel()}`);
           return;
         }
         // No extra FK validation needed — the backend now handles both
@@ -611,17 +685,24 @@ export default function Sales() {
         }
       }
 
-      const isDistributorSale = customerCategory === "Distributor" || customerCategory === "Mantri";
+      const isDistributorSale = customerCategory === "Mantri";
+      const isDoctorSale = customerCategory === "Doctor";
+      const isShopkeeperSale = customerCategory === "Shopkeeper";
 
-      // buyer_type distinguishes mantri (uses mantri_name) from distributor (uses name)
-      const buyerType = customerCategory === "Mantri" ? "mantri"
-        : customerCategory === "Distributor" ? "distributor"
+      // Map category to backend buyer_type
+      const buyerType =
+        customerCategory === "Mantri" ? "mantri"
+        : customerCategory === "Doctor" ? "doctor"
+        : customerCategory === "Shopkeeper" ? "shopkeeper"
+        : customerCategory === "Field Officer" ? "field_officer"
         : "customer";
 
       const saleData = {
-        // Send the right buyer FK based on category
-        customer_id: isDistributorSale ? undefined : customerId,
+        // Route to correct FK based on category
+        customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale) ? customerId : undefined,
         distributor_id: isDistributorSale ? customerId : undefined,
+        doctor_id: isDoctorSale ? customerId : undefined,
+        shopkeeper_id: isShopkeeperSale ? customerId : undefined,
         buyer_type: buyerType,
         invoice_no: formData.invoice_no || undefined,
         sale_date: formData.sale_date,
@@ -723,12 +804,14 @@ export default function Sales() {
 
   const filteredSales = sales.filter((sale) => {
     const query = searchQuery.toLowerCase();
-    return (
+    const matchesSearch = (
       (sale.invoice_no && sale.invoice_no.toLowerCase().includes(query)) ||
       (sale.customer_name && sale.customer_name.toLowerCase().includes(query)) ||
       (sale.village && sale.village.toLowerCase().includes(query)) ||
       (sale.notes && sale.notes.toLowerCase().includes(query))
     );
+    const matchesBuyerType = buyerTypeFilter === "all" || (sale as any).buyer_type === buyerTypeFilter || (!( sale as any).buyer_type && buyerTypeFilter === "customer");
+    return matchesSearch && matchesBuyerType;
   });
 
   const columns: GridColDef[] = [
@@ -747,15 +830,19 @@ export default function Sales() {
       minWidth: 220,
       renderCell: (params) => {
         const buyerType = params.row.buyer_type;
-        const badgeColor: Record<string, "default" | "warning" | "info" | "secondary"> = {
+        const badgeColor: Record<string, "default" | "warning" | "info" | "secondary" | "success" | "error"> = {
           mantri: "warning",
           distributor: "info",
           field_officer: "secondary",
+          doctor: "success",
+          shopkeeper: "error",
         };
         const badgeLabel: Record<string, string> = {
           mantri: "Mantri",
           distributor: "Distributor",
           field_officer: "Field Officer",
+          doctor: "Doctor",
+          shopkeeper: "Shopkeeper",
         };
         const showBadge = buyerType && buyerType !== "customer";
         return (
@@ -990,8 +1077,30 @@ export default function Sales() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 300, ml: 2 }}
+                sx={{ width: 260, ml: 2 }}
               />
+
+              {/* Buyer Type Filter */}
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", ml: 1 }}>
+                {[
+                  { value: "all", label: "All" },
+                  { value: "customer", label: "Sabhasad" },
+                  { value: "mantri", label: "Mantri" },
+                  { value: "doctor", label: "Doctor" },
+                  { value: "shopkeeper", label: "Shopkeeper" },
+                  { value: "field_officer", label: "Field Officer" },
+                ].map(({ value, label }) => (
+                  <Chip
+                    key={value}
+                    label={label}
+                    size="small"
+                    onClick={() => setBuyerTypeFilter(value)}
+                    color={buyerTypeFilter === value ? "primary" : "default"}
+                    variant={buyerTypeFilter === value ? "filled" : "outlined"}
+                    sx={{ cursor: "pointer" }}
+                  />
+                ))}
+              </Box>
 
               <Box sx={{ ml: "auto", display: "flex", gap: 2 }}>
                 <Chip
@@ -1053,7 +1162,7 @@ export default function Sales() {
                   sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}
                 >
                   <Typography variant="subtitle2" color="text.secondary">
-                    {t("sales.customerSelection", "Sabhasad:")}
+                    {`${getCategoryLabel()}:`}
                   </Typography>
                   <ToggleButtonGroup
                     value={customerMode}
@@ -1068,11 +1177,11 @@ export default function Sales() {
                   >
                     <ToggleButton value="existing">
                       <PeopleIcon sx={{ mr: 1, fontSize: 18 }} />
-                      {t("sales.existingCustomer", "Existing Sabhasad")}
+                      {`Existing ${getCategoryLabel()}`}
                     </ToggleButton>
                     <ToggleButton value="new">
                       <PersonAddIcon sx={{ mr: 1, fontSize: 18 }} />
-                      {t("sales.newCustomer", "New Sabhasad")}
+                      {`New ${getCategoryLabel()}`}
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
@@ -1084,14 +1193,14 @@ export default function Sales() {
                 <TextField
                   fullWidth
                   select
-                  label="Customer Category (Pricing Tier)"
+                  label="Sabhasad Category (Pricing Tier)"
                   value={customerCategory}
                   onChange={(e) => {
                     setCustomerCategory(e.target.value);
                     recalculateRates(e.target.value, customerMode, formData.customer_id, newCustomerData.state);
                   }}
                 >
-                  {["Sabhasad", "Mantri", "Distributor", "Field Officer"].map((cat) => (
+                  {["Sabhasad", "Mantri", "Doctor", "Shopkeeper", "Field Officer"].map((cat) => (
                     <MenuItem key={cat} value={cat}>
                       {cat}
                     </MenuItem>
@@ -1119,12 +1228,12 @@ export default function Sales() {
                       <TextField
                         {...params}
                         fullWidth
-                        label={`${customerCategory === "Sabhasad" || customerCategory === "Field Officer" ? t("customers.customerName") : customerCategory} *`}
-                        placeholder={`Search ${customerCategory}...`}
+                        label={`${getCategoryLabel()} Name *`}
+                        placeholder={`Search ${getCategoryLabel()}...`}
                       />
                     )}
                     isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
-                    noOptionsText={`No ${customerCategory} found`}
+                    noOptionsText={`No ${getCategoryLabel()} found`}
                   />
                 </Grid>
               )}
@@ -1135,7 +1244,7 @@ export default function Sales() {
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
-                      label={`${t("customers.customerName")} *`}
+                      label={`${getCategoryLabel()} Name *`}
                       value={newCustomerData.name}
                       onChange={(e) =>
                         setNewCustomerData({
@@ -1143,10 +1252,7 @@ export default function Sales() {
                           name: e.target.value,
                         })
                       }
-                      placeholder={t(
-                        "sales.enterCustomerName",
-                        "Enter Sabhasad name",
-                      )}
+                      placeholder={`Enter ${getCategoryLabel()} name`}
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>
