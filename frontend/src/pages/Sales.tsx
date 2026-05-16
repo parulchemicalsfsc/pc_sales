@@ -513,9 +513,9 @@ export default function Sales() {
             });
             if (existingDistributor) {
                 isDuplicate = true;
-                duplicateEntityName = isMantri ? existingDistributor.mantri_name : (existingDistributor.name || existingDistributor.village);
-                duplicateEntityVillage = existingDistributor.village;
-                duplicateEntityId = existingDistributor.distributor_id;
+                duplicateEntityName = (isMantri ? existingDistributor.mantri_name : (existingDistributor.name || existingDistributor.village)) || "";
+                duplicateEntityVillage = existingDistributor.village || "";
+                duplicateEntityId = existingDistributor.distributor_id || 0;
             }
           } else {
             const existingCustomer = customers.find(
@@ -526,9 +526,9 @@ export default function Sales() {
             );
             if (existingCustomer) {
                 isDuplicate = true;
-                duplicateEntityName = existingCustomer.name;
-                duplicateEntityVillage = existingCustomer.village;
-                duplicateEntityId = existingCustomer.customer_id;
+                duplicateEntityName = existingCustomer.name || "";
+                duplicateEntityVillage = existingCustomer.village || "";
+                duplicateEntityId = existingCustomer.customer_id || 0;
             }
           }
 
