@@ -101,10 +101,10 @@ const PRIORITY_DOT: Record<string, string> = { High: "#dc2626", Medium: "#eab308
 
 // Priority colour map based on priority_label from backend
 const PRIORITY_COLORS: Record<string, { bg: string; bgDark: string; border: string; fg: string }> = {
-  URGENT: { bg: "rgba(22,163,74,0.08)",  bgDark: "rgba(22,163,74,0.15)",  border: "#16a34a", fg: "#16a34a" },
-  HIGH:   { bg: "rgba(22,163,74,0.06)",  bgDark: "rgba(22,163,74,0.12)",  border: "#22c55e", fg: "#16a34a" },
-  MEDIUM: { bg: "rgba(234,179,8,0.08)",  bgDark: "rgba(234,179,8,0.15)",  border: "#eab308", fg: "#a16207" },
-  LOW:    { bg: "rgba(220,38,38,0.06)",  bgDark: "rgba(220,38,38,0.12)",  border: "#dc2626", fg: "#dc2626" },
+  URGENT: { bg: "rgba(22,163,74,0.08)", bgDark: "rgba(22,163,74,0.15)", border: "#16a34a", fg: "#16a34a" },
+  HIGH: { bg: "rgba(22,163,74,0.06)", bgDark: "rgba(22,163,74,0.12)", border: "#22c55e", fg: "#16a34a" },
+  MEDIUM: { bg: "rgba(234,179,8,0.08)", bgDark: "rgba(234,179,8,0.15)", border: "#eab308", fg: "#a16207" },
+  LOW: { bg: "rgba(220,38,38,0.06)", bgDark: "rgba(220,38,38,0.12)", border: "#dc2626", fg: "#dc2626" },
 };
 
 // ── Live Timer Hook ────────────────────────────────────
@@ -237,7 +237,7 @@ export default function CallingList() {
       // Auto-log as connected first
       await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiated Take Order");
       setDialogOpen(false);
-      
+
       // Navigate to Sales passing customerId
       navigate("/sales", { state: { openNewSale: true, customerId: activeItem.customer_id } });
     } catch (e: any) {
@@ -685,7 +685,7 @@ export default function CallingList() {
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Estimate potential milk collection volume based on Sabhasad count.
+
           </Typography>
 
           {calcLoading ? (
