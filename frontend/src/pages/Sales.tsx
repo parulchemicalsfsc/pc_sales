@@ -116,13 +116,28 @@ export default function Sales() {
   const takeOrderHandled = useRef(false);
   useEffect(() => {
     const state = location.state as any;
-    if (state?.openNewSale && customers.length > 0 && !openDialog && !takeOrderHandled.current) {
+    const dataLoaded = distributors.length > 0 || customers.length > 0;
+    if (state?.openNewSale && dataLoaded && !openDialog && !takeOrderHandled.current) {
       takeOrderHandled.current = true;
       handleOpenDialog();
-      if (state.customerId) {
+
+      const buyerType = state.buyerType || "Sabhasad";
+
+      if (buyerType === "Mantri" && state.distributorId) {
+        // Set category to Mantri and find the distributor
+        setCustomerCategory("Mantri");
+        setFormData(prev => ({ ...prev, customer_id: state.distributorId }));
+
+        // Find in distributors array, or fall back to passed entity data
+        const dist = distributors.find(d => d.distributor_id === state.distributorId);
+        setSelectedEntity({
+          name: dist?.mantri_name || dist?.name || state.entityName || "",
+          village: dist?.village || state.entityVillage || "",
+          mobile: dist?.mantri_mobile || dist?.mobile || state.entityMobile || "",
+        });
+      } else if (state.customerId) {
+        setCustomerCategory("Sabhasad");
         setFormData(prev => ({ ...prev, customer_id: state.customerId }));
-        
-        // Pre-fill selectedEntity so the optimistic update works correctly
         const cust = customers.find(c => c.customer_id === state.customerId);
         if (cust) {
           setSelectedEntity({ name: cust.name, village: cust.village, mobile: cust.mobile });
@@ -131,7 +146,8 @@ export default function Sales() {
       // clear the state so it doesn't reopen on refresh
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, customers, openDialog, navigate]);
+  }, [location.state, customers, distributors, openDialog, navigate]);
+
 
   const loadData = async (background = false) => {
     try {
