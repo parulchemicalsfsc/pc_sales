@@ -189,13 +189,6 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.VIEW_CUSTOMERS,
   },
   {
-    id: "demos",
-    labelKey: "nav.demos",
-    icon: <ScienceIcon />,
-    path: "/demos",
-    permission: PERMISSIONS.VIEW_DEMOS,
-  },
-  {
     id: "demo-scheduler",
     labelKey: "nav.demoScheduler",
     icon: <EventNoteIcon />,
