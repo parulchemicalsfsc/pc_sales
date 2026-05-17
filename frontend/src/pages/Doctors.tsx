@@ -43,7 +43,6 @@ import { PERMISSIONS } from "../config/permissions";
 export default function Doctors() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const isDarkMode = theme.palette.mode === "dark";
   const { t, tf } = useTranslation();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,8 +257,8 @@ export default function Doctors() {
   const StatusDot = ({ color }: { color: string }) => (
     <Box
       sx={{
-        width: 10,
-        height: 10,
+        width: 8,
+        height: 8,
         borderRadius: "50%",
         backgroundColor:
           color === "green"
@@ -268,7 +267,6 @@ export default function Doctors() {
               ? "#ea580c"
               : "#ef4444",
         flexShrink: 0,
-        boxShadow: isDarkMode ? `0 0 8px ${color === "green" ? "rgba(22, 163, 74, 0.5)" : color === "orange" ? "rgba(234, 88, 12, 0.5)" : "rgba(239, 68, 68, 0.5)"}` : "none",
       }}
     />
   );
@@ -299,17 +297,16 @@ export default function Doctors() {
     return (
       <span
         style={{
-          backgroundColor: isDarkMode ? `${bgColor}dd` : bgColor,
+          backgroundColor: bgColor,
           color: "white",
           borderRadius: "999px",
           padding: "4px 10px",
           fontSize: "12px",
-          fontWeight: 600,
+          fontWeight: 500,
           display: "inline-block",
           minWidth: "28px",
           textAlign: "center",
-          boxShadow: isDarkMode ? "0 2px 4px rgba(0,0,0,0.3)" : "0 1px 2px rgba(0,0,0,0.2)",
-          border: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "none",
+          boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
         }}
       >
         {value}
@@ -697,15 +694,11 @@ export default function Doctors() {
     <Box>
       {/* Header */}
       <Box sx={{ mb: { xs: 2, md: 4 } }}>
-        <Typography variant="h4" sx={{ 
-          fontWeight: 700, 
-          mb: 0.5,
-          color: isDarkMode ? "#F3F4F6" : "text.primary" 
-        }}>
-          <GroupIcon sx={{ mr: 1, verticalAlign: "middle", color: "primary.main" }} />
+        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5 }}>
+          <GroupIcon sx={{ mr: 1, verticalAlign: "middle" }} />
           {t("doctors.title")}
         </Typography>
-        <Typography variant="body1" sx={{ color: isDarkMode ? "#9CA3AF" : "text.secondary" }}>
+        <Typography variant="body1" color="text.secondary">
           {t("doctors.subtitle", "Manage your doctor network")}
         </Typography>
       </Box>
@@ -717,13 +710,7 @@ export default function Doctors() {
       )}
 
       {/* Actions Bar */}
-      <Card sx={{ 
-        mb: 3,
-        backgroundColor: isDarkMode ? "#111827" : "background.paper",
-        borderRadius: "12px",
-        border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none",
-        boxShadow: isDarkMode ? "0 4px 20px rgba(0,0,0,0.4)" : undefined,
-      }}>
+      <Card sx={{ mb: 3 }}>
         <CardContent>
           <Box
             sx={{
@@ -764,12 +751,7 @@ export default function Doctors() {
       </Card>
 
       {/* Data Grid */}
-      <Card sx={{ 
-        backgroundColor: isDarkMode ? "#111827" : "background.paper",
-        borderRadius: "12px",
-        boxShadow: isDarkMode ? "0 8px 30px rgba(0,0,0,0.5)" : undefined,
-        border: isDarkMode ? "1px solid rgba(255,255,255,0.05)" : "none"
-      }}>
+      <Card>
         <CardContent>
           <Box sx={{ height: 600, width: "100%", overflowX: "auto" }}>
             {loading ? (
@@ -783,7 +765,7 @@ export default function Doctors() {
                 pageSizeOptions={[10, 25, 50]}
                 disableRowSelectionOnClick
                 scrollbarSize={8}
-                rowHeight={isDarkMode ? 60 : 48}
+                rowHeight={48}
                 localeText={{
                   noRowsLabel: "No doctor data available",
                 }}
@@ -808,38 +790,29 @@ export default function Doctors() {
                     borderRadius: "6px",
                     marginBottom: "6px",
                     transition: "all 0.2s ease",
-                    backgroundColor: isDarkMode ? "transparent" : "#fff",
-                    color: isDarkMode ? "#E5E7EB" : "inherit",
                     "&:hover": {
                       cursor: "pointer",
-                      backgroundColor: isDarkMode ? "rgba(255,255,255,0.05) !important" : undefined,
-                      transform: isDarkMode ? "scale(1.002)" : "none",
                     },
                   },
                   "& .row-green": {
-                    backgroundColor: isDarkMode ? "rgba(34, 197, 94, 0.2) !important" : "#d1fae5 !important",
-                    borderLeft: isDarkMode ? "5px solid #22c55e !important" : "5px solid #16a34a !important",
-                    color: isDarkMode ? "#d1fae5 !important" : "inherit",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(22,163,74,0.18)" : "#d1fae5") + " !important",
+                    borderLeft: "5px solid #16a34a !important",
                     "&:hover": {
-                      backgroundColor: isDarkMode ? "rgba(34, 197, 94, 0.3) !important" : "#bbf7d0 !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(22,163,74,0.28)" : "#bbf7d0") + " !important",
                     },
                   },
                   "& .row-orange": {
-                    backgroundColor: isDarkMode ? "rgba(251, 146, 60, 0.25) !important" : "#ffedd5 !important",
-                    borderLeft: isDarkMode ? "5px solid #fb923c !important" : "5px solid #ea580c !important",
-                    color: isDarkMode ? "#ffedd5 !important" : "inherit",
-                    boxShadow: isDarkMode ? "inset 0 0 12px rgba(251, 146, 60, 0.2)" : "none",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(234,88,12,0.18)" : "#ffedd5") + " !important",
+                    borderLeft: "5px solid #ea580c !important",
                     "&:hover": {
-                      backgroundColor: isDarkMode ? "rgba(251, 146, 60, 0.35) !important" : "#fed7aa !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(234,88,12,0.28)" : "#fed7aa") + " !important",
                     },
                   },
                   "& .row-red": {
-                    backgroundColor: isDarkMode ? "rgba(239, 68, 68, 0.25) !important" : "#fee2e2 !important",
-                    borderLeft: isDarkMode ? "5px solid #ef4444 !important" : "5px solid #dc2626 !important",
-                    color: isDarkMode ? "#fecaca !important" : "inherit",
-                    boxShadow: isDarkMode ? "inset 0 0 12px rgba(239, 68, 68, 0.2)" : "none",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(220,38,38,0.18)" : "#fee2e2") + " !important",
+                    borderLeft: "5px solid #dc2626 !important",
                     "&:hover": {
-                      backgroundColor: isDarkMode ? "rgba(239, 68, 68, 0.35) !important" : "#fecaca !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(220,38,38,0.28)" : "#fecaca") + " !important",
                     },
                   },
                   "& .MuiDataGrid-cell": {
@@ -850,39 +823,14 @@ export default function Doctors() {
                     fontSize: "14px",
                     px: 2,
                     whiteSpace: "nowrap",
-                    color: isDarkMode ? "#E5E7EB" : "inherit",
                   },
                   "& .MuiDataGrid-columnHeaders": {
-                    backgroundColor: isDarkMode ? "#1F2937 !important" : "rgba(0,0,0,0.01)",
+                    bgcolor: "rgba(0,0,0,0.01)",
                     borderRadius: 0,
-                    borderBottom: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
-                    color: isDarkMode ? "#F9FAFB" : "#111827",
+                    borderBottom: "1px solid rgba(128,128,128,0.2)",
+                    color: "text.primary",
                     fontWeight: 600,
                     fontSize: "14px",
-                  },
-                  "& .MuiDataGrid-footerContainer": {
-                    borderTop: isDarkMode ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
-                    color: isDarkMode ? "#9CA3AF" : "inherit",
-                  },
-                  "& .MuiTablePagination-root": {
-                    color: isDarkMode ? "#9CA3AF" : "inherit",
-                  },
-                  "& .MuiTablePagination-selectIcon": {
-                    color: isDarkMode ? "#9CA3AF" : "inherit",
-                  },
-                  "& ::-webkit-scrollbar": {
-                    width: "8px",
-                    height: "8px",
-                  },
-                  "& ::-webkit-scrollbar-track": {
-                    backgroundColor: isDarkMode ? "#111827" : "#f1f1f1",
-                  },
-                  "& ::-webkit-scrollbar-thumb": {
-                    backgroundColor: isDarkMode ? "#374151" : "#ccc",
-                    borderRadius: "4px",
-                  },
-                  "& ::-webkit-scrollbar-thumb:hover": {
-                    backgroundColor: isDarkMode ? "#4B5563" : "#999",
                   },
                 }}
               />

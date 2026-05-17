@@ -238,8 +238,17 @@ export default function CallingList() {
       await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiated Take Order");
       setDialogOpen(false);
 
-      // Navigate to Sales passing customerId
-      navigate("/sales", { state: { openNewSale: true, customerId: activeItem.customer_id } });
+      // Navigate to Sales passing distributor (mantri) details
+      navigate("/sales", {
+        state: {
+          openNewSale: true,
+          buyerType: "Mantri",
+          distributorId: activeItem.customer_id,  // customer_id stores distributor_id in calling_assignments
+          entityName: activeItem.name,
+          entityMobile: activeItem.mobile,
+          entityVillage: activeItem.village,
+        }
+      });
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed to log call before taking order.", sev: "error" });
     } finally {

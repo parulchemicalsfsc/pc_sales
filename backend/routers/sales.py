@@ -45,23 +45,63 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         if not sales:
             return []
 
-        # Fetch ALL customers and distributors via pagination
+        # ── Diagnostic: show actual columns present in the sales table ──
+        if sales:
+            actual_cols = set(sales[0].keys())
+            for expected_col in ("buyer_type", "distributor_id", "doctor_id", "shopkeeper_id"):
+                if expected_col not in actual_cols:
+                    print(f"[GET /sales] ⚠️  Column '{expected_col}' MISSING from sales table. "
+                          f"Run database/migrations/add_doctor_shopkeeper_buyer_type.sql in Supabase.")
+            print(f"[GET /sales] Actual sales columns: {sorted(actual_cols)}")
+
+        # Fetch ALL customers, distributors, doctors, shopkeepers via pagination
         customers_list = fetch_all("customers", "customer_id, name, village, mobile")
         customers_dict = {c["customer_id"]: c for c in customers_list}
 
         distributors_list = fetch_all("distributors")
         distributors_dict = {d["distributor_id"]: d for d in distributors_list}
-        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, {len(distributors_dict)} distributors")
+
+        # Fetch doctors and shopkeepers (graceful fallback if table missing)
+        # NOTE: doctors/shopkeepers tables use 'mantri_mobile', not 'mobile'
+        try:
+            doctors_list = fetch_all("doctors", "doctor_id, name, village, mantri_mobile")
+            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch doctors: {e}")
+            doctors_dict = {}
+
+        try:
+            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village, mantri_mobile")
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch shopkeepers: {e}")
+            shopkeepers_dict = {}
+
+        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, "
+              f"{len(distributors_dict)} distributors, {len(doctors_dict)} doctors, "
+              f"{len(shopkeepers_dict)} shopkeepers")
 
         result = []
         for sale in sales:
-            buyer_type = sale.get("buyer_type", "customer")
+            # Infer buyer_type if column is missing from DB or NULL
+            raw_buyer_type = sale.get("buyer_type")
+            if not raw_buyer_type:
+                # Fallback: guess from which FK column is set
+                if sale.get("doctor_id"):
+                    raw_buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"):
+                    raw_buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"):
+                    raw_buyer_type = "distributor"
+                else:
+                    raw_buyer_type = "customer"
+            buyer_type = raw_buyer_type
             if buyer_type == "mantri" and sale.get("distributor_id"):
                 # Mantri: name stored in mantri_name field on the distributor row
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 resolved_name = entity.get("mantri_name") or entity.get("name", "")
                 if not resolved_name:
-                    print(f"[GET /sales] WARNING: Blank name for mantri sale {sale.get('sale_id')} / dist_id={sale['distributor_id']} / entity_keys={list(entity.keys()) if entity else 'NOT_FOUND'} / mantri_name={entity.get('mantri_name')!r} / name={entity.get('name')!r}")
+                    print(f"[GET /sales] WARNING: Blank name for mantri sale {sale.get('sale_id')} / dist_id={sale['distributor_id']}")
                 result.append({
                     **sale,
                     "customer_name": resolved_name,
@@ -69,7 +109,6 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                     "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
                 })
             elif buyer_type == "distributor" and sale.get("distributor_id"):
-                # Distributor: name stored in name field
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
                 result.append({
@@ -78,10 +117,24 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                     "village": entity.get("village", ""),
                     "mobile": mobile,
                 })
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
             else:
                 entity = customers_dict.get(sale.get("customer_id"), {})
-                if buyer_type not in (None, "customer") and not entity:
-                    print(f"[GET /sales] WARNING: Sale {sale.get('sale_id')} has buyer_type={buyer_type!r} but fell into customer branch. dist_id={sale.get('distributor_id')!r}, cust_id={sale.get('customer_id')!r}")
                 result.append({
                     **sale,
                     "customer_name": entity.get("name", ""),
@@ -107,15 +160,34 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
         if not sales_response.data:
             return []
 
-        # Get all customers
-        customers_response = (
-            db.table("customers").select("customer_id, name, village").limit(10000).execute()
-        )
-        customers_dict = (
-            {c["customer_id"]: c for c in customers_response.data}
-            if customers_response.data
-            else {}
-        )
+        def fetch_all(table, select="*"):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                resp = q.execute()
+                if not resp.data: break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch: break
+                offset += batch
+            return all_rows
+
+        customers_list = fetch_all("customers")
+        customers_dict = {c["customer_id"]: c for c in customers_list}
+        
+        distributors_list = fetch_all("distributors")
+        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
+
+        try:
+            doctors_list = fetch_all("doctors")
+            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
+        except: doctors_dict = {}
+
+        try:
+            shopkeepers_list = fetch_all("shopkeepers")
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
+        except: shopkeepers_dict = {}
 
         # Get all products for summary
         products_response = db.table("products").select("product_id, product_name").limit(10000).execute()
@@ -203,16 +275,42 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 except Exception as e:
                     print(f"Error parsing payment terms for sale {sale_id}: {e}")
             
-            # Return all sales that have a pending balance, regardless of due date terms, 
-            # so early payments can be recorded and totals match the global dashboard.
-            customer = customers_dict.get(customer_id, {})
+            buyer_type = sale.get("buyer_type")
+            if not buyer_type:
+                if sale.get("doctor_id"): buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"): buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"): buyer_type = "distributor"
+                else: buyer_type = "customer"
+
+            name, village = "Unknown", ""
+            if buyer_type == "mantri" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("mantri_name") or entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "distributor" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+
             result.append(
                     {
                         "sale_id": sale_id,
                         "invoice_no": sale.get("invoice_no"),
                         "sale_date": sale.get("sale_date"),
-                        "customer_name": customer.get("name"),
-                        "village": customer.get("village"),
+                        "customer_name": name,
+                        "village": village,
                         "total_amount": total_amount,
                         "paid_amount": paid_amount,
                         "pending_amount": pending_amount,
@@ -237,17 +335,29 @@ def create_sale(
 ):
     """Create a new sale with items and auto-convert related demos"""
     try:
-        # Validate input: need either customer_id (Sabhasad) or distributor_id (Distributor/Mantri)
-        buyer_type = sale.buyer_type or ("distributor" if sale.distributor_id else "customer")
-        # Both 'distributor' and 'mantri' use the distributor_id FK path
+        # Validate input: route to correct FK based on buyer_type
+        buyer_type = sale.buyer_type or (
+            "distributor" if sale.distributor_id else
+            "doctor" if sale.doctor_id else
+            "shopkeeper" if sale.shopkeeper_id else
+            "customer"
+        )
         is_distributor_sale = buyer_type in ("distributor", "mantri")
+        is_doctor_sale = buyer_type == "doctor"
+        is_shopkeeper_sale = buyer_type == "shopkeeper"
 
         if is_distributor_sale:
             if not sale.distributor_id:
                 raise HTTPException(status_code=400, detail="distributor_id is required for Distributor/Mantri sales")
+        elif is_doctor_sale:
+            if not sale.doctor_id:
+                raise HTTPException(status_code=400, detail="doctor_id is required for Doctor sales")
+        elif is_shopkeeper_sale:
+            if not sale.shopkeeper_id:
+                raise HTTPException(status_code=400, detail="shopkeeper_id is required for Shopkeeper sales")
         else:
             if not sale.customer_id:
-                raise HTTPException(status_code=400, detail="customer_id is required for Sabhasad/Field Officer sales")
+                raise HTTPException(status_code=400, detail="customer_id is required for Customer/Field Officer sales")
 
         if not sale.items or len(sale.items) == 0:
             raise HTTPException(status_code=400, detail="At least one item is required")
@@ -319,13 +429,27 @@ def create_sale(
             "payment_terms": sale.payment_terms or None,
             "buyer_type": buyer_type,
         }
-        # Set only the relevant buyer FK — never both
+        # Set only the relevant buyer FK — null out all others
         if is_distributor_sale:
             sale_data["distributor_id"] = sale.distributor_id
             sale_data["customer_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif is_doctor_sale:
+            sale_data["doctor_id"] = sale.doctor_id
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif is_shopkeeper_sale:
+            sale_data["shopkeeper_id"] = sale.shopkeeper_id
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
         else:
             sale_data["customer_id"] = sale.customer_id
             sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
 
         try:
             sale_response = db.table("sales").insert(sale_data).execute()

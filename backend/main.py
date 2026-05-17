@@ -48,6 +48,7 @@ from routers import (
     doctors,
     leads,
     attendance,
+    reviews,
 )
 from scheduler import start_scheduler
 
@@ -171,3 +172,4 @@ app.include_router(forecasting, prefix="/api/forecasting")
 app.include_router(chat, prefix="/api/chat")
 app.include_router(leads, prefix="/api/leads")
 app.include_router(attendance, prefix="/api/attendance")
+app.include_router(reviews.router, prefix="/api/reviews")

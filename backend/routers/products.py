@@ -61,7 +61,7 @@ def get_product_categories(db: SupabaseClient = Depends(get_db)):
         return res.data or []
     except Exception as e:
         print(f"[WARN] Failed fetching categories (maybe table missing): {e}")
-        return [{"name": "Sabhasad"}, {"name": "Mantri"}, {"name": "Distributor"}, {"name": "Field Officer"}]
+        return [{"name": "Sabhasad"}, {"name": "Mantri"}, {"name": "Doctor"}, {"name": "Shopkeeper"}, {"name": "Field Officer"}]
 
 
 @router.post("/config/categories", dependencies=[Depends(verify_permission("manage_products"))])

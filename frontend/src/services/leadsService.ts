@@ -58,6 +58,18 @@ export interface PipelineStats {
   by_status: Record<string, number>;
 }
 
+export interface Quotation {
+  id?: string;
+  lead_id: string;
+  quantity?: number;
+  material?: string;
+  unit_price?: number;
+  total_value?: number;
+  delivery_time?: string;
+  payment_terms?: string;
+  notes?: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const leadsService = {
@@ -130,4 +142,12 @@ export const leadsService = {
   /** Lead Manager: get list of available lead owners for assign dropdown */
   getOwners: () =>
     apiClient.get<{ owners: { email: string; name: string }[] }>("/api/leads/owners/list"),
+
+  /** Both roles: get quotation for a lead */
+  getQuotation: (leadId: string) =>
+    apiClient.get<Quotation | null>(`/api/leads/${leadId}/quotation`),
+
+  /** Lead Owner: upsert quotation */
+  upsertQuotation: (leadId: string, data: Partial<Quotation>) =>
+    apiClient.put<Quotation>(`/api/leads/${leadId}/quotation`, data),
 };

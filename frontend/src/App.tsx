@@ -40,6 +40,7 @@ import LeadDashboard from "./pages/LeadDashboard";
 import LeadPipeline from "./pages/LeadPipeline";
 import LeadWorkspace from "./pages/LeadWorkspace";
 import LeadHistory from "./pages/LeadHistory";
+import Reviews from "./pages/Reviews";
 import { createAppTheme } from "./theme/theme";
 import { PERMISSIONS } from "./config/permissions";
 
@@ -348,6 +349,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.WORK_LEADS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <LeadHistory />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/reviews"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_REVIEWS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <Reviews />
                       </Layout>
                     </ProtectedRoute>
                   }

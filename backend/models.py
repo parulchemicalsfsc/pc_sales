@@ -80,9 +80,11 @@ class SaleItem(BaseModel):
 
 
 class SaleCreate(BaseModel):
-    customer_id: Optional[int] = None       # Set for Sabhasad / Field Officer sales
+    customer_id: Optional[int] = None       # Set for Customer / Field Officer sales
     distributor_id: Optional[int] = None    # Set for Distributor / Mantri sales
-    buyer_type: Optional[str] = "customer"  # 'customer' | 'distributor'
+    doctor_id: Optional[int] = None         # Set for Doctor sales
+    shopkeeper_id: Optional[int] = None     # Set for Shopkeeper sales
+    buyer_type: Optional[str] = "customer"  # 'customer' | 'distributor' | 'mantri' | 'doctor' | 'shopkeeper' | 'field_officer'
     invoice_no: Optional[str] = None
     sale_date: str
     items: List[SaleItem]
@@ -115,8 +117,11 @@ class Payment(BaseModel):
 
 class Demo(BaseModel):
     demo_id: Optional[int] = None
-    customer_id: int
+    buyer_type: Optional[str] = "customer"
+    customer_id: Optional[int] = None
     distributor_id: Optional[int] = None
+    doctor_id: Optional[int] = None
+    shopkeeper_id: Optional[int] = None
     demo_date: str
     demo_time: str
     product_id: int
@@ -258,6 +263,24 @@ class Notification(BaseModel):
     action_url: Optional[str] = None
     is_read: bool = False
     created_at: Optional[str] = None
+
+
+# ======================
+# Reviews
+# ======================
+
+class Review(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
+    content: Optional[str] = None
+    rating: Optional[int] = None
+    approved: Optional[bool] = False
+    date: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    stars: Optional[int] = 5
+    text: Optional[str] = None
 
 
 # ======================

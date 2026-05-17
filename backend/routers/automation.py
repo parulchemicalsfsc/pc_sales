@@ -676,11 +676,15 @@ def update_call_status(
         # 6. Log the activity for the floating toast
         try:
             logger_service = get_activity_logger(db)
-            customer_name_str = "Customer"
+            customer_name_str = "Unknown"
             try:
-                c_res = db.table("customers").select("name").eq("customer_id", assignment["customer_id"]).execute()
-                if c_res.data:
-                    customer_name_str = c_res.data[0].get("name", "Customer")
+                # customer_id in calling_assignments actually stores distributor_id
+                dist_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", assignment["customer_id"]).execute()
+                if dist_res.data:
+                    customer_name_str = dist_res.data[0].get("mantri_name") or "Unknown"
+                    village = dist_res.data[0].get("village") or ""
+                    if village:
+                        customer_name_str = f"{customer_name_str} ({village})"
             except:
                 pass
             
@@ -688,7 +692,7 @@ def update_call_status(
                 user_email=user_email,
                 action_type="CALL",
                 action_description=f"Logged call ({new_status}) for {customer_name_str}",
-                entity_type="customer",
+                entity_type="distributor",
                 entity_id=assignment["customer_id"],
                 entity_name=customer_name_str,
             )
@@ -774,12 +778,62 @@ def get_admin_assignments(
         for row in (all_res.data or []):
             email = row["user_email"]
             if email not in telecaller_summary:
-                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0}
+                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0, "conversions": 0}
             telecaller_summary[email]["total"] += 1
             if row["status"] == "Pending":
                 telecaller_summary[email]["pending"] += 1
             else:
                 telecaller_summary[email]["called"] += 1
+
+        # Conversions: count sales created today for distributors assigned to each telecaller
+        try:
+            # 1. Get ALL sales for today (avoid not_.is_ which may fail in some supabase-py versions)
+            sales_res = db.table("sales") \
+                .select("sale_id, distributor_id, sale_date, buyer_type") \
+                .eq("sale_date", d) \
+                .execute()
+            
+            all_today_sales = sales_res.data or []
+            logger.info(f"[CONVERSIONS] All sales for {d}: {len(all_today_sales)} total")
+            
+            # Filter to only distributor/mantri sales (distributor_id is not None/null)
+            today_sale_dist_ids = set()
+            for s in all_today_sales:
+                dist_id = s.get("distributor_id")
+                if dist_id is not None and dist_id != 0:
+                    today_sale_dist_ids.add(dist_id)
+                    logger.info(f"[CONVERSIONS] Sale {s.get('sale_id')}: distributor_id={dist_id}, buyer_type={s.get('buyer_type')}")
+
+            logger.info(f"[CONVERSIONS] Distributor sales today: {len(today_sale_dist_ids)}, IDs: {today_sale_dist_ids}")
+
+            if today_sale_dist_ids:
+                # 2. Get all assignments for today to map telecaller → distributor_ids
+                assign_res = db.table("calling_assignments") \
+                    .select("user_email, customer_id") \
+                    .eq("assigned_date", d) \
+                    .execute()
+
+                # Build telecaller → set of their assigned distributor IDs
+                telecaller_dists: dict = {}
+                for a in (assign_res.data or []):
+                    em = a.get("user_email")
+                    cid = a.get("customer_id")
+                    if em and cid:
+                        telecaller_dists.setdefault(em, set()).add(cid)
+
+                logger.info(f"[CONVERSIONS] Telecaller assignments: { {k: list(v)[:5] for k, v in telecaller_dists.items()} }")
+
+                # 3. Count how many of each telecaller's assigned distributors have sales today
+                for em, dist_ids in telecaller_dists.items():
+                    conversions = len(today_sale_dist_ids & dist_ids)
+                    if em in telecaller_summary and conversions > 0:
+                        telecaller_summary[em]["conversions"] = conversions
+                        logger.info(f"[CONVERSIONS] {em}: {conversions} conversions (matched: {today_sale_dist_ids & dist_ids})")
+            else:
+                logger.info(f"[CONVERSIONS] No distributor sales found for {d}")
+
+        except Exception as ce:
+            logger.warning(f"Failed to fetch conversions for telecaller summary: {ce}", exc_info=True)
 
         return {
             "assignments": enhanced,
