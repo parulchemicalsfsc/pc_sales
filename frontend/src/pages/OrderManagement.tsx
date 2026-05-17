@@ -771,7 +771,7 @@ export default function OrderManagement() {
       <TableContainer component={Paper} sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
-            <TableRow sx={{ bgcolor: "grey.100" }}>
+            <TableRow sx={{ bgcolor: "action.hover" }}>
               <TableCell>
                 <strong>{t("fields.invoice_no", "Invoice No")}</strong>
               </TableCell>
