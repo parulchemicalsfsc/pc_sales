@@ -757,7 +757,6 @@ export default function OrderManagement() {
                 <MenuItem value="all">All Types</MenuItem>
                 <MenuItem value="customer">Sabhasad</MenuItem>
                 <MenuItem value="mantri">Mantri</MenuItem>
-                <MenuItem value="distributor">Distributor</MenuItem>
                 <MenuItem value="doctor">Doctor</MenuItem>
                 <MenuItem value="shopkeeper">Shopkeeper</MenuItem>
                 <MenuItem value="field_officer">Field Officer</MenuItem>
