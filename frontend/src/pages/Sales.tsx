@@ -121,6 +121,12 @@ export default function Sales() {
       handleOpenDialog();
       if (state.customerId) {
         setFormData(prev => ({ ...prev, customer_id: state.customerId }));
+        
+        // Pre-fill selectedEntity so the optimistic update works correctly
+        const cust = customers.find(c => c.customer_id === state.customerId);
+        if (cust) {
+          setSelectedEntity({ name: cust.name, village: cust.village, mobile: cust.mobile });
+        }
       }
       // clear the state so it doesn't reopen on refresh
       navigate(location.pathname, { replace: true, state: {} });
@@ -1193,7 +1199,7 @@ export default function Sales() {
                 <TextField
                   fullWidth
                   select
-                  label="Sabhasad Category (Pricing Tier)"
+                  label="Customer Category (Pricing Tier)"
                   value={customerCategory}
                   onChange={(e) => {
                     setCustomerCategory(e.target.value);
@@ -1210,32 +1216,56 @@ export default function Sales() {
 
               {/* Existing Customer/Entity Selection - Searchable */}
               {customerMode === "existing" && (
-                <Grid item xs={12} sm={6}>
-                  <Autocomplete
-                    options={getEntityOptions()}
-                    getOptionLabel={(option: any) => option.label || ''}
-                    value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
-                    onChange={(_e: any, newValue: any) => {
-                      const newId = newValue ? newValue.id : 0;
-                      setFormData({
-                        ...formData,
-                        customer_id: newId,
-                      });
-                      setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
-                      recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
-                    }}
-                    renderInput={(params: any) => (
-                      <TextField
-                        {...params}
-                        fullWidth
-                        label={`${getCategoryLabel()} Name *`}
-                        placeholder={`Search ${getCategoryLabel()}...`}
-                      />
-                    )}
-                    isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
-                    noOptionsText={`No ${getCategoryLabel()} found`}
-                  />
-                </Grid>
+                <>
+                  <Grid item xs={12} sm={6}>
+                    <Autocomplete
+                      options={getEntityOptions()}
+                      getOptionLabel={(option: any) => option.label || ''}
+                      value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
+                      onChange={(_e: any, newValue: any) => {
+                        const newId = newValue ? newValue.id : 0;
+                        setFormData({
+                          ...formData,
+                          customer_id: newId,
+                        });
+                        setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
+                        recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
+                      }}
+                      renderInput={(params: any) => (
+                        <TextField
+                          {...params}
+                          fullWidth
+                          label={`${getCategoryLabel()} Name *`}
+                          placeholder={`Search ${getCategoryLabel()}...`}
+                        />
+                      )}
+                      isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
+                      noOptionsText={`No ${getCategoryLabel()} found`}
+                    />
+                  </Grid>
+
+                  {/* Customer Data Preview (Read-only) for Existing Customer */}
+                  {formData.customer_id > 0 && customerCategory === "Sabhasad" && (() => {
+                    const cust = customers.find(c => c.customer_id === formData.customer_id);
+                    if (!cust) return null;
+                    return (
+                      <>
+                        <Grid item xs={12} sm={6}>
+                          <TextField fullWidth disabled label="Mobile" value={cust.mobile || ""} />
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <TextField fullWidth disabled label="Village" value={cust.village || ""} />
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <TextField fullWidth disabled label="Taluka" value={cust.taluka || ""} />
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <TextField fullWidth disabled label="District" value={cust.district || ""} />
+                        </Grid>
+                      </>
+                    );
+                  })()}
+                </>
               )}
 
               {/* New Customer Form */}
