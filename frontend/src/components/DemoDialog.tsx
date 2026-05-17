@@ -17,12 +17,13 @@ import {
   useMediaQuery,
   useTheme,
   Box,
+  Autocomplete,
 } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { TimePicker } from "@mui/x-date-pickers/TimePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
-import { demoAPI, customerAPI, productAPI, distributorAPI } from "../services/api";
+import { demoAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI } from "../services/api";
 import type { Customer, Product, Distributor } from "../types";
 import { useTranslation } from "react-i18next";
 
@@ -42,9 +43,12 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   const [products, setProducts] = useState<Product[]>([]);
   const [distributors, setDistributors] = useState<Distributor[]>([]);
 
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [shopkeepers, setShopkeepers] = useState<any[]>([]);
+  const [buyerType, setBuyerType] = useState<string>("customer");
+  const [entityId, setEntityId] = useState<number>(0);
+
   const [formData, setFormData] = useState({
-    customer_id: 0,
-    distributor_id: 0,
     demo_date: new Date(),
     demo_time: new Date(),
     product_id: 0,
@@ -64,14 +68,18 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   const loadFormData = async () => {
     try {
       setLoading(true);
-      const [customersData, productsData, distributorsData] = await Promise.all([
+      const [customersData, productsData, distributorsData, doctorsData, shopkeepersData] = await Promise.all([
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
+        doctorAPI.getAll({ limit: 1000 }),
+        shopkeeperAPI.getAll({ limit: 1000 }),
       ]);
       setCustomers(Array.isArray(customersData) ? customersData : customersData.data || []);
       setProducts(productsData || []);
-      setDistributors(distributorsData || []);
+      setDistributors(Array.isArray(distributorsData) ? distributorsData : distributorsData.data || []);
+      setDoctors(Array.isArray(doctorsData) ? doctorsData : doctorsData.data || []);
+      setShopkeepers(Array.isArray(shopkeepersData) ? shopkeepersData : shopkeepersData.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load form data");
     } finally {
@@ -79,12 +87,28 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
     }
   };
 
+  const getEntityOptions = () => {
+    if (buyerType === "mantri") {
+      return distributors.map(d => ({ id: d.distributor_id, label: `${d.mantri_name} (${d.village})`, name: d.mantri_name, village: d.village }));
+    }
+    if (buyerType === "distributor") {
+      return distributors.map(d => ({ id: d.distributor_id, label: `${d.name} (${d.village})`, name: d.name, village: d.village }));
+    }
+    if (buyerType === "doctor") {
+      return doctors.map(d => ({ id: d.doctor_id, label: `${d.name} (${d.village})`, name: d.name, village: d.village }));
+    }
+    if (buyerType === "shopkeeper") {
+      return shopkeepers.map(s => ({ id: s.shopkeeper_id, label: `${s.name} (${s.village})`, name: s.name, village: s.village }));
+    }
+    return customers.map(c => ({ id: c.customer_id, label: `${c.name} (${c.village})`, name: c.name, village: c.village }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!formData.customer_id) {
-      setError(t("sales.selectCustomer", "Please select a Sabhasad"));
+    if (!entityId) {
+      setError(t("sales.selectCustomer", "Please select a Customer"));
       return;
     }
 
@@ -102,8 +126,11 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
       setLoading(true);
 
       const demoData = {
-        customer_id: formData.customer_id,
-        distributor_id: formData.distributor_id || undefined,
+        buyer_type: buyerType,
+        customer_id: buyerType === "customer" ? entityId : undefined,
+        distributor_id: ["mantri", "distributor"].includes(buyerType) ? entityId : undefined,
+        doctor_id: buyerType === "doctor" ? entityId : undefined,
+        shopkeeper_id: buyerType === "shopkeeper" ? entityId : undefined,
         demo_date: formData.demo_date.toISOString().split("T")[0],
         demo_time: formData.demo_time.toTimeString().split(" ")[0].slice(0, 5),
         product_id: formData.product_id,
@@ -127,9 +154,9 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   };
 
   const handleClose = () => {
+    setBuyerType("customer");
+    setEntityId(0);
     setFormData({
-      customer_id: 0,
-      distributor_id: 0,
       demo_date: new Date(),
       demo_time: new Date(),
       product_id: 0,
@@ -161,47 +188,44 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
           ) : (
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>{t("customers.title", "Sabhasad")}</InputLabel>
-                  <Select
-                    value={formData.customer_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, customer_id: Number(e.target.value) })
-                    }
-                    label={t("customers.title", "Sabhasad")}
-                  >
-                    <MenuItem value={0}>
-                      <em>{t("sales.selectCustomer", "Select Sabhasad")}</em>
-                    </MenuItem>
-                    {customers.map((customer) => (
-                      <MenuItem key={customer.customer_id} value={customer.customer_id}>
-                        {customer.name} {customer.village && `- ${customer.village}`}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <TextField
+                  fullWidth
+                  select
+                  label="Customer Category"
+                  value={buyerType}
+                  onChange={(e) => {
+                    setBuyerType(e.target.value);
+                    setEntityId(0);
+                  }}
+                >
+                  <MenuItem value="customer">Sabhasad</MenuItem>
+                  <MenuItem value="mantri">Mantri</MenuItem>
+                  <MenuItem value="doctor">Doctor</MenuItem>
+                  <MenuItem value="shopkeeper">Shopkeeper</MenuItem>
+                  <MenuItem value="field_officer">Field Officer</MenuItem>
+                </TextField>
               </Grid>
 
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>{t("distributors.title", "Mantri")}</InputLabel>
-                  <Select
-                    value={formData.distributor_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, distributor_id: Number(e.target.value) })
-                    }
-                    label={t("distributors.title", "Mantri")}
-                  >
-                    <MenuItem value={0}>
-                      <em>None</em>
-                    </MenuItem>
-                    {distributors.map((distributor) => (
-                      <MenuItem key={distributor.distributor_id} value={distributor.distributor_id}>
-                        {`${distributor.village} - ${distributor.taluka}`}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                <Autocomplete
+                  options={getEntityOptions()}
+                  getOptionLabel={(option: any) => option.label || ''}
+                  value={getEntityOptions().find((o: any) => o.id === entityId) || null}
+                  onChange={(_e: any, newValue: any) => {
+                    setEntityId(newValue ? newValue.id : 0);
+                  }}
+                  renderInput={(params: any) => (
+                    <TextField
+                      {...params}
+                      fullWidth
+                      required
+                      label="Customer Name"
+                      placeholder="Search..."
+                    />
+                  )}
+                  isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
+                  noOptionsText="No customer found"
+                />
               </Grid>
 
               <Grid item xs={12} sm={6}>

@@ -100,11 +100,14 @@ export interface PendingPayment {
 
 export interface Demo {
   demo_id?: number;
-  customer_id: number;
+  buyer_type?: string;
+  customer_id?: number;
   customer_name?: string;
   village?: string;
   mobile?: string;
   distributor_id?: number;
+  doctor_id?: number;
+  shopkeeper_id?: number;
   distributor_name?: string;
   demo_date: string;
   demo_time: string;
@@ -350,8 +353,11 @@ export interface PaymentFormData {
 }
 
 export interface DemoFormData {
-  customer_id: number;
+  buyer_type?: string;
+  customer_id?: number;
   distributor_id?: number;
+  doctor_id?: number;
+  shopkeeper_id?: number;
   demo_date: string;
   demo_time: string;
   product_id: number;

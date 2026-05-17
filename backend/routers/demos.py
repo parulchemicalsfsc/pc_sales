@@ -219,6 +219,12 @@ def get_demos(
             else {}
         )
 
+        doctors_response = db.table("doctors").select("doctor_id, name, mantri_mobile, village").execute()
+        doctors_dict = {d["doctor_id"]: d for d in doctors_response.data} if doctors_response.data else {}
+
+        shopkeepers_response = db.table("shopkeepers").select("shopkeeper_id, name, mantri_mobile, village").execute()
+        shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_response.data} if shopkeepers_response.data else {}
+
         # Enrich demos with related data
         result = []
         for demo in demos_response.data:
@@ -226,19 +232,45 @@ def get_demos(
             product_id = demo.get("product_id")
             distributor_id = demo.get("distributor_id")
 
-            # Get customer, product, and distributor from dictionaries
-            customer = customers_dict.get(customer_id, {})
-            product = products_dict.get(product_id, {})
-            distributor = distributors_dict.get(distributor_id, {})
+            buyer_type = demo.get("buyer_type") or "customer"
+            
+            resolved_name = ""
+            resolved_mobile = ""
+            resolved_village = ""
+
+            if buyer_type == "mantri" and demo.get("distributor_id"):
+                entity = distributors_dict.get(demo["distributor_id"], {})
+                resolved_name = entity.get("mantri_name") or entity.get("name", "")
+                resolved_mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
+                resolved_village = entity.get("village", "")
+            elif buyer_type == "distributor" and demo.get("distributor_id"):
+                entity = distributors_dict.get(demo["distributor_id"], {})
+                resolved_name = entity.get("name", "")
+                resolved_mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
+                resolved_village = entity.get("village", "")
+            elif buyer_type == "doctor" and demo.get("doctor_id"):
+                entity = doctors_dict.get(demo["doctor_id"], {})
+                resolved_name = entity.get("name", "")
+                resolved_mobile = entity.get("mantri_mobile", "")
+                resolved_village = entity.get("village", "")
+            elif buyer_type == "shopkeeper" and demo.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(demo["shopkeeper_id"], {})
+                resolved_name = entity.get("name", "")
+                resolved_mobile = entity.get("mantri_mobile", "")
+                resolved_village = entity.get("village", "")
+            else:
+                entity = customers_dict.get(demo.get("customer_id"), {})
+                resolved_name = entity.get("name", "")
+                resolved_mobile = entity.get("mobile", "")
+                resolved_village = entity.get("village", "")
 
             result.append(
                 {
                     **demo,
-                    "customer_name": customer.get("name"),
-                    "customer_mobile": customer.get("mobile"),
-                    "village": customer.get("village"),
+                    "customer_name": resolved_name,
+                    "customer_mobile": resolved_mobile,
+                    "village": resolved_village,
                     "product_name": product.get("product_name"),
-                    "distributor_name": distributor.get("mantri_name"),
                 }
             )
 
@@ -316,8 +348,8 @@ def create_demo(
     """Create a new demo"""
     try:
         # Validate required fields
-        if not demo.customer_id:
-            raise HTTPException(status_code=400, detail="Customer ID is required")
+        if not demo.customer_id and not demo.distributor_id and not demo.doctor_id and not demo.shopkeeper_id:
+            raise HTTPException(status_code=400, detail="A customer or entity ID is required")
 
         if not demo.product_id:
             raise HTTPException(status_code=400, detail="Product ID is required")
@@ -328,9 +360,10 @@ def create_demo(
         if not demo.demo_time:
             raise HTTPException(status_code=400, detail="Demo time is required")
 
+        buyer_type = getattr(demo, "buyer_type", "customer")
+
         demo_data = {
-            "customer_id": demo.customer_id,
-            "distributor_id": getattr(demo, "distributor_id", None),
+            "buyer_type": buyer_type,
             "demo_date": demo.demo_date,
             "demo_time": demo.demo_time,
             "product_id": demo.product_id,
@@ -340,6 +373,27 @@ def create_demo(
             "notes": getattr(demo, "notes", None),
             "demo_location": getattr(demo, "demo_location", None),
         }
+
+        if buyer_type in ["mantri", "distributor"]:
+            demo_data["distributor_id"] = demo.distributor_id
+            demo_data["customer_id"] = None
+            demo_data["doctor_id"] = None
+            demo_data["shopkeeper_id"] = None
+        elif buyer_type == "doctor":
+            demo_data["doctor_id"] = demo.doctor_id
+            demo_data["customer_id"] = None
+            demo_data["distributor_id"] = None
+            demo_data["shopkeeper_id"] = None
+        elif buyer_type == "shopkeeper":
+            demo_data["shopkeeper_id"] = demo.shopkeeper_id
+            demo_data["customer_id"] = None
+            demo_data["distributor_id"] = None
+            demo_data["doctor_id"] = None
+        else:
+            demo_data["customer_id"] = demo.customer_id
+            demo_data["distributor_id"] = None
+            demo_data["doctor_id"] = None
+            demo_data["shopkeeper_id"] = None
 
         # Convert empty strings to None to prevent Supabase 400s on constrained types
         cleaned_data = {}

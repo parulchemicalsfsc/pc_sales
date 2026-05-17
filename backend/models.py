@@ -117,8 +117,11 @@ class Payment(BaseModel):
 
 class Demo(BaseModel):
     demo_id: Optional[int] = None
-    customer_id: int
+    buyer_type: Optional[str] = "customer"
+    customer_id: Optional[int] = None
     distributor_id: Optional[int] = None
+    doctor_id: Optional[int] = None
+    shopkeeper_id: Optional[int] = None
     demo_date: str
     demo_time: str
     product_id: int
