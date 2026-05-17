@@ -9,7 +9,68 @@ from activity_logger import get_activity_logger
 
 from routers.notifications import create_notification_helper
 
+from routers.notifications import create_notification_helper
+
 router = APIRouter()
+
+def fetch_all(db: SupabaseClient, table: str, select: str = "*"):
+    all_rows = []
+    batch = 1000
+    offset = 0
+    while True:
+        q = db.table(table).select(select).range(offset, offset + batch - 1)
+        resp = q.execute()
+        if not resp.data:
+            break
+        all_rows.extend(resp.data)
+        if len(resp.data) < batch:
+            break
+        offset += batch
+    return all_rows
+
+def get_entity_dicts(db: SupabaseClient):
+    customers = {c["customer_id"]: c for c in fetch_all(db, "customers")}
+    distributors = {d["distributor_id"]: d for d in fetch_all(db, "distributors")}
+    try:
+        doctors = {d["doctor_id"]: d for d in fetch_all(db, "doctors")}
+    except: doctors = {}
+    try:
+        shopkeepers = {s["shopkeeper_id"]: s for s in fetch_all(db, "shopkeepers")}
+    except: shopkeepers = {}
+    return customers, distributors, doctors, shopkeepers
+
+def resolve_sale_entity(sale: dict, dicts: tuple):
+    customers, distributors, doctors, shopkeepers = dicts
+    buyer_type = sale.get("buyer_type")
+    if not buyer_type:
+        if sale.get("doctor_id"): buyer_type = "doctor"
+        elif sale.get("shopkeeper_id"): buyer_type = "shopkeeper"
+        elif sale.get("distributor_id"): buyer_type = "distributor"
+        else: buyer_type = "customer"
+
+    name, mobile = "Unknown", ""
+    if buyer_type == "mantri" and sale.get("distributor_id"):
+        entity = distributors.get(sale["distributor_id"], {})
+        name = entity.get("mantri_name") or entity.get("name") or "Unknown"
+        mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
+    elif buyer_type == "distributor" and sale.get("distributor_id"):
+        entity = distributors.get(sale["distributor_id"], {})
+        name = entity.get("name") or "Unknown"
+        mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
+    elif buyer_type == "doctor" and sale.get("doctor_id"):
+        entity = doctors.get(sale["doctor_id"], {})
+        name = entity.get("name") or "Unknown"
+        mobile = entity.get("mantri_mobile") or ""
+    elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+        entity = shopkeepers.get(sale["shopkeeper_id"], {})
+        name = entity.get("name") or "Unknown"
+        mobile = entity.get("mantri_mobile") or ""
+    else:
+        entity = customers.get(sale.get("customer_id"), {})
+        name = entity.get("name") or "Unknown"
+        mobile = entity.get("mobile") or ""
+    
+    return name, mobile
 
 
 @router.get("/", dependencies=[Depends(verify_permission("view_payments"))])
@@ -33,9 +94,9 @@ def get_payments(
         if not payments_response.data:
             return []
 
-        # Get all sales
+        # Get all sales (with buyer_type and FKs)
         sales_response = (
-            db.table("sales").select("sale_id, invoice_no, customer_id").execute()
+            db.table("sales").select("sale_id, invoice_no, customer_id, distributor_id, doctor_id, shopkeeper_id, buyer_type").execute()
         )
         sales_dict = (
             {s["sale_id"]: s for s in sales_response.data}
@@ -43,13 +104,8 @@ def get_payments(
             else {}
         )
 
-        # Get all customers
-        customers_response = db.table("customers").select("customer_id, name").execute()
-        customers_dict = (
-            {c["customer_id"]: c for c in customers_response.data}
-            if customers_response.data
-            else {}
-        )
+        # Get all entities
+        dicts = get_entity_dicts(db)
 
         # Build result with joined data
         result = []
@@ -57,7 +113,7 @@ def get_payments(
             sale_id = payment.get("sale_id")
             sale = sales_dict.get(sale_id, {})
             customer_id = sale.get("customer_id")
-            customer = customers_dict.get(customer_id, {})
+            name, _ = resolve_sale_entity(sale, dicts)
 
             result.append(
                 {
@@ -65,7 +121,7 @@ def get_payments(
                     "sale_id": sale_id,
                     "invoice_no": sale.get("invoice_no"),
                     "customer_id": customer_id,
-                    "customer_name": customer.get("name"),
+                    "customer_name": name,
                     "payment_date": payment.get("payment_date"),
                     "payment_method": payment.get("payment_method"),
                     "amount": payment.get("amount", 0),
@@ -93,15 +149,8 @@ def get_pending(db: SupabaseClient = Depends(get_supabase)):
         if not sales_response.data:
             return []
 
-        # Get all customers
-        customers_response = (
-            db.table("customers").select("customer_id, name, mobile").execute()
-        )
-        customers_dict = (
-            {c["customer_id"]: c for c in customers_response.data}
-            if customers_response.data
-            else {}
-        )
+        # Get all entities
+        dicts = get_entity_dicts(db)
 
         # Get all payments
         payments_response = db.table("payments").select("sale_id, amount").execute()
@@ -118,20 +167,19 @@ def get_pending(db: SupabaseClient = Depends(get_supabase)):
         result = []
         for sale in sales_response.data:
             sale_id = sale.get("sale_id")
-            customer_id = sale.get("customer_id")
             total_amount = sale.get("total_amount", 0) or 0
             paid_amount = paid_by_sale.get(sale_id, 0)
             pending_amount = total_amount - paid_amount
 
             # Only include sales with pending amounts
             if pending_amount > 0:
-                customer = customers_dict.get(customer_id, {})
+                name, mobile = resolve_sale_entity(sale, dicts)
                 result.append(
                     {
                         "sale_id": sale_id,
                         "invoice_no": sale.get("invoice_no"),
-                        "customer_name": customer.get("name"),
-                        "mobile": customer.get("mobile"),
+                        "customer_name": name,
+                        "mobile": mobile,
                         "sale_date": sale.get("sale_date"),
                         "total_amount": total_amount,
                         "paid_amount": paid_amount,

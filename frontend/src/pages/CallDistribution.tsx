@@ -364,7 +364,7 @@ export default function CallDistribution() {
                             />
                           </Box>
 
-                          <Stack direction="row" spacing={1} justifyContent="space-between">
+                          <Stack direction="row" spacing={1} justifyContent="space-between" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
                             <Chip
                               size="small"
                               label={`${d.pending} ${t("callDistribution.pending", "pending")}`}
@@ -374,6 +374,11 @@ export default function CallDistribution() {
                               size="small"
                               label={`${d.called} ${t("callDistribution.done", "done")}`}
                               sx={{ height: 22, fontSize: "0.7rem", fontWeight: 600, bgcolor: alpha("#16a34a", 0.1), color: "#16a34a" }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`Conversions: ${d.conversions || 0}`}
+                              sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main" }}
                             />
                             <Chip
                               size="small"

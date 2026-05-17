@@ -62,6 +62,7 @@ import {
   TrendingUp as TrendingUpIcon,
   ExpandLess,
   ExpandMore,
+  EventNote as EventNoteIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -101,6 +102,7 @@ const TOP_LEVEL_ROUTES = new Set([
   "/chat",
   "/forecasting",
   "/lead-dashboard",
+  "/demo-scheduler",
   "/leads",
   "/lead-workspace",
   "/reviews",
@@ -188,10 +190,10 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.VIEW_CUSTOMERS,
   },
   {
-    id: "demos",
-    labelKey: "nav.demos",
-    icon: <ScienceIcon />,
-    path: "/demos",
+    id: "demo-scheduler",
+    labelKey: "nav.demoScheduler",
+    icon: <EventNoteIcon />,
+    path: "/demo-scheduler",
     permission: PERMISSIONS.VIEW_DEMOS,
   },
   {

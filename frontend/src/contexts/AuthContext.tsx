@@ -134,19 +134,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, s) => {
+        // TOKEN_REFRESHED_FAILED fires when Supabase can't refresh the token
+        // (e.g. during a Supabase service outage or after clearing cookies).
+        // Silently ignore it — the user is still authenticated via our backend
+        // RBAC and their localStorage email. Don't clear session or force logout.
+        if (event === "TOKEN_REFRESHED_FAILED" as any) {
+          console.warn("[Auth] Supabase token refresh failed — ignoring (backend RBAC is unaffected)");
+          return;
+        }
+
         setSession(s);
         setUser(s?.user ?? null);
         setRole(normalizeRole(s?.user?.user_metadata?.role));
 
         if (s?.user?.email) {
           localStorage.setItem("user_email", s.user.email);
-        } else {
+        } else if (event === "SIGNED_OUT") {
+          // Only clear on explicit sign-out, not on refresh failures
           localStorage.removeItem("user_email");
         }
 
         // Skip permission load on SIGNED_IN — signIn() already handles it
         // to avoid resetting permissionsLoaded mid-navigation.
-        if (event !== "SIGNED_IN") {
+        // Also skip on TOKEN_REFRESHED since it's not a meaningful state change.
+        if (event !== "SIGNED_IN" && event !== "TOKEN_REFRESHED") {
           loadPermissions(s?.user ?? null);
         }
       }

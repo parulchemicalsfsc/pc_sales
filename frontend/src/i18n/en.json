@@ -26,7 +26,8 @@
     "leadPipeline": "Lead Pipeline",
     "leadWorkspace": "Lead Workspace",
     "leadHistory": "All My Leads",
-    "reviews": "Reviews"
+    "reviews": "Reviews",
+    "demoScheduler": "Demo Scheduler"
   },
   "common": {
     "add": "Add",

@@ -21,33 +21,126 @@ router = APIRouter()
 
 @router.get("/", dependencies=[Depends(verify_permission("view_sales"))])
 def get_sales(db: SupabaseClient = Depends(get_supabase)):
-    """Get all sales with customer information"""
+    """Get all sales with customer/distributor information"""
     try:
-        # Get sales
-        sales_response = db.table("sales").select("*").order("created_at", desc=True).execute()
+        # Helper to paginate past Supabase's 1000-row server cap
+        def fetch_all(table, select="*", order_col=None, order_desc=False):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                if order_col:
+                    q = q.order(order_col, desc=order_desc)
+                resp = q.execute()
+                if not resp.data:
+                    break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch:
+                    break
+                offset += batch
+            return all_rows
 
-        if not sales_response.data:
+        sales = fetch_all("sales", "*", order_col="created_at", order_desc=True)
+        if not sales:
             return []
 
-        sales = sales_response.data
+        # ── Diagnostic: show actual columns present in the sales table ──
+        if sales:
+            actual_cols = set(sales[0].keys())
+            for expected_col in ("buyer_type", "distributor_id", "doctor_id", "shopkeeper_id"):
+                if expected_col not in actual_cols:
+                    print(f"[GET /sales] ⚠️  Column '{expected_col}' MISSING from sales table. "
+                          f"Run database/migrations/add_doctor_shopkeeper_buyer_type.sql in Supabase.")
+            print(f"[GET /sales] Actual sales columns: {sorted(actual_cols)}")
 
-        # Get customers to join data
-        customers_response = db.table("customers").select("*").execute()
-        customers_dict = {c["customer_id"]: c for c in customers_response.data}
+        # Fetch ALL customers, distributors, doctors, shopkeepers via pagination
+        customers_list = fetch_all("customers", "customer_id, name, village, mobile")
+        customers_dict = {c["customer_id"]: c for c in customers_list}
 
-        # Enrich sales with customer data
+        distributors_list = fetch_all("distributors")
+        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
+
+        # Fetch doctors and shopkeepers (graceful fallback if table missing)
+        # NOTE: doctors/shopkeepers tables use 'mantri_mobile', not 'mobile'
+        try:
+            doctors_list = fetch_all("doctors", "doctor_id, name, village, mantri_mobile")
+            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch doctors: {e}")
+            doctors_dict = {}
+
+        try:
+            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village, mantri_mobile")
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch shopkeepers: {e}")
+            shopkeepers_dict = {}
+
+        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, "
+              f"{len(distributors_dict)} distributors, {len(doctors_dict)} doctors, "
+              f"{len(shopkeepers_dict)} shopkeepers")
+
         result = []
         for sale in sales:
-            customer = customers_dict.get(sale["customer_id"], {})
-            
-            result.append(
-                {
+            # Infer buyer_type if column is missing from DB or NULL
+            raw_buyer_type = sale.get("buyer_type")
+            if not raw_buyer_type:
+                # Fallback: guess from which FK column is set
+                if sale.get("doctor_id"):
+                    raw_buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"):
+                    raw_buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"):
+                    raw_buyer_type = "distributor"
+                else:
+                    raw_buyer_type = "customer"
+            buyer_type = raw_buyer_type
+            if buyer_type == "mantri" and sale.get("distributor_id"):
+                # Mantri: name stored in mantri_name field on the distributor row
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                resolved_name = entity.get("mantri_name") or entity.get("name", "")
+                if not resolved_name:
+                    print(f"[GET /sales] WARNING: Blank name for mantri sale {sale.get('sale_id')} / dist_id={sale['distributor_id']}")
+                result.append({
                     **sale,
-                    "customer_name": customer.get("name", ""),
-                    "village": customer.get("village", ""),
-                    "mobile": customer.get("mobile", ""),
-                }
-            )
+                    "customer_name": resolved_name,
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
+                })
+            elif buyer_type == "distributor" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": mobile,
+                })
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mobile", ""),
+                })
 
         return result
     except Exception as e:
@@ -61,29 +154,48 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
     try:
         # Get all sales
         sales_response = (
-            db.table("sales").select("*").order("sale_date", desc=True).execute()
+            db.table("sales").select("*").order("sale_date", desc=True).limit(10000).execute()
         )
 
         if not sales_response.data:
             return []
 
-        # Get all customers
-        customers_response = (
-            db.table("customers").select("customer_id, name, village").execute()
-        )
-        customers_dict = (
-            {c["customer_id"]: c for c in customers_response.data}
-            if customers_response.data
-            else {}
-        )
+        def fetch_all(table, select="*"):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                resp = q.execute()
+                if not resp.data: break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch: break
+                offset += batch
+            return all_rows
+
+        customers_list = fetch_all("customers")
+        customers_dict = {c["customer_id"]: c for c in customers_list}
+        
+        distributors_list = fetch_all("distributors")
+        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
+
+        try:
+            doctors_list = fetch_all("doctors")
+            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
+        except: doctors_dict = {}
+
+        try:
+            shopkeepers_list = fetch_all("shopkeepers")
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
+        except: shopkeepers_dict = {}
 
         # Get all products for summary
-        products_response = db.table("products").select("product_id, product_name").execute()
+        products_response = db.table("products").select("product_id, product_name").limit(10000).execute()
         products_dict = {p["product_id"]: p["product_name"] for p in products_response.data} if products_response.data else {}
         print(f"DEBUG: Fetched {len(products_dict)} products")
 
         # Get all sale items
-        items_response = db.table("sale_items").select("sale_id, product_id, quantity").execute()
+        items_response = db.table("sale_items").select("sale_id, product_id, quantity").limit(10000).execute()
         items_by_sale = {}
         if items_response.data:
             print(f"DEBUG: Fetched {len(items_response.data)} sale items")
@@ -101,7 +213,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
             print("DEBUG: No sale items found")
 
         # Get all payments
-        payments_response = db.table("payments").select("sale_id, amount").execute()
+        payments_response = db.table("payments").select("sale_id, amount").limit(10000).execute()
 
         # Calculate paid amounts per sale
         paid_by_sale = {}
@@ -163,16 +275,42 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 except Exception as e:
                     print(f"Error parsing payment terms for sale {sale_id}: {e}")
             
-            # Return all sales that have a pending balance, regardless of due date terms, 
-            # so early payments can be recorded and totals match the global dashboard.
-            customer = customers_dict.get(customer_id, {})
+            buyer_type = sale.get("buyer_type")
+            if not buyer_type:
+                if sale.get("doctor_id"): buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"): buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"): buyer_type = "distributor"
+                else: buyer_type = "customer"
+
+            name, village = "Unknown", ""
+            if buyer_type == "mantri" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("mantri_name") or entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "distributor" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+
             result.append(
                     {
                         "sale_id": sale_id,
                         "invoice_no": sale.get("invoice_no"),
                         "sale_date": sale.get("sale_date"),
-                        "customer_name": customer.get("name"),
-                        "village": customer.get("village"),
+                        "customer_name": name,
+                        "village": village,
                         "total_amount": total_amount,
                         "paid_amount": paid_amount,
                         "pending_amount": pending_amount,
@@ -197,9 +335,29 @@ def create_sale(
 ):
     """Create a new sale with items and auto-convert related demos"""
     try:
-        # Validate input
-        if not sale.customer_id:
-            raise HTTPException(status_code=400, detail="Customer ID is required")
+        # Validate input: route to correct FK based on buyer_type
+        buyer_type = sale.buyer_type or (
+            "distributor" if sale.distributor_id else
+            "doctor" if sale.doctor_id else
+            "shopkeeper" if sale.shopkeeper_id else
+            "customer"
+        )
+        is_distributor_sale = buyer_type in ("distributor", "mantri")
+        is_doctor_sale = buyer_type == "doctor"
+        is_shopkeeper_sale = buyer_type == "shopkeeper"
+
+        if is_distributor_sale:
+            if not sale.distributor_id:
+                raise HTTPException(status_code=400, detail="distributor_id is required for Distributor/Mantri sales")
+        elif is_doctor_sale:
+            if not sale.doctor_id:
+                raise HTTPException(status_code=400, detail="doctor_id is required for Doctor sales")
+        elif is_shopkeeper_sale:
+            if not sale.shopkeeper_id:
+                raise HTTPException(status_code=400, detail="shopkeeper_id is required for Shopkeeper sales")
+        else:
+            if not sale.customer_id:
+                raise HTTPException(status_code=400, detail="customer_id is required for Customer/Field Officer sales")
 
         if not sale.items or len(sale.items) == 0:
             raise HTTPException(status_code=400, detail="At least one item is required")
@@ -232,46 +390,101 @@ def create_sale(
             capacity = product.get("capacity_ltr", 0) or 0
             total_liters += capacity * item.quantity
 
-        # Build sale record.
-        # invoice_no is intentionally OMITTED when the caller hasn't supplied one —
-        # the database BEFORE INSERT trigger calls generate_fsc_invoice_no() and
-        # fills it in atomically, guaranteeing uniqueness even under concurrent load.
+        # ── Generate invoice number via RPC ──────────────────────────────────────
+        # We call get_next_invoice_no() — a plain RETURNS TEXT Supabase RPC function
+        # that uses pg_advisory_xact_lock for concurrency safety.
+        invoice_no = ""
+        if sale.invoice_no and sale.invoice_no.strip():
+            # Caller explicitly provided an invoice number — use it directly
+            invoice_no = sale.invoice_no.strip()
+        else:
+            # Auto-generate via RPC
+            try:
+                invoice_no = db.rpc("get_next_invoice_no", {})
+                if not invoice_no or not isinstance(invoice_no, str):
+                    raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
+                print(f"[create_sale] Generated invoice_no via RPC: {invoice_no}")
+            except Exception as rpc_err:
+                err_body = ""
+                if hasattr(rpc_err, "response") and rpc_err.response is not None:
+                    try:
+                        err_body = rpc_err.response.text
+                    except Exception:
+                        pass
+                err_str = f"{rpc_err}" + (f" | DB: {err_body}" if err_body else "")
+                print(f"[create_sale] RPC get_next_invoice_no failed: {err_str}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Could not generate invoice number. Ensure get_next_invoice_no() function is installed in Supabase. Error: {err_str}",
+                )
+
+        # Build sale record with the generated/provided invoice_no
         sale_data: dict = {
-            "customer_id": sale.customer_id,
+            "invoice_no": invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
             "payment_status": "Pending",
             "notes": sale.notes or None,
             "payment_terms": sale.payment_terms or None,
+            "buyer_type": buyer_type,
         }
+        # Set only the relevant buyer FK — null out all others
+        if is_distributor_sale:
+            sale_data["distributor_id"] = sale.distributor_id
+            sale_data["customer_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif is_doctor_sale:
+            sale_data["doctor_id"] = sale.doctor_id
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif is_shopkeeper_sale:
+            sale_data["shopkeeper_id"] = sale.shopkeeper_id
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+        else:
+            sale_data["customer_id"] = sale.customer_id
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
 
-        # Only include invoice_no when the caller explicitly provides one
-        if sale.invoice_no and sale.invoice_no.strip():
-            # Reject duplicates early so we give a clear error before hitting the DB
-            existing = (
-                db.table("sales")
-                .select("sale_id")
-                .eq("invoice_no", sale.invoice_no.strip())
-                .execute()
-            )
-            if existing.data:
+        try:
+            sale_response = db.table("sales").insert(sale_data).execute()
+        except Exception as insert_err:
+            err_body = ""
+            if hasattr(insert_err, "response") and insert_err.response is not None:
+                try:
+                    err_body = insert_err.response.text
+                except Exception:
+                    pass
+            err_str = f"{insert_err}" + (f" | DB response: {err_body}" if err_body else "")
+            print(f"[create_sale] INSERT failed: {err_str}")
+
+            combined = err_str.lower() + err_body.lower()
+            # 23503 = foreign key violation
+            if "23503" in combined or "foreign key" in combined:
+                buyer_label = f"Distributor ID: {sale.distributor_id}" if is_distributor_sale else f"Customer ID: {sale.customer_id}"
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Selected buyer ({buyer_label}) does not exist. Please refresh and reselect.",
+                )
+            # 23505 = unique constraint violation (duplicate invoice_no)
+            if "23505" in combined or "duplicate" in combined or "unique" in combined:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Invoice number '{sale.invoice_no}' already exists.",
+                    detail=f"Invoice number '{invoice_no}' already exists. Please try again.",
                 )
-            sale_data["invoice_no"] = sale.invoice_no.strip()
-        # else: DB trigger generates the invoice number — no Python code needed
-
-        sale_response = db.table("sales").insert(sale_data).execute()
+            raise HTTPException(status_code=500, detail=f"Error inserting sale: {err_str}")
 
         if not sale_response.data:
             raise HTTPException(status_code=400, detail="Failed to create sale")
 
         created_sale = sale_response.data[0]
         sale_id = created_sale.get("sale_id")
-        # The DB trigger populates invoice_no — read it back from the response
-        invoice_no = created_sale.get("invoice_no", "")
+        invoice_no = created_sale.get("invoice_no", invoice_no)  # prefer DB generated value
         
         # Generate and store sale_code in MMyy#### format (optional - only if column exists)
         try:
@@ -300,16 +513,17 @@ def create_sale(
         # Insert sale items
         sale_items_data = []
         for item in sale.items:
-            sale_items_data.append(
-                {
-                    "sale_id": sale_id,
-                    "customer_id": sale.customer_id,  # ADDED: Include customer_id
-                    "product_id": item.product_id,
-                    "quantity": item.quantity,
-                    "rate": item.rate,
-                    "amount": item.amount,
-                }
-            )
+            item_row = {
+                "sale_id": sale_id,
+                "product_id": item.product_id,
+                "quantity": item.quantity,
+                "rate": item.rate,
+                "amount": item.amount,
+            }
+            # Only set customer_id on items for Sabhasad sales
+            if not is_distributor_sale and sale.customer_id:
+                item_row["customer_id"] = sale.customer_id
+            sale_items_data.append(item_row)
 
         if sale_items_data:
             items_response = db.table("sale_items").insert(sale_items_data).execute()
@@ -325,27 +539,24 @@ def create_sale(
         if user_email:
             try:
                 logger = get_activity_logger(db)
-                customer_response = (
-                    db.table("customers")
-                    .select("name")
-                    .eq("customer_id", sale.customer_id)
-                    .execute()
-                )
-                customer_name = (
-                    customer_response.data[0].get("name")
-                    if customer_response.data
-                    else f"Customer ID: {sale.customer_id}"
-                )
+                # Resolve buyer name based on type
+                if is_distributor_sale:
+                    buyer_resp = db.table("distributors").select("name").eq("distributor_id", sale.distributor_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Distributor ID: {sale.distributor_id}"
+                else:
+                    buyer_resp = db.table("customers").select("name").eq("customer_id", sale.customer_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Customer ID: {sale.customer_id}"
 
                 logger.log_create(
                     user_email=user_email,
                     entity_type="sale",
-                    entity_name=f"{invoice_no} - {customer_name}",
+                    entity_name=f"{invoice_no} - {buyer_name}",
                     entity_id=sale_id,
                     new_state=created_sale,
                     metadata={
                         "invoice_no": invoice_no,
-                        "customer_id": sale.customer_id,
+                        "buyer_type": buyer_type,
+                        "buyer_id": sale.distributor_id if is_distributor_sale else sale.customer_id,
                         "total_amount": total_amount,
                         "items_count": len(sale_items_data),
                     },
@@ -462,13 +673,20 @@ def create_sale(
         raise
     except Exception as e:
         error_str = str(e)
-        # The DB trigger is atomic, but surface any remaining constraint errors clearly
-        if "409" in error_str or "duplicate" in error_str.lower() or "unique" in error_str.lower():
+        # Extract HTTP response body if available for better diagnostics
+        err_body = ""
+        if hasattr(e, "response") and e.response is not None:
+            try:
+                err_body = e.response.text
+            except Exception:
+                pass
+        combined = (error_str + err_body).lower()
+        if "duplicate" in combined or "unique" in combined or "23505" in combined:
             raise HTTPException(
                 status_code=409,
-                detail="A duplicate invoice number was detected. This should not happen — please contact support if it persists.",
+                detail=f"A duplicate invoice number was detected. DB response: {err_body or error_str}",
             )
-        raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}")
+        raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}" + (f" | {err_body}" if err_body else ""))
 
 
 @router.get("/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])

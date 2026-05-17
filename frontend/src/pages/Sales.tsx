@@ -42,7 +42,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI, distributorAPI } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -59,10 +59,13 @@ export default function Sales() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [distributors, setDistributors] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [shopkeepers, setShopkeepers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [buyerTypeFilter, setBuyerTypeFilter] = useState<string>("all");
   const [openDialog, setOpenDialog] = useState(false);
   const [customerMode, setCustomerMode] = useState<"existing" | "new">(
     "existing",
@@ -103,6 +106,7 @@ export default function Sales() {
   const [selectedActionSale, setSelectedActionSale] = useState<Sale | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<{ name: string; village: string; mobile: string } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -112,16 +116,38 @@ export default function Sales() {
   const takeOrderHandled = useRef(false);
   useEffect(() => {
     const state = location.state as any;
-    if (state?.openNewSale && customers.length > 0 && !openDialog && !takeOrderHandled.current) {
+    const dataLoaded = distributors.length > 0 || customers.length > 0;
+    if (state?.openNewSale && dataLoaded && !openDialog && !takeOrderHandled.current) {
       takeOrderHandled.current = true;
       handleOpenDialog();
-      if (state.customerId) {
+
+      const buyerType = state.buyerType || "Sabhasad";
+
+      if (buyerType === "Mantri" && state.distributorId) {
+        // Set category to Mantri and find the distributor
+        setCustomerCategory("Mantri");
+        setFormData(prev => ({ ...prev, customer_id: state.distributorId }));
+
+        // Find in distributors array, or fall back to passed entity data
+        const dist = distributors.find(d => d.distributor_id === state.distributorId);
+        setSelectedEntity({
+          name: dist?.mantri_name || dist?.name || state.entityName || "",
+          village: dist?.village || state.entityVillage || "",
+          mobile: dist?.mantri_mobile || dist?.mobile || state.entityMobile || "",
+        });
+      } else if (state.customerId) {
+        setCustomerCategory("Sabhasad");
         setFormData(prev => ({ ...prev, customer_id: state.customerId }));
+        const cust = customers.find(c => c.customer_id === state.customerId);
+        if (cust) {
+          setSelectedEntity({ name: cust.name, village: cust.village, mobile: cust.mobile });
+        }
       }
       // clear the state so it doesn't reopen on refresh
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, customers, openDialog, navigate]);
+  }, [location.state, customers, distributors, openDialog, navigate]);
+
 
   const loadData = async (background = false) => {
     try {
@@ -129,11 +155,13 @@ export default function Sales() {
       setError(null);
 
       // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult, distributorsResult] = await Promise.allSettled([
+      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
+        doctorAPI.getAll({ limit: 1000 }),
+        shopkeeperAPI.getAll({ limit: 1000 }),
       ]);
 
       if (salesResult.status === "fulfilled") {
@@ -160,6 +188,18 @@ export default function Sales() {
       } else {
         console.warn("Could not load distributors:", distributorsResult.reason?.message);
       }
+      if (doctorsResult.status === "fulfilled") {
+        const docData = doctorsResult.value;
+        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+      } else {
+        console.warn("Could not load doctors:", doctorsResult.reason?.message);
+      }
+      if (shopkeepersResult.status === "fulfilled") {
+        const skData = shopkeepersResult.value;
+        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
+      } else {
+        console.warn("Could not load shopkeepers:", shopkeepersResult.reason?.message);
+      }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
       const errorMessage =
@@ -172,9 +212,11 @@ export default function Sales() {
 
   const fetchDropdownData = async () => {
     try {
-      const [customersResult, distributorsResult] = await Promise.allSettled([
+      const [customersResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
         customerAPI.getAll({ limit: 1000 }),
         distributorAPI.getAll({ limit: 1000 }),
+        doctorAPI.getAll({ limit: 1000 }),
+        shopkeeperAPI.getAll({ limit: 1000 }),
       ]);
       if (customersResult.status === "fulfilled") {
         setCustomers(customersResult.value.data || []);
@@ -182,6 +224,14 @@ export default function Sales() {
       if (distributorsResult.status === "fulfilled") {
         const distData = distributorsResult.value;
         setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+      }
+      if (doctorsResult.status === "fulfilled") {
+        const docData = doctorsResult.value;
+        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+      }
+      if (shopkeepersResult.status === "fulfilled") {
+        const skData = shopkeepersResult.value;
+        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
       }
     } catch (e) {
       console.warn("Background fetch failed", e);
@@ -210,6 +260,7 @@ export default function Sales() {
     });
     setCustomerMode("existing");
     setCustomerCategory("Sabhasad");
+    setSelectedEntity(null);
     setItems([{ product_id: 0, quantity: 1, rate: 0, amount: 0 }]);
     setPaymentTerms({
       type: 'after_delivery',
@@ -358,12 +409,14 @@ export default function Sales() {
         }
 
         // Apply region and category rate
+        const customRate = product.custom_rates?.[customerState]?.[customerCategory];
+        
         const rKey = customerState === "Madhya Pradesh" ? "mp" : customerState.toLowerCase();
         const catKey = customerCategory.toLowerCase().replace(" ", "_");
         const priceField = `rate_${rKey}_${catKey}` as keyof Product;
         const baseField = `rate_${rKey}` as keyof Product;
 
-        rate = (product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0;
+        rate = customRate !== undefined ? customRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
 
         newItems[index].rate = rate;
       }
@@ -395,7 +448,8 @@ export default function Sales() {
       const product = products.find(p => p.product_id === item.product_id);
       if (!product) return item;
 
-      const rate = (product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0;
+      const itemCustomRate = product.custom_rates?.[customerState]?.[newCategory];
+      const rate = itemCustomRate !== undefined ? itemCustomRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
       return {
         ...item,
         rate,
@@ -419,25 +473,50 @@ export default function Sales() {
               label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
               name: d.mantri_name,
               village: d.village || '',
+              mobile: d.mantri_mobile || d.mobile || '',
             });
           }
         }
       });
       return Array.from(mantriMap.values());
-    } else if (customerCategory === "Distributor") {
-      return distributors.map((d: any) => ({
-        id: d.distributor_id,
-        label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mantri_name ? ` (Mantri: ${d.mantri_name})` : ''}`,
+    } else if (customerCategory === "Doctor") {
+      return doctors.map((d: any) => ({
+        id: d.doctor_id,
+        label: `${d.name || 'Unknown'}${d.village ? ` - ${d.village}` : ''}${d.mobile ? ` (${d.mobile})` : ''}`,
         name: d.name || '',
         village: d.village || '',
+        mobile: d.mobile || '',
+        entity_type: 'doctor',
+      }));
+    } else if (customerCategory === "Shopkeeper") {
+      return shopkeepers.map((s: any) => ({
+        id: s.shopkeeper_id,
+        label: `${s.name || 'Unknown'}${s.village ? ` - ${s.village}` : ''}${s.mobile ? ` (${s.mobile})` : ''}`,
+        name: s.name || '',
+        village: s.village || '',
+        mobile: s.mobile || '',
+        entity_type: 'shopkeeper',
       }));
     } else {
+      // Sabhasad, Field Officer
       return customers.map((c) => ({
         id: c.customer_id,
         label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
         name: c.name,
         village: c.village || '',
+        mobile: c.mobile || '',
       }));
+    }
+  };
+
+  // Get human-readable label for each category
+  const getCategoryLabel = () => {
+    switch (customerCategory) {
+      case "Mantri": return "Mantri";
+      case "Doctor": return "Doctor";
+      case "Shopkeeper": return "Shopkeeper";
+      case "Field Officer": return "Field Officer";
+      default: return "Sabhasad";
     }
   };
 
@@ -466,54 +545,143 @@ export default function Sales() {
           return;
         }
 
-        // Create new customer
+        // Create new customer or distributor
         try {
-          // CHECK FOR DUPLICATE CUSTOMER FIRST
-          // Check if customer with same name+village+mobile exists
-          const existingCustomer = customers.find(
-            c =>
-              c.mobile === newCustomerData.mobile &&
-              c.name.toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
-              (c.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim()
-          );
+          // CHECK FOR DUPLICATE FIRST
+          let isDuplicate = false;
+          let duplicateEntityName = "";
+          let duplicateEntityId = 0;
+          let duplicateEntityVillage = "";
 
-          if (existingCustomer) {
-            // Use existing customer
-            customerId = existingCustomer.customer_id || 0;
-            // Notify user
-            console.log("Duplicate Sabhasad found, using existing: " + existingCustomer.name);
+          const isDistributorCategory = customerCategory === "Mantri";
+          const isDoctorCategory = customerCategory === "Doctor";
+          const isShopkeeperCategory = customerCategory === "Shopkeeper";
+
+          if (isDistributorCategory) {
+            const existingDistributor = distributors.find(d => {
+                const nameMatch = (d.mantri_name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim();
+                const mobileMatch = d.mantri_mobile === newCustomerData.mobile || d.mobile === newCustomerData.mobile;
+                const villageMatch = (d.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim();
+                return nameMatch && mobileMatch && villageMatch;
+            });
+            if (existingDistributor) {
+                isDuplicate = true;
+                duplicateEntityName = existingDistributor.mantri_name || "";
+                duplicateEntityVillage = existingDistributor.village || "";
+                duplicateEntityId = existingDistributor.distributor_id || 0;
+            }
+          } else if (isDoctorCategory) {
+            const existingDoctor = doctors.find(d =>
+              (d.name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+              d.mobile === newCustomerData.mobile
+            );
+            if (existingDoctor) {
+                isDuplicate = true;
+                duplicateEntityName = existingDoctor.name || "";
+                duplicateEntityVillage = existingDoctor.village || "";
+                duplicateEntityId = existingDoctor.doctor_id || 0;
+            }
+          } else if (isShopkeeperCategory) {
+            const existingShopkeeper = shopkeepers.find(s =>
+              (s.name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+              s.mobile === newCustomerData.mobile
+            );
+            if (existingShopkeeper) {
+                isDuplicate = true;
+                duplicateEntityName = existingShopkeeper.name || "";
+                duplicateEntityVillage = existingShopkeeper.village || "";
+                duplicateEntityId = existingShopkeeper.shopkeeper_id || 0;
+            }
+          } else {
+            const existingCustomer = customers.find(
+              c =>
+                c.mobile === newCustomerData.mobile &&
+                c.name.toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+                (c.village || "").toLowerCase().trim() === (newCustomerData.village || "").toLowerCase().trim()
+            );
+            if (existingCustomer) {
+                isDuplicate = true;
+                duplicateEntityName = existingCustomer.name || "";
+                duplicateEntityVillage = existingCustomer.village || "";
+                duplicateEntityId = existingCustomer.customer_id || 0;
+            }
+          }
+
+          if (isDuplicate) {
+            customerId = duplicateEntityId;
+            console.log(`Duplicate ${getCategoryLabel()} found, using existing: ` + duplicateEntityName);
             if (!window.confirm(
-              t("sales.duplicateCustomerConfirm", "Sabhasad \"{name}\" from {village} with mobile {mobile} already exists. Use existing Sabhasad?")
-                .replace("{name}", existingCustomer.name)
-                .replace("{village}", existingCustomer.village || 'N/A')
-                .replace("{mobile}", newCustomerData.mobile)
+              `${getCategoryLabel()} "${duplicateEntityName || 'Unknown'}" from ${duplicateEntityVillage || 'N/A'} with mobile ${newCustomerData.mobile} already exists. Use existing ${getCategoryLabel()}?`
             )) {
               return;
             }
           } else {
-            const newCustomer = await customerAPI.create(
-              newCustomerData as Customer,
-            );
-            customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
-            // Reload customers list synchronously so autocomplete reflects it if needed later
-            const customersData = await customerAPI.getAll({ limit: 1000 });
-            setCustomers(customersData.data || []);
+            if (isDistributorCategory) {
+              const newDistributorData = {
+                mantri_name: newCustomerData.name,
+                mantri_mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newDist = await distributorAPI.create(newDistributorData);
+              customerId = newDist.distributor?.distributor_id || newDist.data?.distributor_id || newDist.distributor_id || 0;
+              const distData = await distributorAPI.getAll({ limit: 1000 });
+              setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+            } else if (isDoctorCategory) {
+              const newDoctorData = {
+                name: newCustomerData.name,
+                mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newDoc = await doctorAPI.create(newDoctorData);
+              customerId = newDoc.doctor?.doctor_id || newDoc.data?.doctor_id || newDoc.doctor_id || 0;
+              const docData = await doctorAPI.getAll({ limit: 1000 });
+              setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+            } else if (isShopkeeperCategory) {
+              const newShopkeeperData = {
+                name: newCustomerData.name,
+                mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newSk = await shopkeeperAPI.create(newShopkeeperData);
+              customerId = newSk.shopkeeper?.shopkeeper_id || newSk.data?.shopkeeper_id || newSk.shopkeeper_id || 0;
+              const skData = await shopkeeperAPI.getAll({ limit: 1000 });
+              setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
+            } else {
+              const newCustomer = await customerAPI.create(newCustomerData as Customer);
+              customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
+              const customersData = await customerAPI.getAll({ limit: 1000 });
+              setCustomers(customersData.data || []);
+            }
           }
         } catch (err: any) {
-          console.error("Error creating customer:", err);
+          console.error("Error creating entity:", err);
           const errorMessage =
             err?.response?.data?.detail ||
             err?.message ||
-            t("customers.createError", "Failed to create customer");
+            `Failed to create ${getCategoryLabel()}`;
           setError(errorMessage);
           return;
         }
       } else {
-        // Validate existing customer selection
+        // Validate existing customer/distributor selection
         if (!customerId || customerId === 0) {
-          setError(t("sales.selectCustomer", "Please select a Sabhasad"));
+          setError(`Please select a ${getCategoryLabel()}`);
           return;
         }
+        // No extra FK validation needed — the backend now handles both
+        // customer_id (Sabhasad) and distributor_id (Distributor/Mantri) correctly.
       }
 
       // Validate items
@@ -539,8 +707,25 @@ export default function Sales() {
         }
       }
 
+      const isDistributorSale = customerCategory === "Mantri";
+      const isDoctorSale = customerCategory === "Doctor";
+      const isShopkeeperSale = customerCategory === "Shopkeeper";
+
+      // Map category to backend buyer_type
+      const buyerType =
+        customerCategory === "Mantri" ? "mantri"
+        : customerCategory === "Doctor" ? "doctor"
+        : customerCategory === "Shopkeeper" ? "shopkeeper"
+        : customerCategory === "Field Officer" ? "field_officer"
+        : "customer";
+
       const saleData = {
-        customer_id: customerId,
+        // Route to correct FK based on category
+        customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale) ? customerId : undefined,
+        distributor_id: isDistributorSale ? customerId : undefined,
+        doctor_id: isDoctorSale ? customerId : undefined,
+        shopkeeper_id: isShopkeeperSale ? customerId : undefined,
+        buyer_type: buyerType,
         invoice_no: formData.invoice_no || undefined,
         sale_date: formData.sale_date,
         items: items.map((item) => ({
@@ -550,9 +735,9 @@ export default function Sales() {
           amount: item.amount!,
         })),
         notes: formData.notes || undefined,
-        payment_terms: JSON.stringify(paymentTerms), // Store payment terms as JSON string
-        paid_amount: formData.paid_amount || 0, // ADDED: Send initial payment amount
-        payment_method: "Cash", // Default to Cash for now, or add UI for it
+        payment_terms: JSON.stringify(paymentTerms),
+        paid_amount: formData.paid_amount || 0,
+        payment_method: "Cash",
       };
 
       console.log(`${editingSaleId ? "Updating" : "Creating"} sale:`, saleData);
@@ -574,30 +759,33 @@ export default function Sales() {
       if (response.sale) {
         try {
           const newSale = response.sale;
-          let customer = customers.find(c => c.customer_id === newSale.customer_id);
-          
-          if (!customer && customerMode === "new") {
-            customer = {
-              customer_id: customerId,
-              name: newCustomerData.name,
-              village: newCustomerData.village,
-              mobile: newCustomerData.mobile
-            } as any;
+          let enrichedName = "";
+          let enrichedVillage = "";
+          let enrichedMobile = "";
+
+          // Use the selectedEntity captured at selection time (most reliable source)
+          if (selectedEntity) {
+            enrichedName = selectedEntity.name;
+            enrichedVillage = selectedEntity.village;
+            enrichedMobile = selectedEntity.mobile;
+          } else if (customerMode === "new") {
+            enrichedName = newCustomerData.name;
+            enrichedVillage = newCustomerData.village;
+            enrichedMobile = newCustomerData.mobile;
           }
 
-          if (customer) {
-            const enrichedSale = {
-              ...newSale,
-              customer_name: customer.name,
-              village: customer.village,
-              mobile: customer.mobile
-            };
+          const enrichedSale = {
+            ...newSale,
+            buyer_type: buyerType,
+            customer_name: enrichedName,
+            village: enrichedVillage,
+            mobile: enrichedMobile,
+          };
 
-            if (editingSaleId) {
-              setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
-            } else {
-              setSales(prev => [enrichedSale, ...prev]);
-            }
+          if (editingSaleId) {
+            setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
+          } else {
+            setSales(prev => [enrichedSale, ...prev]);
           }
         } catch (e) {
           console.log("Optimistic update failed, waiting for refresh");
@@ -638,12 +826,14 @@ export default function Sales() {
 
   const filteredSales = sales.filter((sale) => {
     const query = searchQuery.toLowerCase();
-    return (
+    const matchesSearch = (
       (sale.invoice_no && sale.invoice_no.toLowerCase().includes(query)) ||
       (sale.customer_name && sale.customer_name.toLowerCase().includes(query)) ||
       (sale.village && sale.village.toLowerCase().includes(query)) ||
       (sale.notes && sale.notes.toLowerCase().includes(query))
     );
+    const matchesBuyerType = buyerTypeFilter === "all" || (sale as any).buyer_type === buyerTypeFilter || (!( sale as any).buyer_type && buyerTypeFilter === "customer");
+    return matchesSearch && matchesBuyerType;
   });
 
   const columns: GridColDef[] = [
@@ -657,9 +847,40 @@ export default function Sales() {
     },
     {
       field: "customer_name",
-      headerName: t("customers.customerName"),
+      headerName: "Name",
       flex: 1,
-      minWidth: 200,
+      minWidth: 220,
+      renderCell: (params) => {
+        const buyerType = params.row.buyer_type;
+        const badgeColor: Record<string, "default" | "warning" | "info" | "secondary" | "success" | "error"> = {
+          mantri: "warning",
+          distributor: "info",
+          field_officer: "secondary",
+          doctor: "success",
+          shopkeeper: "error",
+        };
+        const badgeLabel: Record<string, string> = {
+          mantri: "Mantri",
+          distributor: "Distributor",
+          field_officer: "Field Officer",
+          doctor: "Doctor",
+          shopkeeper: "Shopkeeper",
+        };
+        const showBadge = buyerType && buyerType !== "customer";
+        return (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2" noWrap>{params.value || "—"}</Typography>
+            {showBadge && (
+              <Chip
+                label={badgeLabel[buyerType] || buyerType}
+                size="small"
+                color={badgeColor[buyerType] || "default"}
+                sx={{ fontSize: "0.65rem", height: 18 }}
+              />
+            )}
+          </Box>
+        );
+      },
     },
     {
       field: "village",
@@ -878,8 +1099,30 @@ export default function Sales() {
                     </InputAdornment>
                   ),
                 }}
-                sx={{ width: 300, ml: 2 }}
+                sx={{ width: 260, ml: 2 }}
               />
+
+              {/* Buyer Type Filter */}
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", ml: 1 }}>
+                {[
+                  { value: "all", label: "All" },
+                  { value: "customer", label: "Sabhasad" },
+                  { value: "mantri", label: "Mantri" },
+                  { value: "doctor", label: "Doctor" },
+                  { value: "shopkeeper", label: "Shopkeeper" },
+                  { value: "field_officer", label: "Field Officer" },
+                ].map(({ value, label }) => (
+                  <Chip
+                    key={value}
+                    label={label}
+                    size="small"
+                    onClick={() => setBuyerTypeFilter(value)}
+                    color={buyerTypeFilter === value ? "primary" : "default"}
+                    variant={buyerTypeFilter === value ? "filled" : "outlined"}
+                    sx={{ cursor: "pointer" }}
+                  />
+                ))}
+              </Box>
 
               <Box sx={{ ml: "auto", display: "flex", gap: 2 }}>
                 <Chip
@@ -941,7 +1184,7 @@ export default function Sales() {
                   sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}
                 >
                   <Typography variant="subtitle2" color="text.secondary">
-                    {t("sales.customerSelection", "Sabhasad:")}
+                    {`${getCategoryLabel()}:`}
                   </Typography>
                   <ToggleButtonGroup
                     value={customerMode}
@@ -956,11 +1199,11 @@ export default function Sales() {
                   >
                     <ToggleButton value="existing">
                       <PeopleIcon sx={{ mr: 1, fontSize: 18 }} />
-                      {t("sales.existingCustomer", "Existing Sabhasad")}
+                      {`Existing ${getCategoryLabel()}`}
                     </ToggleButton>
                     <ToggleButton value="new">
                       <PersonAddIcon sx={{ mr: 1, fontSize: 18 }} />
-                      {t("sales.newCustomer", "New Sabhasad")}
+                      {`New ${getCategoryLabel()}`}
                     </ToggleButton>
                   </ToggleButtonGroup>
                 </Box>
@@ -979,7 +1222,7 @@ export default function Sales() {
                     recalculateRates(e.target.value, customerMode, formData.customer_id, newCustomerData.state);
                   }}
                 >
-                  {["Sabhasad", "Mantri", "Distributor", "Field Officer"].map((cat) => (
+                  {["Sabhasad", "Mantri", "Doctor", "Shopkeeper", "Field Officer"].map((cat) => (
                     <MenuItem key={cat} value={cat}>
                       {cat}
                     </MenuItem>
@@ -989,31 +1232,60 @@ export default function Sales() {
 
               {/* Existing Customer/Entity Selection - Searchable */}
               {customerMode === "existing" && (
-                <Grid item xs={12} sm={6}>
-                  <Autocomplete
-                    options={getEntityOptions()}
-                    getOptionLabel={(option: any) => option.label || ''}
-                    value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
-                    onChange={(_e: any, newValue: any) => {
-                      const newId = newValue ? newValue.id : 0;
-                      setFormData({
-                        ...formData,
-                        customer_id: newId,
-                      });
-                      recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
-                    }}
-                    renderInput={(params: any) => (
-                      <TextField
-                        {...params}
-                        fullWidth
-                        label={`${customerCategory === "Sabhasad" || customerCategory === "Field Officer" ? t("customers.customerName") : customerCategory} *`}
-                        placeholder={`Search ${customerCategory}...`}
-                      />
-                    )}
-                    isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
-                    noOptionsText={`No ${customerCategory} found`}
-                  />
-                </Grid>
+                <>
+                  <Grid item xs={12} sm={6}>
+                    <Autocomplete
+                      options={getEntityOptions()}
+                      getOptionLabel={(option: any) => option.label || ''}
+                      value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
+                      onChange={(_e: any, newValue: any) => {
+                        const newId = newValue ? newValue.id : 0;
+                        setFormData({
+                          ...formData,
+                          customer_id: newId,
+                        });
+                        setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
+                        recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
+                      }}
+                      renderInput={(params: any) => (
+                        <TextField
+                          {...params}
+                          fullWidth
+                          label={`${getCategoryLabel()} Name *`}
+                          placeholder={`Search ${getCategoryLabel()}...`}
+                        />
+                      )}
+                      isOptionEqualToValue={(option: any, value: any) => option.id === value?.id}
+                      noOptionsText={`No ${getCategoryLabel()} found`}
+                    />
+                  </Grid>
+
+                  {/* Customer Data Preview (Read-only) for Existing Customer */}
+                  {formData.customer_id > 0 && (() => {
+                    let entityDetails = null;
+                    if (customerCategory === "Sabhasad") {
+                      entityDetails = customers.find(c => c.customer_id === formData.customer_id);
+                    } else if (customerCategory === "Mantri" || customerCategory === "Distributor") {
+                      entityDetails = distributors.find(d => d.distributor_id === formData.customer_id);
+                    } else if (customerCategory === "Doctor") {
+                      entityDetails = doctors.find(d => d.doctor_id === formData.customer_id);
+                    } else if (customerCategory === "Shopkeeper") {
+                      entityDetails = shopkeepers.find(s => s.shopkeeper_id === formData.customer_id);
+                    }
+                    
+                    if (!entityDetails) return null;
+                    return (
+                      <>
+                        <Grid item xs={12} sm={6}>
+                          <TextField fullWidth disabled label="Mobile" value={entityDetails.mobile || entityDetails.mantri_mobile || ""} />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField fullWidth disabled label="Village" value={entityDetails.village || ""} />
+                        </Grid>
+                      </>
+                    );
+                  })()}
+                </>
               )}
 
               {/* New Customer Form */}
@@ -1022,7 +1294,7 @@ export default function Sales() {
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
-                      label={`${t("customers.customerName")} *`}
+                      label={`${getCategoryLabel()} Name *`}
                       value={newCustomerData.name}
                       onChange={(e) =>
                         setNewCustomerData({
@@ -1030,10 +1302,7 @@ export default function Sales() {
                           name: e.target.value,
                         })
                       }
-                      placeholder={t(
-                        "sales.enterCustomerName",
-                        "Enter Sabhasad name",
-                      )}
+                      placeholder={`Enter ${getCategoryLabel()} name`}
                     />
                   </Grid>
                   <Grid item xs={12} sm={6}>

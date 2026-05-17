@@ -13,22 +13,64 @@ router = APIRouter()
 def get_distributors(db: SupabaseClient = Depends(get_supabase)):
     """Get all distributors"""
     try:
-        response = (
-            db.table("distributors")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
+        # Paginate to bypass Supabase's 1000-row server cap
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = (
+                db.table("distributors")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
 
-        if not response.data:
-            return []
-
-        return response.data
+        return all_rows
     except Exception as e:
         print("❌ GET ERROR:", str(e))
         raise HTTPException(
             status_code=500, detail=f"Error fetching distributors: {str(e)}"
         )
+
+
+@router.get("/calculator", dependencies=[Depends(verify_permission("view_distributors"))])
+def get_distributors_for_calculator(db: SupabaseClient = Depends(get_supabase)):
+    """Lightweight endpoint for the Estimation Calculator — returns only fields needed for calculation."""
+    try:
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = (
+                db.table("distributors")
+                .select("distributor_id, mantri_name, village, taluka, district, contact_in_group, sabhasad_count, status")
+                .eq("status", "Active")
+                .order("mantri_name", desc=False)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
+
+        # Return raw dicts — no Pydantic filtering so contact_in_group is preserved as-is
+        return all_rows
+    except Exception as e:
+        print("❌ CALCULATOR GET ERROR:", str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching distributors for calculator: {str(e)}"
+        )
+
 
 
 @router.post("/", dependencies=[Depends(verify_permission("create_distributor"))])

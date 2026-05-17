@@ -790,30 +790,29 @@ export default function Doctors() {
                     borderRadius: "6px",
                     marginBottom: "6px",
                     transition: "all 0.2s ease",
-                    bgcolor: "#fff",
                     "&:hover": {
                       cursor: "pointer",
                     },
                   },
                   "& .row-green": {
-                    backgroundColor: "#d1fae5 !important",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(22,163,74,0.18)" : "#d1fae5") + " !important",
                     borderLeft: "5px solid #16a34a !important",
                     "&:hover": {
-                      backgroundColor: "#bbf7d0 !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(22,163,74,0.28)" : "#bbf7d0") + " !important",
                     },
                   },
                   "& .row-orange": {
-                    backgroundColor: "#ffedd5 !important",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(234,88,12,0.18)" : "#ffedd5") + " !important",
                     borderLeft: "5px solid #ea580c !important",
                     "&:hover": {
-                      backgroundColor: "#fed7aa !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(234,88,12,0.28)" : "#fed7aa") + " !important",
                     },
                   },
                   "& .row-red": {
-                    backgroundColor: "#fee2e2 !important",
+                    backgroundColor: (theme.palette.mode === "dark" ? "rgba(220,38,38,0.18)" : "#fee2e2") + " !important",
                     borderLeft: "5px solid #dc2626 !important",
                     "&:hover": {
-                      backgroundColor: "#fecaca !important",
+                      backgroundColor: (theme.palette.mode === "dark" ? "rgba(220,38,38,0.28)" : "#fecaca") + " !important",
                     },
                   },
                   "& .MuiDataGrid-cell": {
@@ -828,8 +827,8 @@ export default function Doctors() {
                   "& .MuiDataGrid-columnHeaders": {
                     bgcolor: "rgba(0,0,0,0.01)",
                     borderRadius: 0,
-                    borderBottom: "1px solid rgba(0,0,0,0.08)",
-                    color: "#111827",
+                    borderBottom: "1px solid rgba(128,128,128,0.2)",
+                    color: "text.primary",
                     fontWeight: 600,
                     fontSize: "14px",
                   },

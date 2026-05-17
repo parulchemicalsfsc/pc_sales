@@ -68,6 +68,9 @@ interface Order {
   customer_id: number;
   customer_name?: string;
   customer_mobile?: string;
+  village?: string;
+  mobile?: string;
+  buyer_type?: string;
   sale_date: string;
   total_amount: number;
   total_liters: number;
@@ -102,6 +105,7 @@ export default function OrderManagement() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [statusFilter, setStatusFilter] = useState("all");
+  const [buyerTypeFilter, setBuyerTypeFilter] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -144,24 +148,27 @@ export default function OrderManagement() {
         console.error("Error fetching customers:", customersResult.reason?.response?.data?.detail || customersResult.reason?.message);
       }
 
-      // Map customer data to sales
+      // The backend GET /api/sales already enriches each sale with
+      // customer_name, village, mobile — use those directly.
+      // Fall back to the customers map only when buyer_type === 'customer'
+      // and customer_name is missing (shouldn't normally happen).
       const customersMap = new Map<number, Customer>(
         customersData.map((c: Customer) => [c.customer_id, c]),
       );
 
-      const ordersData = salesData.map(
-        (sale: any) => {
-          const customer =
-            customersMap.get(sale.customer_id) || ({} as Customer);
-          return {
-            ...sale,
-            customer_name: customer.name || "Unknown",
-            customer_mobile: customer.mobile || "N/A",
-            order_status: sale.order_status || "pending",
-            shipment_status: sale.shipment_status || "not_shipped",
-          };
-        },
-      );
+      const ordersData = salesData.map((sale: any) => {
+        // Use backend-resolved name if present, else fall back to customers map
+        const fallback = customersMap.get(sale.customer_id) || ({} as Customer);
+        return {
+          ...sale,
+          customer_name:
+            sale.customer_name || fallback.name || "Unknown",
+          customer_mobile:
+            sale.mobile || sale.customer_mobile || fallback.mobile || "N/A",
+          order_status: sale.order_status || "pending",
+          shipment_status: sale.shipment_status || "not_shipped",
+        };
+      });
 
       setOrders(ordersData);
       setCustomers(customersData);
@@ -546,7 +553,12 @@ export default function OrderManagement() {
     const matchesStatus =
       statusFilter === "all" || order.shipment_status === statusFilter;
 
-    return matchesSearch && matchesStatus;
+    const matchesBuyerType =
+      buyerTypeFilter === "all" ||
+      (order as any).buyer_type === buyerTypeFilter ||
+      (!(order as any).buyer_type && buyerTypeFilter === "customer");
+
+    return matchesSearch && matchesStatus && matchesBuyerType;
   });
 
   const getStatusStats = () => {
@@ -721,7 +733,7 @@ export default function OrderManagement() {
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={5}>
             <TextField
               fullWidth
               placeholder={t("orderManagement.searchPlaceholder", "Search by invoice, customer name, or mobile...")}
@@ -734,7 +746,23 @@ export default function OrderManagement() {
               }}
             />
           </Grid>
-
+          <Grid item xs={12} md={4}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Customer Type</InputLabel>
+              <Select
+                value={buyerTypeFilter}
+                label="Customer Type"
+                onChange={(e) => setBuyerTypeFilter(e.target.value)}
+              >
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="customer">Sabhasad</MenuItem>
+                <MenuItem value="mantri">Mantri</MenuItem>
+                <MenuItem value="doctor">Doctor</MenuItem>
+                <MenuItem value="shopkeeper">Shopkeeper</MenuItem>
+                <MenuItem value="field_officer">Field Officer</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
         </Grid>
       </Paper>
 
@@ -742,12 +770,12 @@ export default function OrderManagement() {
       <TableContainer component={Paper} sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
-            <TableRow sx={{ bgcolor: "grey.100" }}>
+            <TableRow sx={{ bgcolor: "action.hover" }}>
               <TableCell>
                 <strong>{t("fields.invoice_no", "Invoice No")}</strong>
               </TableCell>
               <TableCell>
-                <strong>{t("customers.title", "Sabhasad")}</strong>
+                <strong>Customer</strong>
               </TableCell>
               <TableCell>
                 <strong>{t("orderManagement.orderDate", "Order Date")}</strong>
@@ -779,12 +807,41 @@ export default function OrderManagement() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      {order.customer_name}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {order.customer_mobile}
-                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography variant="body2" fontWeight="medium">
+                          {order.customer_name}
+                        </Typography>
+                        {(order as any).buyer_type && (order as any).buyer_type !== 'customer' && (() => {
+                          const badgeColor: Record<string, 'warning' | 'info' | 'success' | 'error' | 'secondary'> = {
+                            mantri: 'warning',
+                            distributor: 'info',
+                            doctor: 'success',
+                            shopkeeper: 'error',
+                            field_officer: 'secondary',
+                          };
+                          const badgeLabel: Record<string, string> = {
+                            mantri: 'Mantri',
+                            distributor: 'Distributor',
+                            doctor: 'Doctor',
+                            shopkeeper: 'Shopkeeper',
+                            field_officer: 'Field Officer',
+                          };
+                          const bt = (order as any).buyer_type;
+                          return (
+                            <Chip
+                              label={badgeLabel[bt] || bt}
+                              size="small"
+                              color={badgeColor[bt] || 'default'}
+                              sx={{ fontSize: '0.6rem', height: 16 }}
+                            />
+                          );
+                        })()}
+                      </Box>
+                      <Typography variant="caption" color="textSecondary">
+                        {order.customer_mobile}
+                      </Typography>
+                    </Box>
                   </TableCell>
                   <TableCell>
                     {new Date(order.sale_date).toLocaleDateString()}

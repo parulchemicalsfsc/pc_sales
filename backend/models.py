@@ -80,7 +80,11 @@ class SaleItem(BaseModel):
 
 
 class SaleCreate(BaseModel):
-    customer_id: int
+    customer_id: Optional[int] = None       # Set for Customer / Field Officer sales
+    distributor_id: Optional[int] = None    # Set for Distributor / Mantri sales
+    doctor_id: Optional[int] = None         # Set for Doctor sales
+    shopkeeper_id: Optional[int] = None     # Set for Shopkeeper sales
+    buyer_type: Optional[str] = "customer"  # 'customer' | 'distributor' | 'mantri' | 'doctor' | 'shopkeeper' | 'field_officer'
     invoice_no: Optional[str] = None
     sale_date: str
     items: List[SaleItem]
@@ -113,8 +117,11 @@ class Payment(BaseModel):
 
 class Demo(BaseModel):
     demo_id: Optional[int] = None
-    customer_id: int
+    buyer_type: Optional[str] = "customer"
+    customer_id: Optional[int] = None
     distributor_id: Optional[int] = None
+    doctor_id: Optional[int] = None
+    shopkeeper_id: Optional[int] = None
     demo_date: str
     demo_time: str
     product_id: int
