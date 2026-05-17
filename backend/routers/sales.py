@@ -160,15 +160,34 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
         if not sales_response.data:
             return []
 
-        # Get all customers
-        customers_response = (
-            db.table("customers").select("customer_id, name, village").limit(10000).execute()
-        )
-        customers_dict = (
-            {c["customer_id"]: c for c in customers_response.data}
-            if customers_response.data
-            else {}
-        )
+        def fetch_all(table, select="*"):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                resp = q.execute()
+                if not resp.data: break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch: break
+                offset += batch
+            return all_rows
+
+        customers_list = fetch_all("customers", "customer_id, name, village")
+        customers_dict = {c["customer_id"]: c for c in customers_list}
+        
+        distributors_list = fetch_all("distributors", "distributor_id, name, mantri_name, village")
+        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
+
+        try:
+            doctors_list = fetch_all("doctors", "doctor_id, name, village")
+            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
+        except: doctors_dict = {}
+
+        try:
+            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village")
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
+        except: shopkeepers_dict = {}
 
         # Get all products for summary
         products_response = db.table("products").select("product_id, product_name").limit(10000).execute()
@@ -256,16 +275,42 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 except Exception as e:
                     print(f"Error parsing payment terms for sale {sale_id}: {e}")
             
-            # Return all sales that have a pending balance, regardless of due date terms, 
-            # so early payments can be recorded and totals match the global dashboard.
-            customer = customers_dict.get(customer_id, {})
+            buyer_type = sale.get("buyer_type")
+            if not buyer_type:
+                if sale.get("doctor_id"): buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"): buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"): buyer_type = "distributor"
+                else: buyer_type = "customer"
+
+            name, village = "Unknown", ""
+            if buyer_type == "mantri" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("mantri_name") or entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "distributor" and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+
             result.append(
                     {
                         "sale_id": sale_id,
                         "invoice_no": sale.get("invoice_no"),
                         "sale_date": sale.get("sale_date"),
-                        "customer_name": customer.get("name"),
-                        "village": customer.get("village"),
+                        "customer_name": name,
+                        "village": village,
                         "total_amount": total_amount,
                         "paid_amount": paid_amount,
                         "pending_amount": pending_amount,
