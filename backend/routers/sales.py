@@ -173,19 +173,19 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 offset += batch
             return all_rows
 
-        customers_list = fetch_all("customers", "customer_id, name, village")
+        customers_list = fetch_all("customers")
         customers_dict = {c["customer_id"]: c for c in customers_list}
         
-        distributors_list = fetch_all("distributors", "distributor_id, name, mantri_name, village")
+        distributors_list = fetch_all("distributors")
         distributors_dict = {d["distributor_id"]: d for d in distributors_list}
 
         try:
-            doctors_list = fetch_all("doctors", "doctor_id, name, village")
+            doctors_list = fetch_all("doctors")
             doctors_dict = {d["doctor_id"]: d for d in doctors_list}
         except: doctors_dict = {}
 
         try:
-            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village")
+            shopkeepers_list = fetch_all("shopkeepers")
             shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
         except: shopkeepers_dict = {}
 

@@ -29,13 +29,13 @@ def fetch_all(db: SupabaseClient, table: str, select: str = "*"):
     return all_rows
 
 def get_entity_dicts(db: SupabaseClient):
-    customers = {c["customer_id"]: c for c in fetch_all(db, "customers", "customer_id, name, mobile")}
+    customers = {c["customer_id"]: c for c in fetch_all(db, "customers")}
     distributors = {d["distributor_id"]: d for d in fetch_all(db, "distributors")}
     try:
-        doctors = {d["doctor_id"]: d for d in fetch_all(db, "doctors", "doctor_id, name, mantri_mobile")}
+        doctors = {d["doctor_id"]: d for d in fetch_all(db, "doctors")}
     except: doctors = {}
     try:
-        shopkeepers = {s["shopkeeper_id"]: s for s in fetch_all(db, "shopkeepers", "shopkeeper_id, name, mantri_mobile")}
+        shopkeepers = {s["shopkeeper_id"]: s for s in fetch_all(db, "shopkeepers")}
     except: shopkeepers = {}
     return customers, distributors, doctors, shopkeepers
 
