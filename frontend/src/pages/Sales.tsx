@@ -1245,22 +1245,26 @@ export default function Sales() {
                   </Grid>
 
                   {/* Customer Data Preview (Read-only) for Existing Customer */}
-                  {formData.customer_id > 0 && customerCategory === "Sabhasad" && (() => {
-                    const cust = customers.find(c => c.customer_id === formData.customer_id);
-                    if (!cust) return null;
+                  {formData.customer_id > 0 && (() => {
+                    let entityDetails = null;
+                    if (customerCategory === "Sabhasad") {
+                      entityDetails = customers.find(c => c.customer_id === formData.customer_id);
+                    } else if (customerCategory === "Mantri" || customerCategory === "Distributor") {
+                      entityDetails = distributors.find(d => d.distributor_id === formData.customer_id);
+                    } else if (customerCategory === "Doctor") {
+                      entityDetails = doctors.find(d => d.doctor_id === formData.customer_id);
+                    } else if (customerCategory === "Shopkeeper") {
+                      entityDetails = shopkeepers.find(s => s.shopkeeper_id === formData.customer_id);
+                    }
+                    
+                    if (!entityDetails) return null;
                     return (
                       <>
                         <Grid item xs={12} sm={6}>
-                          <TextField fullWidth disabled label="Mobile" value={cust.mobile || ""} />
+                          <TextField fullWidth disabled label="Mobile" value={entityDetails.mobile || entityDetails.mantri_mobile || ""} />
                         </Grid>
-                        <Grid item xs={12} sm={4}>
-                          <TextField fullWidth disabled label="Village" value={cust.village || ""} />
-                        </Grid>
-                        <Grid item xs={12} sm={4}>
-                          <TextField fullWidth disabled label="Taluka" value={cust.taluka || ""} />
-                        </Grid>
-                        <Grid item xs={12} sm={4}>
-                          <TextField fullWidth disabled label="District" value={cust.district || ""} />
+                        <Grid item xs={12} sm={6}>
+                          <TextField fullWidth disabled label="Village" value={entityDetails.village || ""} />
                         </Grid>
                       </>
                     );
