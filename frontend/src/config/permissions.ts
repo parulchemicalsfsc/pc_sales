@@ -98,6 +98,10 @@ export const PERMISSIONS = {
     MANAGE_LEADS: "manage_leads",
     WORK_LEADS: "work_leads",
     VIEW_LEAD_DASHBOARD: "view_lead_dashboard",
+
+    // Reviews
+    VIEW_REVIEWS: "view_reviews",
+    DELETE_REVIEWS: "delete_reviews",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];

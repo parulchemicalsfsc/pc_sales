@@ -11,10 +11,12 @@ import {
   Edit as EditIcon, CheckCircle as CheckCircleIcon, Cancel as CancelIcon,
   Assignment as AssignmentIcon, Comment as CommentIcon, History as HistoryIcon,
   Warning as WarningIcon, Save as SaveIcon, Close as CloseIcon,
-  Refresh as RefreshIcon,
+  Refresh as RefreshIcon, Download as DownloadIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
-import { leadsService, Lead, LeadActivity } from "../services/leadsService";
+import { leadsService, Lead, LeadActivity, Quotation } from "../services/leadsService";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const STATUS_COLOR: Record<string, string> = {
   Unassigned: "#9e9e9e", Assigned: "#2196f3",
@@ -30,6 +32,7 @@ const ACTIVITY_ICON: Record<string, React.ReactNode> = {
   "Manager Note": <CommentIcon sx={{ fontSize: 15 }} />,
   Assignment: <AssignmentIcon sx={{ fontSize: 15 }} />,
   "Status Change": <HistoryIcon sx={{ fontSize: 15 }} />,
+  Quotation: <AssignmentIcon sx={{ fontSize: 15 }} />,
 };
 
 const REJECTION_REASONS = [
@@ -81,6 +84,19 @@ export default function LeadWorkspace() {
   const [statusFilter, setStatusFilter] = useState("All");
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Quotation (RFQ) state
+  const [activeTab, setActiveTab] = useState<"details" | "quotation">("details");
+  const [quotation, setQuotation] = useState<Partial<Quotation>>({
+    quantity: 0,
+    material: "",
+    unit_price: 0,
+    total_value: 0,
+    delivery_time: "",
+    payment_terms: "50% Advance, 50% on Dispatch",
+    notes: ""
+  });
+  const [quotationLoading, setQuotationLoading] = useState(false);
 
   // Edit info
   const [editOpen, setEditOpen] = useState(false);
@@ -139,7 +155,24 @@ export default function LeadWorkspace() {
 
   const selectLead = async (lead: Lead) => {
     setSelected(lead);
+    setActiveTab("details");
     await loadActivities(lead.lead_id);
+    
+    if (lead.source_website === "psi" || lead.source_website === "press_stamping_industries" || lead.source_website === "press stamping industries") {
+      try {
+        const qRes = await leadsService.getQuotation(lead.lead_id);
+        if (qRes.data) {
+          setQuotation(qRes.data);
+        } else {
+          setQuotation({
+            quantity: 0, material: "", unit_price: 0, total_value: 0,
+            delivery_time: "", payment_terms: "50% Advance, 50% on Dispatch", notes: ""
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
   };
 
   const refreshSelected = async () => {
@@ -148,6 +181,93 @@ export default function LeadWorkspace() {
     setSelected(res.data);
     await loadActivities(selected.lead_id);
     await loadLeads();
+
+    if (res.data.source_website === "psi" || res.data.source_website === "press_stamping_industries" || res.data.source_website === "press stamping industries") {
+      try {
+        const qRes = await leadsService.getQuotation(res.data.lead_id);
+        if (qRes.data) {
+          setQuotation(qRes.data);
+        }
+      } catch (e) { console.error(e); }
+    }
+  };
+
+  const handleQuotationChange = (field: keyof Quotation, value: any) => {
+    setQuotation((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "quantity" || field === "unit_price") {
+        next.total_value = (Number(next.quantity) || 0) * (Number(next.unit_price) || 0);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveQuotation = async (downloadPDF = false) => {
+    if (!selected) return;
+    setQuotationLoading(true);
+    try {
+      await leadsService.upsertQuotation(selected.lead_id, quotation);
+      setSuccess("Quotation saved successfully");
+      await loadActivities(selected.lead_id); // Refresh timeline
+      if (downloadPDF) {
+        generatePDF();
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to save quotation");
+    } finally {
+      setQuotationLoading(false);
+    }
+  };
+
+  const generatePDF = () => {
+    if (!selected) return;
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.text("QUOTATION", 14, 22);
+    
+    doc.setFontSize(10);
+    doc.text(`Date: ${new Date().toLocaleDateString("en-IN")}`, 14, 30);
+    doc.text(`Reference: ${selected.lead_id}`, 14, 35);
+    
+    // Customer Info
+    doc.setFontSize(12);
+    doc.text("To:", 14, 50);
+    doc.setFontSize(10);
+    doc.text(selected.company_name || selected.full_name, 14, 55);
+    doc.text(selected.email || "", 14, 60);
+    doc.text(selected.phone || "", 14, 65);
+    
+    // Table
+    autoTable(doc, {
+      startY: 75,
+      head: [['Description', 'Material', 'Quantity', 'Unit Price', 'Total']],
+      body: [
+        [
+          selected.product_interest || "Product", 
+          quotation.material || "-", 
+          (quotation.quantity || 0).toString(), 
+          `Rs. ${quotation.unit_price || 0}`, 
+          `Rs. ${quotation.total_value || 0}`
+        ],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [33, 150, 243] }
+    });
+    
+    // Terms
+    const finalY = (doc as any).lastAutoTable.finalY || 100;
+    doc.setFontSize(11);
+    doc.text("Terms & Conditions", 14, finalY + 15);
+    doc.setFontSize(10);
+    doc.text(`Delivery Time: ${quotation.delivery_time || "-"}`, 14, finalY + 22);
+    doc.text(`Payment Terms: ${quotation.payment_terms || "-"}`, 14, finalY + 27);
+    if (quotation.notes) {
+      doc.text(`Notes: ${quotation.notes}`, 14, finalY + 32);
+    }
+    
+    doc.save(`Quotation_${selected.lead_id}.pdf`);
   };
 
   const handleLogActivity = async () => {
@@ -391,61 +511,148 @@ export default function LeadWorkspace() {
                 </Alert>
               )}
 
-              <Grid container spacing={2} mb={2}>
-                {/* Customer info */}
-                <Grid item xs={12} md={5}>
-                  <Card variant="outlined" sx={{ height: "100%" }}>
+              {/* TABS (Only if PSI) */}
+              {(selected.source_website === "psi" || selected.source_website === "press_stamping_industries" || selected.source_website === "press stamping industries") && (
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                  <Button variant={activeTab === "details" ? "contained" : "text"} 
+                    onClick={() => setActiveTab("details")} sx={{ borderRadius: "4px 4px 0 0", disableElevation: true }}>
+                    Details
+                  </Button>
+                  <Button variant={activeTab === "quotation" ? "contained" : "text"} 
+                    onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1, disableElevation: true }}>
+                    Quotation (RFQ)
+                  </Button>
+                </Box>
+              )}
+
+              {activeTab === "details" ? (
+                <>
+                  <Grid container spacing={2} mb={2}>
+                    {/* Customer info */}
+                    <Grid item xs={12} md={5}>
+                      <Card variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent>
+                          <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">Contact Info</Typography>
+                          <Box mt={1} display="flex" flexDirection="column" gap={1}>
+                            {[
+                              { icon: <EmailIcon sx={{ fontSize: 15 }} />, val: selected.email },
+                              { icon: <PhoneIcon sx={{ fontSize: 15 }} />, val: selected.phone },
+                              { icon: <LanguageIcon sx={{ fontSize: 15 }} />, val: selected.country },
+                              { icon: <BusinessIcon sx={{ fontSize: 15 }} />, val: selected.product_interest },
+                            ].filter((i) => i.val).map((item, idx) => (
+                              <Box key={idx} display="flex" alignItems="center" gap={1}>
+                                <Box color="text.secondary">{item.icon}</Box>
+                                <Typography variant="body2">{item.val}</Typography>
+                              </Box>
+                            ))}
+                            {selected.message && (
+                              <Box mt={0.5}>
+                                <Typography variant="caption" color="text.secondary">Original Message</Typography>
+                                <Typography variant="body2" sx={{ fontStyle: "italic" }}>"{selected.message}"</Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+
+                    {/* Internal info */}
+                    <Grid item xs={12} md={7}>
+                      <Card variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent>
+                          <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">Lead Info</Typography>
+                          <Grid container spacing={1} mt={0.5}>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary">Source</Typography><Typography variant="body2">{selected.source_website}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary">Status</Typography><Typography variant="body2">{selected.status}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary">Follow-up Date</Typography><Typography variant="body2" color={isOverdue ? "error" : "inherit"}>{selected.follow_up_date || "—"}</Typography></Grid>
+                            <Grid item xs={6}><Typography variant="caption" color="text.secondary">Received</Typography><Typography variant="body2">{new Date(selected.created_at).toLocaleDateString("en-IN")}</Typography></Grid>
+                          </Grid>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  </Grid>
+
+                  {/* Activity Timeline */}
+                  <Card>
                     <CardContent>
-                      <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">Contact Info</Typography>
-                      <Box mt={1} display="flex" flexDirection="column" gap={1}>
-                        {[
-                          { icon: <EmailIcon sx={{ fontSize: 15 }} />, val: selected.email },
-                          { icon: <PhoneIcon sx={{ fontSize: 15 }} />, val: selected.phone },
-                          { icon: <LanguageIcon sx={{ fontSize: 15 }} />, val: selected.country },
-                          { icon: <BusinessIcon sx={{ fontSize: 15 }} />, val: selected.product_interest },
-                        ].filter((i) => i.val).map((item, idx) => (
-                          <Box key={idx} display="flex" alignItems="center" gap={1}>
-                            <Box color="text.secondary">{item.icon}</Box>
-                            <Typography variant="body2">{item.val}</Typography>
-                          </Box>
-                        ))}
-                        {selected.message && (
-                          <Box mt={0.5}>
-                            <Typography variant="caption" color="text.secondary">Original Message</Typography>
-                            <Typography variant="body2" sx={{ fontStyle: "italic" }}>"{selected.message}"</Typography>
-                          </Box>
-                        )}
-                      </Box>
+                      <Typography variant="subtitle2" fontWeight={700} mb={2}>Activity Timeline</Typography>
+                      {activitiesLoading ? <CircularProgress size={20} /> :
+                        activities.length === 0 ? <Typography color="text.secondary" variant="body2">No activities yet — log your first interaction above</Typography> :
+                          activities.map((a) => <TimelineEntry key={a.activity_id} act={a} />)
+                      }
                     </CardContent>
                   </Card>
-                </Grid>
-
-                {/* Internal info */}
-                <Grid item xs={12} md={7}>
-                  <Card variant="outlined" sx={{ height: "100%" }}>
-                    <CardContent>
-                      <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">Lead Info</Typography>
-                      <Grid container spacing={1} mt={0.5}>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Source</Typography><Typography variant="body2">{selected.source_website}</Typography></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Status</Typography><Typography variant="body2">{selected.status}</Typography></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Follow-up Date</Typography><Typography variant="body2" color={isOverdue ? "error" : "inherit"}>{selected.follow_up_date || "—"}</Typography></Grid>
-                        <Grid item xs={6}><Typography variant="caption" color="text.secondary">Received</Typography><Typography variant="body2">{new Date(selected.created_at).toLocaleDateString("en-IN")}</Typography></Grid>
+                </>
+              ) : (
+                <Card sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Typography variant="subtitle2" fontWeight={700} mb={2}>Quotation Details</Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <TextField label="Quantity" type="number" fullWidth size="small" 
+                          value={quotation.quantity || ""} disabled={isClosed}
+                          onChange={(e) => handleQuotationChange("quantity", Number(e.target.value))} />
                       </Grid>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-
-              {/* Activity Timeline */}
-              <Card>
-                <CardContent>
-                  <Typography variant="subtitle2" fontWeight={700} mb={2}>Activity Timeline</Typography>
-                  {activitiesLoading ? <CircularProgress size={20} /> :
-                    activities.length === 0 ? <Typography color="text.secondary" variant="body2">No activities yet — log your first interaction above</Typography> :
-                      activities.map((a) => <TimelineEntry key={a.activity_id} act={a} />)
-                  }
-                </CardContent>
-              </Card>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Material</InputLabel>
+                          <Select value={quotation.material || ""} label="Material" disabled={isClosed}
+                            onChange={(e) => handleQuotationChange("material", e.target.value)}>
+                            <MenuItem value="Mild Steel (MS)">Mild Steel (MS)</MenuItem>
+                            <MenuItem value="Stainless Steel (SS)">Stainless Steel (SS)</MenuItem>
+                            <MenuItem value="Aluminium">Aluminium</MenuItem>
+                            <MenuItem value="Galvanized Steel">Galvanized Steel</MenuItem>
+                            <MenuItem value="Copper / Brass">Copper / Brass</MenuItem>
+                            <MenuItem value="Custom / Other">Custom / Other</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField label="Unit Price (Rs)" type="number" fullWidth size="small" 
+                          value={quotation.unit_price || ""} disabled={isClosed}
+                          onChange={(e) => handleQuotationChange("unit_price", Number(e.target.value))} />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField label="Total Value (Rs)" type="number" fullWidth size="small" 
+                          value={quotation.total_value || ""} disabled />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField label="Delivery Time" fullWidth size="small" 
+                          value={quotation.delivery_time || ""} disabled={isClosed}
+                          onChange={(e) => handleQuotationChange("delivery_time", e.target.value)} />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Payment Terms</InputLabel>
+                          <Select value={quotation.payment_terms || ""} label="Payment Terms" disabled={isClosed}
+                            onChange={(e) => handleQuotationChange("payment_terms", e.target.value)}>
+                            <MenuItem value="50% Advance, 50% on Dispatch">50% Advance, 50% on Dispatch</MenuItem>
+                            <MenuItem value="100% Advance">100% Advance</MenuItem>
+                            <MenuItem value="30 Days Credit">30 Days Credit</MenuItem>
+                            <MenuItem value="60 Days Credit">60 Days Credit</MenuItem>
+                            <MenuItem value="LC at Sight">LC at Sight</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField label="Internal Notes" multiline rows={3} fullWidth size="small" 
+                          value={quotation.notes || ""} disabled={isClosed}
+                          onChange={(e) => handleQuotationChange("notes", e.target.value)} />
+                      </Grid>
+                    </Grid>
+                    <Box mt={2} display="flex" justifyContent="flex-end" gap={1}>
+                      {!isClosed && (
+                        <Button variant="outlined" startIcon={<SaveIcon />} disabled={quotationLoading} onClick={() => handleSaveQuotation(false)}>
+                          Save Details
+                        </Button>
+                      )}
+                      <Button variant="contained" color={isClosed ? "primary" : "secondary"} startIcon={<DownloadIcon />} disabled={quotationLoading} onClick={() => isClosed ? generatePDF() : handleSaveQuotation(true)}>
+                        {isClosed ? "Download PDF" : "Save & Generate PDF"}
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              )}
             </Box>
           )}
         </Grid>
