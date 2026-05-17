@@ -348,7 +348,7 @@ export default function LeadWorkspace() {
     } finally { setCloseLoading(false); }
   };
 
-  const isClosed = selected && ["Converted", "Rejected"].includes(selected.status);
+  const isClosed = selected ? ["Converted", "Rejected"].includes(selected.status) : false;
   const isOverdue = selected?.follow_up_date && selected.follow_up_date < today && !isClosed;
 
   const filteredLeads = myLeads.filter(lead => {
@@ -514,12 +514,12 @@ export default function LeadWorkspace() {
               {/* TABS (Only if PSI) */}
               {(selected.source_website === "psi" || selected.source_website === "press_stamping_industries" || selected.source_website === "press stamping industries") && (
                 <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-                  <Button variant={activeTab === "details" ? "contained" : "text"} 
-                    onClick={() => setActiveTab("details")} sx={{ borderRadius: "4px 4px 0 0", disableElevation: true }}>
+                  <Button variant={activeTab === "details" ? "contained" : "text"} disableElevation
+                    onClick={() => setActiveTab("details")} sx={{ borderRadius: "4px 4px 0 0" }}>
                     Details
                   </Button>
-                  <Button variant={activeTab === "quotation" ? "contained" : "text"} 
-                    onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1, disableElevation: true }}>
+                  <Button variant={activeTab === "quotation" ? "contained" : "text"} disableElevation
+                    onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1 }}>
                     Quotation (RFQ)
                   </Button>
                 </Box>
