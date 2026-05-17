@@ -774,12 +774,31 @@ def get_admin_assignments(
         for row in (all_res.data or []):
             email = row["user_email"]
             if email not in telecaller_summary:
-                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0}
+                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0, "conversions": 0}
             telecaller_summary[email]["total"] += 1
             if row["status"] == "Pending":
                 telecaller_summary[email]["pending"] += 1
             else:
                 telecaller_summary[email]["called"] += 1
+
+        # Conversions (Sales created today) per telecaller
+        try:
+            conversions_res = db.table("activity_logs") \
+                .select("user_email") \
+                .eq("action_type", "CREATE") \
+                .eq("entity_type", "sale") \
+                .gte("created_at", f"{d}T00:00:00") \
+                .lte("created_at", f"{d}T23:59:59") \
+                .execute()
+            
+            for row in (conversions_res.data or []):
+                email = row.get("user_email")
+                if email:
+                    if email not in telecaller_summary:
+                        telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0, "conversions": 0}
+                    telecaller_summary[email]["conversions"] = telecaller_summary[email].get("conversions", 0) + 1
+        except Exception as ce:
+            logger.warning(f"Failed to fetch conversions for telecaller summary: {ce}")
 
         return {
             "assignments": enhanced,
