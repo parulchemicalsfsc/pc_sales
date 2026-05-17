@@ -783,13 +783,23 @@ def get_admin_assignments(
 
         # Conversions (Sales created today) per telecaller
         try:
+            # activity_logs stores created_at in UTC, so convert IST day boundaries to UTC
+            # IST is UTC+5:30, so IST midnight = UTC previous day 18:30
+            ist = pytz.timezone('Asia/Kolkata')
+            ist_start = ist.localize(datetime.strptime(f"{d} 00:00:00", "%Y-%m-%d %H:%M:%S"))
+            ist_end = ist.localize(datetime.strptime(f"{d} 23:59:59", "%Y-%m-%d %H:%M:%S"))
+            utc_start = ist_start.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            utc_end = ist_end.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
             conversions_res = db.table("activity_logs") \
                 .select("user_email") \
                 .eq("action_type", "CREATE") \
                 .eq("entity_type", "sale") \
-                .gte("created_at", f"{d}T00:00:00") \
-                .lte("created_at", f"{d}T23:59:59") \
+                .gte("created_at", utc_start) \
+                .lte("created_at", utc_end) \
                 .execute()
+            
+            logger.info(f"[CONVERSIONS] Query range UTC: {utc_start} to {utc_end}, found {len(conversions_res.data or [])} rows")
             
             for row in (conversions_res.data or []):
                 email = row.get("user_email")
