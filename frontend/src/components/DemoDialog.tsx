@@ -92,7 +92,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
       return distributors.map(d => ({ id: d.distributor_id, label: `${d.mantri_name} (${d.village})`, name: d.mantri_name, village: d.village }));
     }
     if (buyerType === "distributor") {
-      return distributors.map(d => ({ id: d.distributor_id, label: `${d.name} (${d.village})`, name: d.name, village: d.village }));
+      return distributors.map(d => ({ id: d.distributor_id, label: `${d.mantri_name || d.mantri_name || ''} (${d.village})`, name: d.mantri_name || '', village: d.village || '' }));
     }
     if (buyerType === "doctor") {
       return doctors.map(d => ({ id: d.doctor_id, label: `${d.name} (${d.village})`, name: d.name, village: d.village }));

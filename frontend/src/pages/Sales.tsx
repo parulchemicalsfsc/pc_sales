@@ -140,7 +140,7 @@ export default function Sales() {
         setFormData(prev => ({ ...prev, customer_id: state.customerId }));
         const cust = customers.find(c => c.customer_id === state.customerId);
         if (cust) {
-          setSelectedEntity({ name: cust.name, village: cust.village, mobile: cust.mobile });
+          setSelectedEntity({ name: cust.name || '', village: cust.village || '', mobile: cust.mobile || '' });
         }
       }
       // clear the state so it doesn't reopen on refresh
