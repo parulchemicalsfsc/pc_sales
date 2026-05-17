@@ -463,22 +463,15 @@ export default function Sales() {
   // Build the entity options list based on selected category
   const getEntityOptions = () => {
     if (customerCategory === "Mantri") {
-      const mantriMap = new Map<string, any>();
-      distributors.forEach((d: any) => {
-        if (d.mantri_name) {
-          const key = `${d.mantri_name}-${d.mantri_mobile || ''}`;
-          if (!mantriMap.has(key)) {
-            mantriMap.set(key, {
-              id: d.distributor_id,
-              label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
-              name: d.mantri_name,
-              village: d.village || '',
-              mobile: d.mantri_mobile || d.mobile || '',
-            });
-          }
-        }
-      });
-      return Array.from(mantriMap.values());
+      return distributors
+        .filter((d: any) => d.mantri_name)
+        .map((d: any) => ({
+          id: d.distributor_id,
+          label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
+          name: d.mantri_name,
+          village: d.village || '',
+          mobile: d.mantri_mobile || d.mobile || '',
+        }));
     } else if (customerCategory === "Doctor") {
       return doctors.map((d: any) => ({
         id: d.doctor_id,
