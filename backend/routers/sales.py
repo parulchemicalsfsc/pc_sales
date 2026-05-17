@@ -45,6 +45,15 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         if not sales:
             return []
 
+        # ── Diagnostic: show actual columns present in the sales table ──
+        if sales:
+            actual_cols = set(sales[0].keys())
+            for expected_col in ("buyer_type", "distributor_id", "doctor_id", "shopkeeper_id"):
+                if expected_col not in actual_cols:
+                    print(f"[GET /sales] ⚠️  Column '{expected_col}' MISSING from sales table. "
+                          f"Run database/migrations/add_doctor_shopkeeper_buyer_type.sql in Supabase.")
+            print(f"[GET /sales] Actual sales columns: {sorted(actual_cols)}")
+
         # Fetch ALL customers, distributors, doctors, shopkeepers via pagination
         customers_list = fetch_all("customers", "customer_id, name, village, mobile")
         customers_dict = {c["customer_id"]: c for c in customers_list}
@@ -53,23 +62,40 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
         distributors_dict = {d["distributor_id"]: d for d in distributors_list}
 
         # Fetch doctors and shopkeepers (graceful fallback if table missing)
+        # NOTE: doctors/shopkeepers tables use 'mantri_mobile', not 'mobile'
         try:
-            doctors_list = fetch_all("doctors", "doctor_id, name, village, mobile")
+            doctors_list = fetch_all("doctors", "doctor_id, name, village, mantri_mobile")
             doctors_dict = {d["doctor_id"]: d for d in doctors_list}
-        except Exception:
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch doctors: {e}")
             doctors_dict = {}
 
         try:
-            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village, mobile")
+            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village, mantri_mobile")
             shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
-        except Exception:
+        except Exception as e:
+            print(f"[GET /sales] ⚠️  Could not fetch shopkeepers: {e}")
             shopkeepers_dict = {}
 
-        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, {len(distributors_dict)} distributors, {len(doctors_dict)} doctors, {len(shopkeepers_dict)} shopkeepers")
+        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, "
+              f"{len(distributors_dict)} distributors, {len(doctors_dict)} doctors, "
+              f"{len(shopkeepers_dict)} shopkeepers")
 
         result = []
         for sale in sales:
-            buyer_type = sale.get("buyer_type", "customer")
+            # Infer buyer_type if column is missing from DB or NULL
+            raw_buyer_type = sale.get("buyer_type")
+            if not raw_buyer_type:
+                # Fallback: guess from which FK column is set
+                if sale.get("doctor_id"):
+                    raw_buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"):
+                    raw_buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"):
+                    raw_buyer_type = "distributor"
+                else:
+                    raw_buyer_type = "customer"
+            buyer_type = raw_buyer_type
             if buyer_type == "mantri" and sale.get("distributor_id"):
                 # Mantri: name stored in mantri_name field on the distributor row
                 entity = distributors_dict.get(sale["distributor_id"], {})
@@ -97,7 +123,7 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                     **sale,
                     "customer_name": entity.get("name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mobile", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
@@ -105,7 +131,7 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                     **sale,
                     "customer_name": entity.get("name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mobile", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             else:
                 entity = customers_dict.get(sale.get("customer_id"), {})
