@@ -103,6 +103,7 @@ const TOP_LEVEL_ROUTES = new Set([
   "/lead-dashboard",
   "/leads",
   "/lead-workspace",
+  "/reviews",
 ]);
 
 interface LayoutProps {
@@ -254,6 +255,13 @@ const navigationItems: NavItem[] = [
     labelKey: "nav.chat",
     icon: <ChatIcon />,
     path: "/chat",
+  },
+  {
+    id: "reviews",
+    labelKey: "nav.reviews",
+    icon: <AssessmentIcon />, // Reusing an icon for now, could be something else
+    path: "/reviews",
+    permission: PERMISSIONS.VIEW_REVIEWS,
   },
   {
     id: "activity",

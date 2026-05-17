@@ -25,7 +25,8 @@
     "leadDashboard": "Lead Dashboard",
     "leadPipeline": "Lead Pipeline",
     "leadWorkspace": "Lead Workspace",
-    "leadHistory": "All My Leads"
+    "leadHistory": "All My Leads",
+    "reviews": "Reviews"
   },
   "common": {
     "add": "Add",

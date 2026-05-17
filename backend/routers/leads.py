@@ -25,6 +25,9 @@ SOURCE_PREFIX_MAP = {
     "website_b": "WB",
     "website_c": "WC",
     "parul_chemicals": "PC",
+    "psi": "PS",
+    "press stamping industries": "PS",
+    "press_stamping_industries": "PS",
 }
 
 
@@ -649,3 +652,63 @@ def get_lead_owners(
         return {"owners": res.data or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching lead owners: {e}")
+
+
+# ─── QUOTATIONS ───────────────────────────────────────────────────────────────
+
+@router.get("/{lead_id}/quotation")
+def get_quotation(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Get the current quotation for a lead."""
+    try:
+        res = db.table("quotations").select("*").eq("lead_id", lead_id).execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quotation: {e}")
+
+
+@router.put("/{lead_id}/quotation", dependencies=[Depends(verify_permission("work_leads"))])
+def upsert_quotation(
+    lead_id: str,
+    payload: dict,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Upsert a quotation for a lead. Logs an activity."""
+    try:
+        # Verify lead exists
+        lead_res = db.table("leads").select("lead_id").eq("lead_id", lead_id).execute()
+        if not lead_res.data:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        allowed = {"quantity", "material", "unit_price", "total_value", "delivery_time", "payment_terms", "notes"}
+        update_data = {k: v for k, v in payload.items() if k in allowed}
+        update_data["lead_id"] = lead_id
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check if exists
+        existing = db.table("quotations").select("id").eq("lead_id", lead_id).execute()
+        if existing.data:
+            res = db.table("quotations").eq("lead_id", lead_id).update(update_data).execute()
+        else:
+            res = db.table("quotations").insert(update_data).execute()
+
+        # Log activity
+        qty = update_data.get('quantity') or 0
+        price = update_data.get('unit_price') or 0
+        total = update_data.get('total_value') or 0
+        summary = f"Generated quotation for {qty} units at ₹{price} (Total: ₹{total})"
+        
+        _log_lead_activity(
+            db, lead_id, "Quotation", summary,
+            logged_by=user_email, is_auto=True,
+        )
+
+        return res.data[0] if res.data else {}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error upserting quotation: {e}")

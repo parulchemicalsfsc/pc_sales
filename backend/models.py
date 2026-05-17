@@ -259,6 +259,24 @@ class Notification(BaseModel):
 
 
 # ======================
+# Reviews
+# ======================
+
+class Review(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    role: Optional[str] = None
+    content: Optional[str] = None
+    rating: Optional[int] = None
+    approved: Optional[bool] = False
+    date: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    stars: Optional[int] = 5
+    text: Optional[str] = None
+
+
+# ======================
 # Admin
 # ======================
 
