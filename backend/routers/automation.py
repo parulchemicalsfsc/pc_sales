@@ -803,9 +803,8 @@ def get_admin_assignments(
             
             for row in (conversions_res.data or []):
                 email = row.get("user_email")
-                if email:
-                    if email not in telecaller_summary:
-                        telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0, "conversions": 0}
+                # Only count conversions for actual telecallers (who have assignments today)
+                if email and email in telecaller_summary:
                     telecaller_summary[email]["conversions"] = telecaller_summary[email].get("conversions", 0) + 1
         except Exception as ce:
             logger.warning(f"Failed to fetch conversions for telecaller summary: {ce}")
