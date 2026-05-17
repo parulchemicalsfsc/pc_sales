@@ -787,17 +787,24 @@ def get_admin_assignments(
 
         # Conversions: count sales created today for distributors assigned to each telecaller
         try:
-            # 1. Get all distributor sales for today (sale_date is a simple date, no timezone issues)
+            # 1. Get ALL sales for today (avoid not_.is_ which may fail in some supabase-py versions)
             sales_res = db.table("sales") \
-                .select("distributor_id") \
+                .select("sale_id, distributor_id, sale_date, buyer_type") \
                 .eq("sale_date", d) \
-                .not_.is_("distributor_id", "null") \
                 .execute()
-            today_sale_dist_ids = set(
-                s["distributor_id"] for s in (sales_res.data or []) if s.get("distributor_id")
-            )
+            
+            all_today_sales = sales_res.data or []
+            logger.info(f"[CONVERSIONS] All sales for {d}: {len(all_today_sales)} total")
+            
+            # Filter to only distributor/mantri sales (distributor_id is not None/null)
+            today_sale_dist_ids = set()
+            for s in all_today_sales:
+                dist_id = s.get("distributor_id")
+                if dist_id is not None and dist_id != 0:
+                    today_sale_dist_ids.add(dist_id)
+                    logger.info(f"[CONVERSIONS] Sale {s.get('sale_id')}: distributor_id={dist_id}, buyer_type={s.get('buyer_type')}")
 
-            logger.info(f"[CONVERSIONS] Today ({d}): {len(today_sale_dist_ids)} distributor sales found, dist_ids={today_sale_dist_ids}")
+            logger.info(f"[CONVERSIONS] Distributor sales today: {len(today_sale_dist_ids)}, IDs: {today_sale_dist_ids}")
 
             if today_sale_dist_ids:
                 # 2. Get all assignments for today to map telecaller → distributor_ids
@@ -814,15 +821,19 @@ def get_admin_assignments(
                     if em and cid:
                         telecaller_dists.setdefault(em, set()).add(cid)
 
+                logger.info(f"[CONVERSIONS] Telecaller assignments: { {k: list(v)[:5] for k, v in telecaller_dists.items()} }")
+
                 # 3. Count how many of each telecaller's assigned distributors have sales today
                 for em, dist_ids in telecaller_dists.items():
                     conversions = len(today_sale_dist_ids & dist_ids)
                     if em in telecaller_summary and conversions > 0:
                         telecaller_summary[em]["conversions"] = conversions
-                        logger.info(f"[CONVERSIONS] {em}: {conversions} conversions (matched dist_ids: {today_sale_dist_ids & dist_ids})")
+                        logger.info(f"[CONVERSIONS] {em}: {conversions} conversions (matched: {today_sale_dist_ids & dist_ids})")
+            else:
+                logger.info(f"[CONVERSIONS] No distributor sales found for {d}")
 
         except Exception as ce:
-            logger.warning(f"Failed to fetch conversions for telecaller summary: {ce}")
+            logger.warning(f"Failed to fetch conversions for telecaller summary: {ce}", exc_info=True)
 
         return {
             "assignments": enhanced,
