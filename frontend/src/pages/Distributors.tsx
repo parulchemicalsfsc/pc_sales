@@ -137,6 +137,13 @@ export default function Distributors() {
       setLoading(true);
       setError(null);
       const data = await distributorAPI.getAll({ limit: 1000 });
+      
+      // TEMPORARY PHASE 3 LOGS
+      console.log(`🚀 [PHASE 3] Fetched Row Count: ${data?.length}`);
+      if (data?.length > 0) {
+        console.log("📦 [PHASE 3] First Resolved Row:", data[0]);
+      }
+
       setDistributors(data);
     } catch (err) {
       setError(
@@ -517,6 +524,34 @@ export default function Distributors() {
       align: "center",
       headerClassName: "multi-line-header",
       renderCell: (params) => <span>{displayValue(params.value)}</span>,
+    },
+    {
+      field: "is_redemo",
+      headerName: "REDEMO",
+      width: 120,
+      headerAlign: "center",
+      align: "center",
+      headerClassName: "multi-line-header",
+      renderCell: (params) => {
+        const isRedemo = params.value === true;
+        return (
+          <Chip
+            label={isRedemo ? "YES" : "NO"}
+            size="small"
+            sx={{
+              fontWeight: 700,
+              backgroundColor: isRedemo 
+                ? (isDarkMode ? "rgba(3,169,244,0.25)" : "#93C5FD") // Darker light blue background
+                : (isDarkMode ? "rgba(75,85,99,0.2)" : "#F3F4F6"),
+              color: isRedemo 
+                ? (isDarkMode ? "#F87171" : "#991B1B") // Darker red text for YES
+                : (isDarkMode ? "#D1D5DB" : "#374151"), // Darker text for NO
+              borderRadius: "6px",
+              minWidth: "60px",
+            }}
+          />
+        );
+      },
     },
     {
       field: "taluka",

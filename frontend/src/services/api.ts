@@ -32,13 +32,17 @@ export const apiClient = axios.create({
   },
 });
 
-// Add request interceptor to include user email in headers
+// Add request interceptor to include user email and role in headers
 apiClient.interceptors.request.use(
   (config) => {
     // Get user email from localStorage (set after login)
     const userEmail = localStorage.getItem("user_email");
     if (userEmail) {
       config.headers["x-user-email"] = userEmail;
+    }
+    const userRole = localStorage.getItem("user_role");
+    if (userRole) {
+      config.headers["x-user-role"] = userRole;
     }
     return config;
   },
@@ -375,7 +379,10 @@ export const forecastingAPI = {
 // Distributor API
 export const distributorAPI = {
   getAll: async (params?: any) => {
-    const response = await apiClient.get("/api/distributors", { params });
+    // TEMPORARY PHASE 3 INTEGRATION: Consume dynamically merged REDEMO endpoint
+    const response = await apiClient.get("/api/distributors/resolved", { params });
+    // ORIGINAL ENDPOINT (for rollback): 
+    // const response = await apiClient.get("/api/distributors", { params });
     return response.data;
   },
   getById: async (id: number) => {
@@ -605,6 +612,21 @@ export const automationAPI = {
 // File/Import API
 
 export const fileAPI = {
+  preprocessDistributors: async (formData: FormData) => {
+    const response = await apiClient.post("/api/imports/distributors/preprocess", formData, {
+      headers: {
+        "Content-Type": undefined,
+      },
+    });
+    return response.data;
+  },
+  confirmImportDistributors: async (selectedRows: any[], fileName?: string) => {
+    const response = await apiClient.post("/api/imports/distributors/confirm-import", {
+      selected_rows: selectedRows,
+      file_name: fileName,
+    });
+    return response.data;
+  },
   uploadFile: async (formData: FormData) => {
     const response = await apiClient.post("/api/imports/excel", formData, {
       headers: {
@@ -623,7 +645,7 @@ export const fileAPI = {
     return response.data;
   },
   getImportHistory: async () => {
-    const response = await apiClient.get("/api/import/history");
+    const response = await apiClient.get("/api/imports/history");
     return response.data;
   },
 };

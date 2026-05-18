@@ -19,11 +19,12 @@ VILLAGE_ALIASES   = {"village", "village name", "gram", "gaon"}
 TALUKA_ALIASES    = {"taluka", "taluko", "taluka name"}
 DISTRICT_ALIASES  = {"district", "district name", "jilla"}
 MANTRI_NAME_ALIASES   = {"mantri name", "mantry name", "mantri", "mantry name / distributors",
-                         "distributor name", "distributors"}
+                         "distributor name", "distributors", "mantri_name"}
 MANTRI_MOBILE_ALIASES = {"mantri mobile", "mobile", "mobile no", "mobile number",
-                         "contact", "phone", "phone no", "number"}
+                         "contact", "phone", "phone no", "number", "mantri_mobile",
+                         "mobile_no", "phone_no", "contact_no", "contact no"}
 SABHASAD_MORNING_ALIASES = {"sabhasad morning", "morning", "sabhasad (morning)",
-                             "sabhsad morning", "subhasad morning"}
+                             "sabhsad morning", "subhasad morning", "sabhasad_morning"}
 SABHASAD_EVENING_ALIASES = {"sabhasad evening", "evening", "sabhasad (evening)",
                              "sabhsad evening", "subhasad evening"}
 
@@ -137,6 +138,42 @@ def _safe_str(value) -> str | None:
     return s
 
 
+def normalize_redemo_village(village: str) -> dict:
+    if not village:
+        return {
+            "original_village": village,
+            "clean_village": village,
+            "is_redemo": False,
+            "redemo_pattern": None
+        }
+        
+    original = str(village)
+    
+    # Handle variations: REDEMO, REDMO, RE-DEMO
+    # Also handle brackets: (REDEMO), [REDEMO]
+    pattern = r'[\(\[]?\s*RE-?DE?MO\s*[\)\]]?'
+    match = re.search(pattern, original, re.IGNORECASE)
+    
+    if match:
+        is_redemo = True
+        redemo_pattern = match.group(0)
+        clean = re.sub(pattern, '', original, flags=re.IGNORECASE)
+    else:
+        is_redemo = False
+        redemo_pattern = None
+        clean = original
+
+    # Trim extra spaces and convert to uppercase
+    clean = re.sub(r'\s+', ' ', clean).strip().upper()
+
+    return {
+        "original_village": original.strip() if original else original,
+        "clean_village": clean,
+        "is_redemo": is_redemo,
+        "redemo_pattern": redemo_pattern
+    }
+
+
 def to_upper_safe(value):
     if value is None:
         return None
@@ -174,6 +211,12 @@ def clean_phone(value) -> Optional[str]:
 
     # Keep only digits
     digits = re.sub(r"\D", "", s)
+
+    # Strip Indian country code prefix if present
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
 
     # Validate length
     if len(digits) == 10:
@@ -344,9 +387,20 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
         sabhasad_morning = _safe_int(row[col_morning]) if col_morning else None
         sabhasad_evening = _safe_int(row[col_evening]) if col_evening else None
 
+        # --- REDEMO Processing ---
+        redemo_meta = normalize_redemo_village(village)
+        print({
+            "original": redemo_meta["original_village"],
+            "clean": redemo_meta["clean_village"],
+            "is_redemo": redemo_meta["is_redemo"]
+        })
 
         record = {
             "village":          to_upper_safe(village),
+            "original_village": redemo_meta["original_village"],
+            "clean_village":    redemo_meta["clean_village"],
+            "is_redemo":        redemo_meta["is_redemo"],
+            "redemo_pattern":   redemo_meta["redemo_pattern"],
             "taluka":           to_upper_safe(taluka),
             "district":         to_upper_safe(district),
             "mantri_name":      to_upper_safe(mantri_name),

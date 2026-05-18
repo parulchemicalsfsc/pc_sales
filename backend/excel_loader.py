@@ -311,10 +311,11 @@ def import_demo_excel(path: str, conn: Any) -> int:
 # DISTRIBUTORS IMPORT (via extract_distributors)
 # =================================================
 
-def import_distributors_excel(path: str, conn: Any) -> int:
+def import_distributors_excel(path: str, conn: Any, import_batch_id: Optional[str] = None) -> int:
     """
     Clean and import an Excel file of distributors into the Supabase distributors table.
     """
+    from datetime import datetime
     data = extract_distributors(path)
     print("🚀 NEW IMPORT FUNCTION RUNNING")
     print(f"🔥 TOTAL EXTRACTED: {len(data)}")
@@ -323,13 +324,49 @@ def import_distributors_excel(path: str, conn: Any) -> int:
         print("⚠️ No data to insert.")
         return 0
 
+    if not import_batch_id:
+        import_batch_id = f"IMPORT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    redemo_history = []
+    distributors_to_insert = []
+
+    for row in data:
+        is_redemo = row.get("is_redemo", False)
+        
+        if is_redemo:
+            redemo_history.append({
+                "original_village": row.get("original_village"),
+                "clean_village": row.get("clean_village"),
+                "mantri_name": row.get("mantri_name"),
+                "mantri_mobile": row.get("mantri_mobile"),
+                "redemo_detected": True,
+                "redemo_pattern": row.get("redemo_pattern"),
+                "import_batch_id": import_batch_id,
+                "raw_row": row
+            })
+            print({
+                "clean_village": row.get("clean_village"),
+                "is_redemo": True,
+                "import_batch_id": import_batch_id
+            })
+
+        # Remove extra tracking fields before inserting into distributors table
+        clean_row = {k: v for k, v in row.items() if k not in ["original_village", "clean_village", "is_redemo", "redemo_pattern"]}
+        distributors_to_insert.append(clean_row)
+
+    if redemo_history:
+        try:
+            print(f"📝 Logging {len(redemo_history)} REDEMO occurrences to history...")
+            conn.table("distributor_redemo_history").insert(redemo_history).execute()
+        except Exception as e:
+            print(f"❌ ERROR inserting REDEMO history: {e}")
+
     try:
         # Use Supabase REST client for bulk insertion
         # Note: .execute() is MANDATORY for the request to be sent
-        print("📦 SAMPLE ROW:", data[0] if data else "NO DATA")
-        print(f"💾 Inserting {len(data)} rows into Supabase...")
+        print("📦 SAMPLE ROW:", distributors_to_insert[0] if distributors_to_insert else "NO DATA")
+        print(f"💾 Inserting {len(distributors_to_insert)} rows into Supabase...")
         
-        response = conn.table("distributors").insert(data).execute()
+        response = conn.table("distributors").insert(distributors_to_insert).execute()
 
         # 🔍 DEBUG RESPONSE
         print("🔍 FULL RESPONSE:", response)
