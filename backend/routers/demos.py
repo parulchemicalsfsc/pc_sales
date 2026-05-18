@@ -270,7 +270,7 @@ def get_demos(
                     "customer_name": resolved_name,
                     "customer_mobile": resolved_mobile,
                     "village": resolved_village,
-                    "product_name": product.get("product_name"),
+                    "product_name": products_dict.get(product_id, {}).get("product_name"),
                 }
             )
 
