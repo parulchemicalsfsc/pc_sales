@@ -72,7 +72,7 @@ import { languages } from "../i18n/i18n";
 import { useAuth, supabase } from "../contexts/AuthContext";
 import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
-import useGoogleTranslate from "use-google-translate";
+import useGoogleTranslate from "../hooks/useGoogleTranslate";
 import DutySheetPopup from "./DutySheetPopup";
 
 const supportedLanguages = {
