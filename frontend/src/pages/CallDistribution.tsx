@@ -309,7 +309,7 @@ export default function CallDistribution() {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {distStatus?.distributed
-                    ? `✅ Today's calls distributed (${distStatus.total_assigned || 0} assigned)`
+                    ? `Today's calls distributed (${distStatus.total_assigned || 0} assigned)`
                     : "Today's calls have not been distributed yet"}
                 </Typography>
               </Box>
@@ -512,8 +512,8 @@ export default function CallDistribution() {
                   ))}
                 </Select>
               </FormControl>
-              <Typography variant="body2" sx={{ color: "text.secondary", px: 1, display: { xs: "none", sm: "block" } }}>
-                ➡
+              <Typography variant="body2" sx={{ color: "text.secondary", px: 1, display: { xs: "none", sm: "block" }, fontSize: 20 }}>
+                →
               </Typography>
               <FormControl size="small" sx={{ minWidth: 200 }}>
                 <InputLabel>To (Available Telecaller)</InputLabel>

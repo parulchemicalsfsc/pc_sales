@@ -25,6 +25,9 @@ import {
   Edit as EditIcon,
   HelpOutline as HelpIcon,
   Close as CloseIcon,
+  Replay as RedemoIcon,
+  WarningAmber as WarningIcon,
+  DateRange as DateRangeIcon,
 } from "@mui/icons-material";
 import { demoAPI } from "../services/api";
 import DemoDialog from "../components/DemoDialog";
@@ -64,6 +67,26 @@ interface Suggestion {
   days_since_last_demo?: number;
   suggestion_score: number;
   reason: string;
+}
+
+interface RedemoRecord {
+  history_id: number;
+  distributor_id?: number;
+  original_village?: string;
+  clean_village?: string;
+  mantri_name?: string;
+  mantri_mobile?: string;
+  redemo_detected?: boolean;
+  redemo_pattern?: string;
+  import_batch_id?: string;
+  imported_at?: string;
+  redemo_date?: string;
+  // enriched fields
+  distributor_mantri_name?: string;
+  distributor_village?: string;
+  distributor_taluka?: string;
+  distributor_district?: string;
+  distributor_status?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -109,11 +132,13 @@ export default function DemoScheduler() {
   const surfaceMuted = isDark ? "#262637" : "#f8fafc";
   const border    = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
 
-  const [tab, setTab]         = useState(0);  // 0=All, 1=Scheduled, 2=Done, 3=AI Suggest
+  const [tab, setTab]         = useState(0);  // 0=All, 1=Scheduled, 2=Done, 3=Redemo, 4=AI Suggest
   const [demos, setDemos]     = useState<DemoRecord[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [redemos, setRedemos] = useState<RedemoRecord[]>([]);
   const [loadingDemos, setLoadingDemos]         = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [loadingRedemos, setLoadingRedemos]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
   // Status-update dialog
@@ -153,8 +178,21 @@ export default function DemoScheduler() {
     }
   }, []);
 
+  const loadRedemoHistory = useCallback(async () => {
+    try {
+      setLoadingRedemos(true);
+      const data = await demoAPI.getRedemoHistory({ limit: 200 });
+      setRedemos(data || []);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to load redemo history");
+    } finally {
+      setLoadingRedemos(false);
+    }
+  }, []);
+
   useEffect(() => { loadDemos(); }, [loadDemos]);
-  useEffect(() => { if (tab === 3) loadSuggestions(); }, [tab, loadSuggestions]);
+  useEffect(() => { if (tab === 3 && redemos.length === 0) loadRedemoHistory(); }, [tab, loadRedemoHistory]);
+  useEffect(() => { if (tab === 4) loadSuggestions(); }, [tab, loadSuggestions]);
 
   // ── Derived stats ──────────────────────────────────────────────
   const scheduled  = demos.filter(d => d.conversion_status === "Scheduled");
@@ -343,6 +381,101 @@ export default function DemoScheduler() {
     );
   }
 
+  // ── Redemo History Card ────────────────────────────────────────
+  function RedemoCard({ record }: { record: RedemoRecord }) {
+    const isDetected = record.redemo_detected;
+    const accentColor = isDetected ? "#dc2626" : "#ea580c";
+    const name  = record.distributor_mantri_name || record.mantri_name || "Unknown";
+    const village = record.distributor_village || record.original_village || record.clean_village || "";
+    const loc   = [village, record.distributor_taluka, record.distributor_district].filter(Boolean).join(", ");
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2, borderRadius: 2.5, bgcolor: surface,
+          borderColor: isDetected ? alpha(accentColor, 0.35) : border,
+          position: "relative", overflow: "hidden",
+          transition: "all 0.15s",
+          "&::before": {
+            content: '""', position: "absolute", top: 0, left: 0, bottom: 0,
+            width: 4, bgcolor: accentColor, borderRadius: "3px 0 0 3px",
+          },
+          "&:hover": { boxShadow: `0 4px 18px ${alpha(accentColor, 0.12)}` },
+        }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
+          <Typography fontWeight={700} fontSize={14} noWrap sx={{ flex: 1, mr: 1 }}>
+            {name}
+          </Typography>
+          {isDetected ? (
+            <Chip
+              size="small"
+              label="Redemo Detected"
+              icon={<WarningIcon sx={{ fontSize: 13 }} />}
+              sx={{ bgcolor: alpha("#dc2626", 0.1), color: "#dc2626", fontWeight: 700, fontSize: 11, border: `1px solid ${alpha("#dc2626", 0.25)}` }}
+            />
+          ) : (
+            <Chip
+              size="small"
+              label="Scheduled"
+              sx={{ bgcolor: alpha("#ea580c", 0.1), color: "#ea580c", fontWeight: 700, fontSize: 11, border: `1px solid ${alpha("#ea580c", 0.25)}` }}
+            />
+          )}
+        </Stack>
+
+        <Stack spacing={0.5} mb={1.5}>
+          {loc && (
+            <Stack direction="row" spacing={0.6} alignItems="center">
+              <LocationIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+              <Typography fontSize={12} color="text.secondary">{loc}</Typography>
+            </Stack>
+          )}
+          {record.mantri_mobile && (
+            <Stack direction="row" spacing={0.6} alignItems="center">
+              <PersonIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+              <Typography fontSize={12} color="text.secondary">{record.mantri_mobile}</Typography>
+            </Stack>
+          )}
+          <Stack direction="row" spacing={2} flexWrap="wrap">
+            {record.redemo_date && (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <DateRangeIcon sx={{ fontSize: 13, color: "#2563eb" }} />
+                <Typography fontSize={12} color="text.secondary">
+                  Redemo: <b>{fmtDate(record.redemo_date)}</b>
+                </Typography>
+              </Stack>
+            )}
+            {record.imported_at && (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <CalIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+                <Typography fontSize={12} color="text.secondary">
+                  Imported: {fmtDate(record.imported_at)}
+                </Typography>
+              </Stack>
+            )}
+          </Stack>
+        </Stack>
+
+        {record.redemo_pattern && (
+          <Box sx={{ p: 1.2, borderRadius: 1.5, bgcolor: alpha(accentColor, 0.06), mb: 1 }}>
+            <Stack direction="row" spacing={0.8} alignItems="flex-start">
+              <TipIcon sx={{ fontSize: 14, color: accentColor, mt: 0.1 }} />
+              <Typography fontSize={11} color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                Pattern: <b>{record.redemo_pattern}</b>
+              </Typography>
+            </Stack>
+          </Box>
+        )}
+
+        {record.import_batch_id && (
+          <Typography fontSize={10} color="text.disabled" mt={0.5}>
+            Batch: {record.import_batch_id}
+          </Typography>
+        )}
+      </Paper>
+    );
+  }
+
   // ── Render ─────────────────────────────────────────────────────
   return (
     <Box sx={{ width: "100%" }}>
@@ -452,6 +585,11 @@ export default function DemoScheduler() {
           <Tab label={t("demoScheduler.scheduled", "Scheduled") + ` (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab label={t("demoScheduler.completed", "Completed") + ` (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab
+            label={"Redemo" + (redemos.length > 0 ? ` (${redemos.length})` : "")}
+            icon={<Badge badgeContent={redemos.filter(r => r.redemo_detected).length || undefined} color="error"><RedemoIcon sx={{ fontSize: 16 }} /></Badge>}
+            iconPosition="start"
+          />
+          <Tab
             label={t("demoScheduler.demoSuggestions", "Demo Suggestions")}
             icon={<Badge badgeContent={suggestions.length || undefined} color="error"><AIIcon sx={{ fontSize: 16 }} /></Badge>}
             iconPosition="start"
@@ -460,7 +598,70 @@ export default function DemoScheduler() {
       </Paper>
 
       {/* Tab Content */}
-      {tab !== 3 ? (
+      {tab === 3 ? (
+        /* ── Redemo History Tab ── */
+        <Box>
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: alpha("#dc2626", 0.03), borderColor: alpha("#dc2626", 0.18) }}>
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              <RedemoIcon sx={{ color: "#dc2626", mt: 0.3 }} />
+              <Box>
+                <Typography fontWeight={700} fontSize={14} sx={{ color: "#dc2626" }}>Redemo History</Typography>
+                <Typography fontSize={12} color="text.secondary" mt={0.3}>
+                  Records from the distributor redemo history log. Red badge shows distributors where a repeat demo pattern was automatically detected during import.
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
+
+          {loadingRedemos ? (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 6, gap: 2 }}>
+              <CircularProgress color="error" />
+              <Typography fontSize={13} color="text.secondary">Loading redemo history…</Typography>
+            </Box>
+          ) : redemos.length === 0 ? (
+            <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
+              <RedemoIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
+              <Typography color="text.secondary" fontWeight={500}>No redemo history records found.</Typography>
+              <Typography fontSize={12} color="text.disabled" mt={0.5}>Records appear here after distributor data is imported with redemo flags.</Typography>
+            </Paper>
+          ) : (
+            <>
+              {/* Summary chips */}
+              <Stack direction="row" spacing={1.5} mb={2.5} flexWrap="wrap">
+                <Chip
+                  icon={<RedemoIcon sx={{ fontSize: 14 }} />}
+                  label={`Total: ${redemos.length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#ea580c", 0.1), color: "#ea580c", border: `1px solid ${alpha("#ea580c", 0.25)}` }}
+                />
+                <Chip
+                  icon={<WarningIcon sx={{ fontSize: 14 }} />}
+                  label={`Detected: ${redemos.filter(r => r.redemo_detected).length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#dc2626", 0.1), color: "#dc2626", border: `1px solid ${alpha("#dc2626", 0.25)}` }}
+                />
+                <Chip
+                  icon={<DoneIcon sx={{ fontSize: 14 }} />}
+                  label={`Clear: ${redemos.filter(r => !r.redemo_detected).length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#16a34a", 0.1), color: "#16a34a", border: `1px solid ${alpha("#16a34a", 0.25)}` }}
+                />
+                <IconButton size="small" onClick={loadRedemoHistory} sx={{ border: `1px solid ${border}`, borderRadius: 1.5 }}>
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+              <Grid container spacing={2}>
+                {redemos.map(record => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={record.history_id}>
+                    <RedemoCard record={record} />
+                  </Grid>
+                ))}
+              </Grid>
+            </>
+          )}
+        </Box>
+      ) : tab !== 4 ? (
+        /* ── All / Scheduled / Completed Demo Tabs ── */
         loadingDemos ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>
         ) : tabDemos.length === 0 ? (
@@ -478,7 +679,7 @@ export default function DemoScheduler() {
           </Grid>
         )
       ) : (
-        /* AI Suggestions Tab */
+        /* ── AI Suggestions Tab ── */
         <Box>
           <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: alpha("#7c3aed", 0.04), borderColor: alpha("#7c3aed", 0.2) }}>
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
@@ -600,7 +801,7 @@ export default function DemoScheduler() {
           <Stack spacing={2}>
             {[
               { title: "Schedule a New Demo", desc: "Click the \"New Demo\" button (top-right) to schedule a product demo for a Mantri/Distributor. Fill in the date, time, location, and product details." },
-              { title: "Tabs Overview", desc: "All Demos shows every record. Scheduled tab shows upcoming demos. Completed tab shows demos that are done or converted. AI Suggestions tab recommends who to demo next." },
+              { title: "Tabs Overview", desc: "All Demos shows every record. Scheduled shows upcoming demos. Completed shows done or converted demos. Redemo shows distributors flagged for repeat demo evaluation. AI Suggestions recommends who to demo next based on scoring." },
               { title: "Updating Demo Status", desc: "Click \"Update Status\" on any demo card to change it to Completed, Converted, Cancelled, or No Show. Add notes when updating." },
               { title: "AI Demo Suggestions", desc: "The AI Suggestions tab ranks distributors by a composite score: recency of last demo, priority score, group size, and never-demoed bonus. Higher score = schedule sooner." },
               { title: "Urgency Score Badge", desc: "Each suggestion card has a score badge. RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },

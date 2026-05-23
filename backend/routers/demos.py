@@ -157,6 +157,59 @@ def _build_reason(days_gap: int, priority: float, group: int, never_had_demo: bo
 
 
 
+# ======================
+# Get Redemo History
+# ======================
+@router.get("/redemo", dependencies=[Depends(verify_permission("view_demos"))])
+def get_redemo_history(
+    skip: int = 0,
+    limit: int = 200,
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Get all redemo history records from distributor_redemo_history table"""
+    try:
+        response = (
+            db.table("distributor_redemo_history")
+            .select("*")
+            .order("imported_at", desc=True)
+            .limit(limit)
+            .offset(skip)
+            .execute()
+        )
+        records = response.data or []
+
+        if not records:
+            return []
+
+        # Enrich with distributor names where distributor_id is present
+        dist_ids = list({r["distributor_id"] for r in records if r.get("distributor_id")})
+        dist_map = {}
+        if dist_ids:
+            dist_resp = (
+                db.table("distributors")
+                .select("distributor_id,mantri_name,village,taluka,district,status")
+                .in_("distributor_id", dist_ids)
+                .execute()
+            )
+            dist_map = {d["distributor_id"]: d for d in (dist_resp.data or [])}
+
+        enriched = []
+        for r in records:
+            dist = dist_map.get(r.get("distributor_id"), {})
+            enriched.append({
+                **r,
+                "distributor_mantri_name": dist.get("mantri_name") or r.get("mantri_name"),
+                "distributor_village":     dist.get("village")     or r.get("original_village") or r.get("clean_village"),
+                "distributor_taluka":      dist.get("taluka"),
+                "distributor_district":    dist.get("district"),
+                "distributor_status":      dist.get("status"),
+            })
+
+        return enriched
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching redemo history: {str(e)}")
+
 
 # ======================
 # Get all demos

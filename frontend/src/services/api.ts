@@ -540,6 +540,10 @@ export const demoAPI = {
     const response = await apiClient.get("/api/demos/suggestions", { params: { limit } });
     return response.data;
   },
+  getRedemoHistory: async (params?: { skip?: number; limit?: number }) => {
+    const response = await apiClient.get("/api/demos/redemo", { params });
+    return response.data;
+  },
 };
 
 export const automationAPI = {
