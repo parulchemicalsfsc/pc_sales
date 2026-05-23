@@ -715,7 +715,11 @@
     "leadOwner": "લીડ માલિક",
     "optionalNote": "માલિક માટે વૈકલ્પિક નોંધ",
     "leaveManagerNote": "મેનેજર નોંધ છોડો",
-    "notePlaceholder": "આ નોંધ લીડ માલિકને દેખાશે..."
+    "notePlaceholder": "આ નોંધ લીડ માલિકને દેખાશે...",
+    "deleteLead": "લીડ કાઢી નાખો",
+    "deleteConfirmText": "શું તમે ખરેખર લીડ {leadId} (નામ: {name}) ને કાઢી નાખવા માંગો છો?",
+    "deleteWarningText": "આ ક્રિયા પાછી ખેંચી શકાશે નહીં અને તે બધી સંકળાયેલ પ્રવૃત્તિઓ અને કોટેશન કાઢી નાખશે.",
+    "deleting": "કાઢી નાખવામાં આવી રહ્યું છે…"
   },
   "demoScheduler": {
     "title": "ડેમો શેડ્યૂલર",

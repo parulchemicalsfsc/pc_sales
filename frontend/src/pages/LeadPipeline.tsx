@@ -13,7 +13,7 @@ import {
   Edit as EditIcon, Schedule as ScheduleIcon, CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon, Assignment as AssignmentIcon,
   Comment as CommentIcon, History as HistoryIcon, Warning as WarningIcon,
-  AutoAwesome as AutoIcon,
+  AutoAwesome as AutoIcon, Delete as DeleteIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -105,6 +105,26 @@ export default function LeadPipeline() {
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
+
+  // Delete confirm dialog state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeleteLead = async () => {
+    if (!selectedLead) return;
+    setDeleteLoading(true);
+    try {
+      await leadsService.deleteLead(selectedLead.lead_id);
+      setDeleteConfirmOpen(false);
+      setDrawerOpen(false);
+      setSelectedLead(null);
+      await loadLeads();
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to delete lead");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -382,15 +402,23 @@ export default function LeadPipeline() {
             </Box>
 
             {/* Actions */}
-            {!selectedLead.closure_type && hasPermission(PERMISSIONS.MANAGE_LEADS) && (
+            {hasPermission(PERMISSIONS.MANAGE_LEADS) && (
               <Box display="flex" gap={1} mb={2} flexWrap="wrap">
-                <Button variant="contained" size="small" startIcon={<AssignmentIcon />}
-                  onClick={() => { setAssignTo(selectedLead.assigned_to || ""); setAssignOpen(true); }}>
-                  {selectedLead.assigned_to ? t("leadPipeline.reassign", "Reassign") : t("leadPipeline.assign", "Assign")}
-                </Button>
-                <Button variant="outlined" size="small" startIcon={<CommentIcon />}
-                  onClick={() => setCommentOpen(true)} disabled={!selectedLead.assigned_to}>
-                  {t("leadPipeline.leaveNote", "Leave Note")}
+                {!selectedLead.closure_type && (
+                  <>
+                    <Button variant="contained" size="small" startIcon={<AssignmentIcon />}
+                      onClick={() => { setAssignTo(selectedLead.assigned_to || ""); setAssignOpen(true); }}>
+                      {selectedLead.assigned_to ? t("leadPipeline.reassign", "Reassign") : t("leadPipeline.assign", "Assign")}
+                    </Button>
+                    <Button variant="outlined" size="small" startIcon={<CommentIcon />}
+                      onClick={() => setCommentOpen(true)} disabled={!selectedLead.assigned_to}>
+                      {t("leadPipeline.leaveNote", "Leave Note")}
+                    </Button>
+                  </>
+                )}
+                <Button variant="outlined" color="error" size="small" startIcon={<DeleteIcon />}
+                  onClick={() => setDeleteConfirmOpen(true)}>
+                  {t("leadPipeline.deleteLead", "Delete Lead")}
                 </Button>
               </Box>
             )}
@@ -439,6 +467,29 @@ export default function LeadPipeline() {
           <Button onClick={() => setCommentOpen(false)}>{t("common.cancel", "Cancel")}</Button>
           <Button variant="contained" onClick={handleComment} disabled={!commentText.trim() || commentLoading}>
             {commentLoading ? t("leadPipeline.sending", "Sending…") : t("leadPipeline.sendNote", "Send Note")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, color: "error.main" }}>
+          <WarningIcon /> {t("leadPipeline.deleteLead", "Delete Lead")}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {t("leadPipeline.deleteConfirmText", "Are you sure you want to delete lead {leadId} (Name: {name})?")
+              .replace("{leadId}", selectedLead?.lead_id || "")
+              .replace("{name}", selectedLead?.full_name || "")}
+          </Typography>
+          <Typography variant="body2" color="error.main" sx={{ mt: 1, fontWeight: 500 }}>
+            {t("leadPipeline.deleteWarningText", "This action cannot be undone and will delete all associated activities and quotations.")}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>{t("common.cancel", "Cancel")}</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteLead} disabled={deleteLoading}>
+            {deleteLoading ? t("leadPipeline.deleting", "Deleting…") : t("common.delete", "Delete")}
           </Button>
         </DialogActions>
       </Dialog>

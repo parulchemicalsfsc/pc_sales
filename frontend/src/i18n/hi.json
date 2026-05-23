@@ -715,7 +715,11 @@
     "leadOwner": "लीड मालिक",
     "optionalNote": "मालिक के लिए वैकल्पिक नोट",
     "leaveManagerNote": "मैनेजर नोट छोड़ें",
-    "notePlaceholder": "यह नोट लीड मालिक को दिखाई देगा..."
+    "notePlaceholder": "यह नोट लीड मालिक को दिखाई देगा...",
+    "deleteLead": "लीड हटाएँ",
+    "deleteConfirmText": "क्या आप वाकई लीड {leadId} (नाम: {name}) को हटाना चाहते हैं?",
+    "deleteWarningText": "यह क्रिया वापस नहीं ली जा सकती और सभी संबंधित गतिविधियों और कोटेशन को हटा देगी।",
+    "deleting": "हटाया जा रहा है…"
   },
   "demoScheduler": {
     "title": "डेमो शेड्यूलर",

@@ -150,4 +150,12 @@ export const leadsService = {
   /** Lead Owner: upsert quotation */
   upsertQuotation: (leadId: string, data: Partial<Quotation>) =>
     apiClient.put<Quotation>(`/api/leads/${leadId}/quotation`, data),
+
+  /** Lead Owner: manually create a lead (submits to intake) */
+  createLead: (data: Partial<Lead>) =>
+    apiClient.post<{ lead_id: string; status: LeadStatus; message: string }>("/api/leads/intake", data),
+
+  /** Lead Manager: delete a lead */
+  deleteLead: (leadId: string) =>
+    apiClient.delete<{ message: string }>(`/api/leads/${leadId}`),
 };

@@ -706,7 +706,11 @@
     "leadOwner": "Lead Owner",
     "optionalNote": "Optional note for the owner",
     "leaveManagerNote": "Leave Manager Note",
-    "notePlaceholder": "This note will be visible to the lead owner…"
+    "notePlaceholder": "This note will be visible to the lead owner…",
+    "deleteLead": "Delete Lead",
+    "deleteConfirmText": "Are you sure you want to delete lead {leadId} (Name: {name})?",
+    "deleteWarningText": "This action cannot be undone and will delete all associated activities and quotations.",
+    "deleting": "Deleting…"
   },
   "demoScheduler": {
     "title": "Demo Scheduler",
