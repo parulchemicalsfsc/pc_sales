@@ -780,16 +780,15 @@ export default function CallingList() {
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2}>
             {[
-              { emoji: "🟢", title: "Priority Colours", desc: "Each card has a left border colour — GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
-              { emoji: "📞", title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
-              { emoji: "✅", title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
-              { emoji: "📅", title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date — the system schedules a reminder for that day." },
-              { emoji: "🛒", title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
-              { emoji: "🧮", title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri — pick a Mantri and set approx. liters per Sabhasad." },
-              { emoji: "👤", title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
+              { title: "Priority Colours", desc: "Each card has a left border colour — GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
+              { title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
+              { title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
+              { title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date — the system schedules a reminder for that day." },
+              { title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
+              { title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri — pick a Mantri and set approx. liters per Sabhasad." },
+              { title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
             ].map(item => (
               <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
-                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
                 <Box>
                   <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>

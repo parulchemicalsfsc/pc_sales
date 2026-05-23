@@ -736,16 +736,15 @@ export default function CallDistribution() {
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2}>
             {[
-              { emoji: "🚀", title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day — it auto-runs at 10 AM if not done manually." },
-              { emoji: "🔄", title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers — useful if workloads become uneven mid-day." },
-              { emoji: "📊", title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
-              { emoji: "📦", title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
-              { emoji: "🔀", title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },
-              { emoji: "🔁", title: "Individual Reassign", desc: "Scroll to the Reassign table to move any specific pending contact to a different telecaller using the Move To dropdown." },
-              { emoji: "⏰", title: "10 AM Countdown", desc: "The progress bar shows time remaining until 10 AM auto-distribution. Manual distribution before 10 AM prevents the auto-run." },
+              { title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day — it auto-runs at 10 AM if not done manually." },
+              { title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers — useful if workloads become uneven mid-day." },
+              { title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
+              { title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
+              { title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },
+              { title: "Individual Reassign", desc: "Scroll to the Reassign table to move any specific pending contact to a different telecaller using the Move To dropdown." },
+              { title: "10 AM Countdown", desc: "The progress bar shows time remaining until 10 AM auto-distribution. Manual distribution before 10 AM prevents the auto-run." },
             ].map(item => (
               <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
-                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
                 <Box>
                   <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>

@@ -1181,16 +1181,15 @@ export default function OrderManagement() {
         <DialogContent sx={{ pt: 0 }}>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {[
-              { emoji: "📄", title: "Order Table", desc: "Each row shows an order's invoice number, customer, date, amount and current status. Use the search bar to filter by invoice, customer name, or mobile." },
-              { emoji: "⏩", title: "Quick Status Advance", desc: "Click the arrow (▲) icon on the status chip to advance the order to the next stage: Pending → Prepared → Dispatched → Delivered." },
-              { emoji: "👁️", title: "View Details", desc: "Click the eye (👁) icon to see full order info: customer details, purchased items list, payment info, and the order timeline stepper." },
-              { emoji: "✏️", title: "Update Status", desc: "Click the edit (✏) icon to manually update the order and shipment status, add tracking numbers, and set shipment dates." },
-              { emoji: "❌", title: "Cancel Order", desc: "Click the trash/cancel icon to mark an order as Cancelled. The record is kept but flagged. Cancelled orders can be reprocessed from the ⋮ menu." },
-              { emoji: "⋮", title: "More Actions Menu", desc: "The three-dot (⋮) menu on each row lets you: Return to Previous Status, Reprocess a Cancelled Order, or Cancel the Order." },
-              { emoji: "🔍", title: "Filtering", desc: "Use the Customer Type filter to view orders by buyer type (Sabhasad, Mantri, Doctor, Shopkeeper, Field Officer)." },
+              { title: "Order Table", desc: "Each row shows an order's invoice number, customer, date, amount and current status. Use the search bar to filter by invoice, customer name, or mobile." },
+              { title: "Quick Status Advance", desc: "Click the arrow (▲) icon on the status chip to advance the order to the next stage: Pending → Prepared → Dispatched → Delivered." },
+              { title: "View Details", desc: "Click the eye (👁) icon to see full order info: customer details, purchased items list, payment info, and the order timeline stepper." },
+              { title: "Update Status", desc: "Click the edit (✏) icon to manually update the order and shipment status, add tracking numbers, and set shipment dates." },
+              { title: "Cancel Order", desc: "Click the trash/cancel icon to mark an order as Cancelled. The record is kept but flagged. Cancelled orders can be reprocessed from the ⋮ menu." },
+              { title: "More Actions Menu", desc: "The three-dot (⋮) menu on each row lets you: Return to Previous Status, Reprocess a Cancelled Order, or Cancel the Order." },
+              { title: "Filtering", desc: "Use the Customer Type filter to view orders by buyer type (Sabhasad, Mantri, Doctor, Shopkeeper, Field Officer)." },
             ].map(item => (
               <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
-                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
                 <Box>
                   <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>

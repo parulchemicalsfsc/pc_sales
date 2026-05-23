@@ -599,16 +599,15 @@ export default function DemoScheduler() {
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2}>
             {[
-              { emoji: "➕", title: "Schedule a New Demo", desc: "Click the \"New Demo\" button (top-right) to schedule a product demo for a Mantri/Distributor. Fill in the date, time, location, and product details." },
-              { emoji: "📋", title: "Tabs Overview", desc: "All Demos shows every record. Scheduled tab shows upcoming demos. Completed tab shows demos that are done or converted. AI Suggestions tab recommends who to demo next." },
-              { emoji: "✏️", title: "Updating Demo Status", desc: "Click \"Update Status\" on any demo card to change it to Completed, Converted, Cancelled, or No Show. Add notes when updating." },
-              { emoji: "🤖", title: "AI Demo Suggestions", desc: "The AI Suggestions tab ranks distributors by a composite score: recency of last demo, priority score, group size, and never-demoed bonus. Higher score = schedule sooner." },
-              { emoji: "⚡", title: "Urgency Score Badge", desc: "Each suggestion card has a score badge — RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },
-              { emoji: "📈", title: "Conversion Progress Bar", desc: "The progress bar at the top shows what % of demos have been Completed or Converted out of all demos." },
-              { emoji: "📍", title: "Scheduling from Suggestions", desc: "Click \"Schedule Demo\" on any suggestion card to pre-fill the new demo form with that distributor's details." },
+              { title: "Schedule a New Demo", desc: "Click the \"New Demo\" button (top-right) to schedule a product demo for a Mantri/Distributor. Fill in the date, time, location, and product details." },
+              { title: "Tabs Overview", desc: "All Demos shows every record. Scheduled tab shows upcoming demos. Completed tab shows demos that are done or converted. AI Suggestions tab recommends who to demo next." },
+              { title: "Updating Demo Status", desc: "Click \"Update Status\" on any demo card to change it to Completed, Converted, Cancelled, or No Show. Add notes when updating." },
+              { title: "AI Demo Suggestions", desc: "The AI Suggestions tab ranks distributors by a composite score: recency of last demo, priority score, group size, and never-demoed bonus. Higher score = schedule sooner." },
+              { title: "Urgency Score Badge", desc: "Each suggestion card has a score badge — RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },
+              { title: "Conversion Progress Bar", desc: "The progress bar at the top shows what % of demos have been Completed or Converted out of all demos." },
+              { title: "Scheduling from Suggestions", desc: "Click \"Schedule Demo\" on any suggestion card to pre-fill the new demo form with that distributor's details." },
             ].map(item => (
               <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
-                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
                 <Box>
                   <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
