@@ -177,10 +177,10 @@ def sales_trend(days: int = 30, db: SupabaseClient = Depends(get_supabase)):
 def recent_sales(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
     """Get recent sales with customer information (FIX-7 optimized)"""
     try:
-        # FIX-7: Embed customer join in a single query using PostgREST syntax
+        # Fetch recent sales with all FK columns to resolve buyer type
         sales_response = (
             db.table("sales")
-            .select("invoice_no, total_amount, sale_date, payment_status, customers(name, village)")
+            .select("invoice_no, total_amount, sale_date, payment_status, buyer_type, customer_id, distributor_id, doctor_id, shopkeeper_id")
             .order("created_at", desc=True)
             .limit(limit)
             .execute()
@@ -189,13 +189,67 @@ def recent_sales(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
         if not sales_response.data:
             return []
 
+        # Collect IDs needed for each buyer type
+        customer_ids = set()
+        distributor_ids = set()
+        doctor_ids = set()
+        shopkeeper_ids = set()
+
+        for sale in sales_response.data:
+            buyer_type = sale.get("buyer_type") or (
+                "distributor" if sale.get("distributor_id") else
+                "doctor" if sale.get("doctor_id") else
+                "shopkeeper" if sale.get("shopkeeper_id") else
+                "customer"
+            )
+            sale["_resolved_buyer_type"] = buyer_type
+
+            if buyer_type in ("distributor", "mantri") and sale.get("distributor_id"):
+                distributor_ids.add(sale["distributor_id"])
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                doctor_ids.add(sale["doctor_id"])
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                shopkeeper_ids.add(sale["shopkeeper_id"])
+            elif sale.get("customer_id"):
+                customer_ids.add(sale["customer_id"])
+
+        # Fetch only the needed rows from each table
+        def fetch_by_ids(table, id_col, ids, select_cols):
+            if not ids:
+                return {}
+            resp = db.table(table).select(select_cols).in_(id_col, list(ids)).execute()
+            return {row[id_col]: row for row in (resp.data or [])}
+
+        customers_dict = fetch_by_ids("customers", "customer_id", customer_ids, "customer_id, name, village")
+        distributors_dict = fetch_by_ids("distributors", "distributor_id", distributor_ids, "distributor_id, name, mantri_name, village")
+        doctors_dict = fetch_by_ids("doctors", "doctor_id", doctor_ids, "doctor_id, name, village")
+        shopkeepers_dict = fetch_by_ids("shopkeepers", "shopkeeper_id", shopkeeper_ids, "shopkeeper_id, name, village")
+
         result = []
         for sale in sales_response.data:
-            customer = sale.get("customers") or {}
+            buyer_type = sale["_resolved_buyer_type"]
+
+            if buyer_type in ("distributor", "mantri") and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("mantri_name") or entity.get("name") if buyer_type == "mantri" else entity.get("name")
+                village = entity.get("village")
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                name = entity.get("name")
+                village = entity.get("village")
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name")
+                village = entity.get("village")
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                name = entity.get("name")
+                village = entity.get("village")
+
             result.append({
                 "invoice_no": sale.get("invoice_no"),
-                "customer_name": customer.get("name"),
-                "village": customer.get("village"),
+                "customer_name": name,
+                "village": village,
                 "total_amount": sale.get("total_amount"),
                 "sale_date": sale.get("sale_date"),
                 "payment_status": sale.get("payment_status"),
