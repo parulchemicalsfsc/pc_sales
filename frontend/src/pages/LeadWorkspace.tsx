@@ -135,7 +135,7 @@ export default function LeadWorkspace() {
   // Add lead modal state
   const [addLeadOpen, setAddLeadOpen] = useState(false);
   const [addLeadLoading, setAddLeadLoading] = useState(false);
-  const [existingSources, setExistingSources] = useState<string[]>(["website_a", "website_b", "website_c", "parul_chemicals", "psi"]);
+  const [existingSources, setExistingSources] = useState<string[]>(["Parul Chemicals", "Press Stamping Industries", "VIBGYOR Maple"]);
   const [addLeadForm, setAddLeadForm] = useState({
     full_name: "",
     email: "",
@@ -150,14 +150,13 @@ export default function LeadWorkspace() {
     if (addLeadOpen) {
       const fetchSources = async () => {
         try {
-          const statsRes = await leadsService.getPipelineStats();
-          if (statsRes.data && statsRes.data.by_source) {
-            const dbSources = Object.keys(statsRes.data.by_source);
-            const combined = Array.from(new Set([...dbSources, "website_a", "website_b", "website_c", "parul_chemicals", "psi"]));
-            setExistingSources(combined.filter(Boolean));
-          }
+          const res = await leadsService.getSources();
+          const activeSourceNames = (res.data || [])
+            .filter((s) => s.is_active)
+            .map((s) => s.name);
+          setExistingSources(activeSourceNames);
         } catch (e) {
-          console.error("Failed to fetch pipeline stats for sources", e);
+          console.error("Failed to fetch lead sources", e);
         }
       };
       fetchSources();
@@ -862,29 +861,33 @@ export default function LeadWorkspace() {
               required
             />
             <TextField
-              label="Email"
+              label="Email *"
               type="email"
               value={addLeadForm.email}
               onChange={(e) => setAddLeadForm((prev) => ({ ...prev, email: e.target.value }))}
               fullWidth
+              required
             />
             <TextField
-              label="Phone"
+              label="Phone *"
               value={addLeadForm.phone}
               onChange={(e) => setAddLeadForm((prev) => ({ ...prev, phone: e.target.value }))}
               fullWidth
+              required
             />
             <TextField
-              label="Company Name"
+              label="Company Name *"
               value={addLeadForm.company_name}
               onChange={(e) => setAddLeadForm((prev) => ({ ...prev, company_name: e.target.value }))}
               fullWidth
+              required
             />
             <TextField
-              label="Product Interest"
+              label="Product Interest *"
               value={addLeadForm.product_interest}
               onChange={(e) => setAddLeadForm((prev) => ({ ...prev, product_interest: e.target.value }))}
               fullWidth
+              required
             />
             <Autocomplete
               freeSolo
@@ -920,7 +923,15 @@ export default function LeadWorkspace() {
           <Button
             variant="contained"
             onClick={handleAddLeadSubmit}
-            disabled={!addLeadForm.full_name.trim() || !addLeadForm.source_website.trim() || addLeadLoading}
+            disabled={
+              !addLeadForm.full_name.trim() ||
+              !addLeadForm.source_website.trim() ||
+              !addLeadForm.email.trim() ||
+              !addLeadForm.phone.trim() ||
+              !addLeadForm.company_name.trim() ||
+              !addLeadForm.product_interest.trim() ||
+              addLeadLoading
+            }
           >
             {addLeadLoading ? "Creating…" : "Create Lead"}
           </Button>

@@ -7,6 +7,7 @@ No emails in v1.
 import os
 import logging
 from datetime import date, datetime
+import re
 from typing import Optional
 
 from activity_logger import get_activity_logger
@@ -18,18 +19,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 LEAD_INTAKE_KEY = os.getenv("LEAD_INTAKE_KEY", "test-lead-key-change-me")
-
-# Source website → lead ID prefix mapping (update to real names later)
-SOURCE_PREFIX_MAP = {
-    "website_a": "WA",
-    "website_b": "WB",
-    "website_c": "WC",
-    "parul_chemicals": "PC",
-    "psi": "PS",
-    "press stamping industries": "PS",
-    "press_stamping_industries": "PS",
-}
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,9 +42,30 @@ def _verify_intake_key(request: Request, db: SupabaseClient):
     return "system"
 
 
-import re
+def verify_lead_access(
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Authentication required. Missing x-user-email header.")
+    from rbac_utils import get_user_permissions
+    permissions = get_user_permissions(user_email, db)
+    if "work_leads" not in permissions and "manage_leads" not in permissions:
+        raise HTTPException(status_code=403, detail="Access denied. Missing required leads permissions.")
+    return user_email
 
-def _generate_lead_id(db: SupabaseClient, source_website: str) -> str:
+
+SOURCE_PREFIX_MAP = {
+    "website_a": "WA",
+    "website_b": "WB",
+    "website_c": "WC",
+    "parul_chemicals": "PC",
+    "psi": "PS",
+    "press stamping industries": "PS",
+    "press_stamping_industries": "PS",
+}
+
+def _get_prefix_for_source(source_website: str) -> str:
     # 1. Generate a 2-letter prefix automatically
     clean_name = re.sub(r'[^a-zA-Z0-9\s_]', '', source_website).strip()
     words = re.split(r'[\s_]+', clean_name)
@@ -69,9 +79,11 @@ def _generate_lead_id(db: SupabaseClient, source_website: str) -> str:
         prefix = (words[0][0] + words[1][0]).upper()
         
     # Check if there is a hardcoded override
-    prefix = SOURCE_PREFIX_MAP.get(source_website.lower(), prefix)
-    
-    # 2. Count existing leads with this specific prefix to ensure uniqueness
+    return SOURCE_PREFIX_MAP.get(source_website.lower(), prefix)
+
+
+def _generate_lead_id(db: SupabaseClient, prefix: str) -> str:
+    # Count existing leads with this specific prefix to ensure uniqueness
     res = db.table("leads").select("lead_id").like("lead_id", f"{prefix}-%").execute()
     n = len(res.data or []) + 1
     return f"{prefix}-{n:04d}"
@@ -153,6 +165,39 @@ def _get_user_name(db: SupabaseClient, email: str) -> str:
 
 # ─── INTAKE ───────────────────────────────────────────────────────────────────
 
+from urllib.parse import urlparse
+import re
+
+def _extract_domain(url: str) -> str:
+    url = url.strip().lower()
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain.split(":")[0]
+    except Exception:
+        return url
+
+def _normalize_name(name: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', name.lower())
+
+
+def _is_name_match(incoming: str, registered: str) -> bool:
+    norm_in = _normalize_name(incoming)
+    norm_reg = _normalize_name(registered)
+    if norm_in == norm_reg:
+        return True
+    # Support common abbreviations/overrides
+    if norm_in == "psi" and "pressstamping" in norm_reg:
+        return True
+    if norm_in == "pcsales" and "parulchemical" in norm_reg:
+        return True
+    return False
+
+
 @router.post("/intake")
 def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(get_db)):
     """
@@ -161,23 +206,64 @@ def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(ge
     """
     logged_by = _verify_intake_key(request, db)
 
-    source_website = str(payload.get("source_website", "unknown")).lower().strip()
+    incoming_source = str(payload.get("source_website", "")).strip()
+    if not incoming_source:
+        raise HTTPException(status_code=400, detail="source_website is required")
+
     full_name = str(payload.get("full_name", "")).strip()
     if not full_name:
         raise HTTPException(status_code=400, detail="full_name is required")
 
-    lead_id = _generate_lead_id(db, source_website)
+    email = str(payload.get("email", "")).strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+
+    phone = str(payload.get("phone", "")).strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="phone is required")
+
+    company_name = str(payload.get("company_name", "")).strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name is required")
+
+    product_interest = str(payload.get("product_interest", "")).strip()
+    if not product_interest:
+        raise HTTPException(status_code=400, detail="product_interest is required")
+
+    # Fetch active lead sources from Supabase
+    try:
+        active_sources = db.table("lead_sources").select("*").eq("is_active", True).execute().data or []
+    except Exception as e:
+        logger.error(f"Failed to fetch active sources: {e}")
+        active_sources = []
+
+    matched_source = None
+    for src in active_sources:
+        if _is_name_match(incoming_source, src["name"]):
+            matched_source = src
+            break
+
+    if not matched_source:
+        raise HTTPException(
+            status_code=400,
+            detail="Submissions are only accepted from registered websites. Please contact the administrator."
+        )
+
+    # Use official name and prefix for logging and ID generation
+    source_website = matched_source["name"]
+    prefix = matched_source["prefix"]
+    lead_id = _generate_lead_id(db, prefix)
 
     lead_data = {
         "lead_id": lead_id,
         "source_id": payload.get("source_id"),
-        "source_website": source_website,
+        "source_website": incoming_source,
         "full_name": full_name,
-        "email": payload.get("email"),
-        "phone": payload.get("phone"),
+        "email": email,
+        "phone": phone,
         "country": payload.get("country"),
-        "company_name": payload.get("company_name"),
-        "product_interest": payload.get("product_interest"),
+        "company_name": company_name,
+        "product_interest": product_interest,
         "message": payload.get("message"),
         "status": "Unassigned",
     }
@@ -352,6 +438,73 @@ def get_my_leads(
         return {"leads": leads, "total": len(leads)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching leads: {e}")
+
+
+# ─── LEAD SOURCES ENDPOINTS ───────────────────────────────────────────────────
+
+@router.get("/sources", dependencies=[Depends(verify_lead_access)])
+def get_lead_sources(db: SupabaseClient = Depends(get_db)):
+    """Fetch all configured lead sources."""
+    try:
+        res = db.table("lead_sources").select("*").order("name").execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching lead sources: {e}")
+
+
+@router.post("/sources", dependencies=[Depends(verify_permission("manage_leads"))])
+def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
+    """Create or update a lead source. Lead Manager only."""
+    name = str(payload.get("name", "")).strip()
+    website_url = str(payload.get("website_url", "")).strip() or "N/A"
+    prefix = str(payload.get("prefix", "")).strip().upper()
+    bg_color = str(payload.get("bg_color", "#e3f2fd")).strip()
+    text_color = str(payload.get("text_color", "#0d47a1")).strip()
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(prefix) != 2:
+        raise HTTPException(status_code=400, detail="Prefix must be exactly 2 characters")
+    if not prefix.isalnum():
+        raise HTTPException(status_code=400, detail="Prefix must contain alphanumeric characters only")
+
+    source_data = {
+        "name": name,
+        "website_url": website_url,
+        "bg_color": bg_color,
+        "text_color": text_color,
+        "is_active": bool(payload.get("is_active", True))
+    }
+    
+    source_id = payload.get("id")
+    if source_id:
+        # Prefix is unique and immutable
+        try:
+            db.table("lead_sources").eq("id", source_id).update(source_data).execute()
+            return {"message": "Lead source updated successfully"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update lead source: {e}")
+    else:
+        # Check prefix uniqueness
+        source_data["prefix"] = prefix
+        try:
+            db.table("lead_sources").insert(source_data).execute()
+            return {"message": "Lead source created successfully"}
+        except Exception as e:
+            err_msg = str(e)
+            if "duplicate key" in err_msg or "already exists" in err_msg:
+                raise HTTPException(status_code=400, detail="A source with this Name, URL, or Prefix already exists.")
+            raise HTTPException(status_code=500, detail=f"Failed to create lead source: {e}")
+
+
+@router.delete("/sources/{source_id}", dependencies=[Depends(verify_permission("manage_leads"))])
+def delete_lead_source(source_id: int, db: SupabaseClient = Depends(get_db)):
+    """Delete a lead source. Lead Manager only."""
+    try:
+        db.table("lead_sources").eq("id", source_id).delete().execute()
+        return {"message": "Lead source deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete lead source: {e}")
 
 
 @router.get("/{lead_id}/activities")

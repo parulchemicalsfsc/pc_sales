@@ -70,6 +70,17 @@ export interface Quotation {
   notes?: string;
 }
 
+export interface LeadSource {
+  id?: number;
+  name: string;
+  website_url: string;
+  prefix: string;
+  bg_color: string;
+  text_color: string;
+  is_active: boolean;
+  created_at?: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const leadsService = {
@@ -158,4 +169,16 @@ export const leadsService = {
   /** Lead Manager: delete a lead */
   deleteLead: (leadId: string) =>
     apiClient.delete<{ message: string }>(`/api/leads/${leadId}`),
+
+  /** Both roles: get all configured lead sources */
+  getSources: () =>
+    apiClient.get<LeadSource[]>("/api/leads/sources"),
+
+  /** Lead Manager: save/update a lead source */
+  saveSource: (data: Partial<LeadSource>) =>
+    apiClient.post<{ message: string }>("/api/leads/sources", data),
+
+  /** Lead Manager: delete a lead source */
+  deleteSource: (id: number) =>
+    apiClient.delete<{ message: string }>(`/api/leads/sources/${id}`),
 };

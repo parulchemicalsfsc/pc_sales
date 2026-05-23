@@ -5,6 +5,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Drawer, Divider, Button, Avatar, Tooltip, Dialog,
   DialogTitle, DialogContent, DialogActions, InputAdornment,
+  Paper,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon, Search as SearchIcon, Close as CloseIcon,
@@ -17,7 +18,7 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
-import { leadsService, Lead, LeadActivity } from "../services/leadsService";
+import { leadsService, Lead, LeadActivity, LeadSource } from "../services/leadsService";
 
 const STATUS_COLOR: Record<string, string> = {
   Unassigned: "#9e9e9e", Assigned: "#2196f3",
@@ -105,6 +106,140 @@ export default function LeadPipeline() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Configuration popups / sources
+  const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [newSource, setNewSource] = useState<Partial<LeadSource>>({
+    name: "",
+    website_url: "",
+    prefix: "",
+    bg_color: "#2196f3",
+    text_color: "#2196f3",
+    is_active: true
+  });
+  const [saveSourceLoading, setSaveSourceLoading] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+
+  const getLeftBarColor = (hex: string): string => {
+    let cleanHex = hex.replace("#", "").trim();
+    if (cleanHex.length === 3) {
+      cleanHex = cleanHex.split("").map((c) => c + c).join("");
+    }
+    if (cleanHex.length !== 6) return hex;
+
+    const rNorm = parseInt(cleanHex.substring(0, 2), 16) / 255;
+    const gNorm = parseInt(cleanHex.substring(2, 4), 16) / 255;
+    const bNorm = parseInt(cleanHex.substring(4, 6), 16) / 255;
+    const max = Math.max(rNorm, gNorm, bNorm);
+    const min = Math.min(rNorm, gNorm, bNorm);
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === rNorm) {
+        h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0);
+      } else if (max === gNorm) {
+        h = (bNorm - rNorm) / d + 2;
+      } else {
+        h = (rNorm - gNorm) / d + 4;
+      }
+      h /= 6;
+    }
+
+    const targetL = Math.max(0.25, Math.min(0.5, l - 0.35));
+    const targetS = Math.min(1.0, s * 1.5 || 0.8);
+
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+
+    const q = targetL < 0.5 ? targetL * (1 + targetS) : targetL + targetS - targetL * targetS;
+    const p = 2 * targetL - q;
+
+    const rFinal = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+    const gFinal = Math.round(hue2rgb(p, q, h) * 255);
+    const bFinal = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+
+    const toHex = (val: number) => Math.max(0, Math.min(255, val)).toString(16).padStart(2, "0");
+    return `#${toHex(rFinal)}${toHex(gFinal)}${toHex(bFinal)}`;
+  };
+
+  const getHoverBgColor = (hex: string): string => {
+    let cleanHex = hex.replace("#", "").trim();
+    if (cleanHex.length === 3) {
+      cleanHex = cleanHex.split("").map((c) => c + c).join("");
+    }
+    if (cleanHex.length !== 6) return hex;
+
+    const r = Math.max(0, Math.floor(parseInt(cleanHex.substring(0, 2), 16) * 0.9));
+    const g = Math.max(0, Math.floor(parseInt(cleanHex.substring(2, 4), 16) * 0.9));
+    const b = Math.max(0, Math.floor(parseInt(cleanHex.substring(4, 6), 16) * 0.9));
+
+    const toHex = (val: number) => val.toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  };
+
+  const getRowStyles = (sourceName: string) => {
+    const normalize = (val: string) => val.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+    const extractDomain = (url: string) => {
+      let u = url.trim().toLowerCase();
+      if (!u.startsWith("http://") && !u.startsWith("https://")) {
+        u = "http://" + u;
+      }
+      try {
+        const parsed = new URL(u);
+        let domain = parsed.hostname;
+        if (domain.startsWith("www.")) {
+          domain = domain.substring(4);
+        }
+        return domain;
+      } catch {
+        return u;
+      }
+    };
+
+    const incomingNorm = normalize(sourceName);
+    const incomingDomain = extractDomain(sourceName);
+
+    const matched = leadSources.find((s) => {
+      const srcNorm = normalize(s.name);
+      if (incomingNorm === srcNorm) return true;
+
+      const srcDomain = extractDomain(s.website_url);
+      if (incomingDomain && srcDomain && incomingDomain === srcDomain) return true;
+
+      // Legacy matching support
+      if (incomingNorm === "psi" && srcNorm.includes("pressstamping")) return true;
+      if (incomingNorm === "pcsales" && srcNorm.includes("parulchemical")) return true;
+
+      return false;
+    });
+
+    if (matched && matched.is_active) {
+      const baseColor = matched.bg_color || "#2196f3";
+      return {
+        hasColor: true,
+        color: getLeftBarColor(baseColor),
+        rowBg: baseColor,
+        hoverBg: getHoverBgColor(baseColor),
+      };
+    }
+    return {
+      hasColor: false,
+      color: "",
+      rowBg: "",
+      hoverBg: "",
+    };
+  };
+
   const handleDeleteLead = async () => {
     if (!selectedLead) return;
     setDeleteLoading(true);
@@ -150,8 +285,16 @@ export default function LeadPipeline() {
     } catch { }
   }, []);
 
+  const loadSources = useCallback(async () => {
+    try {
+      const res = await leadsService.getSources();
+      setLeadSources(res.data || []);
+    } catch { }
+  }, []);
+
   useEffect(() => { loadLeads(); }, [loadLeads]);
   useEffect(() => { loadOwners(); }, [loadOwners]);
+  useEffect(() => { loadSources(); }, [loadSources]);
 
   const openDrawer = async (lead: Lead) => {
     setSelectedLead(lead);
@@ -211,7 +354,22 @@ export default function LeadPipeline() {
           <Typography variant="h4" fontWeight={700}>Lead Pipeline</Typography>
           <Typography variant="body2" color="text.secondary">{total} total leads</Typography>
         </Box>
-        <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
+        <Box display="flex" alignItems="center" gap={1}>
+          {hasPermission(PERMISSIONS.MANAGE_LEADS) && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AutoIcon />}
+              onClick={() => {
+                setSourceError(null);
+                setSourcesOpen(true);
+              }}
+            >
+              Configure Sources
+            </Button>
+          )}
+          <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
+        </Box>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
@@ -289,15 +447,37 @@ export default function LeadPipeline() {
                 </TableCell></TableRow>
               ) : filteredLeads.map((lead) => {
                 const isOverdue = lead.follow_up_date && lead.follow_up_date < today && !["Converted", "Rejected"].includes(lead.status);
+                const rowStyle = getRowStyles(lead.source_website);
                 return (
-                  <TableRow key={lead.lead_id} hover sx={{ cursor: "pointer" }} onClick={() => openDrawer(lead)}>
-                    <TableCell><Typography variant="body2" fontFamily="monospace" fontWeight={600}>{lead.lead_id}</Typography></TableCell>
+                  <TableRow
+                    key={lead.lead_id}
+                    hover
+                    sx={{
+                      cursor: "pointer",
+                      ...(rowStyle.hasColor && {
+                        backgroundColor: rowStyle.rowBg,
+                        "&:hover": {
+                          backgroundColor: `${rowStyle.hoverBg} !important`,
+                        },
+                      }),
+                    }}
+                    onClick={() => openDrawer(lead)}
+                  >
+                    <TableCell
+                      sx={{
+                        ...(rowStyle.hasColor && {
+                          borderLeft: `6px solid ${rowStyle.color}`,
+                        }),
+                      }}
+                    >
+                      <Typography variant="body2" fontFamily="monospace" fontWeight={600}>
+                        {lead.lead_id}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{lead.full_name}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
                     <TableCell>{lead.product_interest || "—"}</TableCell>
-                    <TableCell>
-                      <Chip label={lead.source_website} size="small" variant="outlined" />
-                    </TableCell>
+                    <TableCell>{lead.source_website}</TableCell>
                     <TableCell>
                       <Chip label={lead.status} size="small"
                         sx={{ bgcolor: STATUS_COLOR[lead.status] + "22", color: STATUS_COLOR[lead.status], fontWeight: 600, border: "none" }} />
@@ -480,6 +660,171 @@ export default function LeadPipeline() {
           <Button variant="contained" color="error" onClick={handleDeleteLead} disabled={deleteLoading}>
             {deleteLoading ? "Deleting…" : "Delete"}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Configure Lead Sources Dialog */}
+      <Dialog open={sourcesOpen} onClose={() => setSourcesOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle display="flex" justifyContent="space-between" alignItems="center">
+          Configure Lead Sources
+          <IconButton onClick={() => setSourcesOpen(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {sourceError && <Alert severity="error" sx={{ mb: 2 }}>{sourceError}</Alert>}
+          
+          {/* Add New Source Section */}
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: "action.hover" }}>
+            <Typography variant="subtitle2" fontWeight={700} mb={1.5}>Add New Lead Source</Typography>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={5}>
+                <TextField
+                  label="Name (e.g. Parul Chemicals) *"
+                  size="small"
+                  fullWidth
+                  value={newSource.name || ""}
+                  onChange={(e) => setNewSource((prev) => ({ ...prev, name: e.target.value }))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={3}>
+                <TextField
+                  label="Prefix (Exactly 2 chars) *"
+                  size="small"
+                  fullWidth
+                  inputProps={{ maxLength: 2 }}
+                  value={newSource.prefix || ""}
+                  onChange={(e) => setNewSource((prev) => ({ ...prev, prefix: e.target.value.toUpperCase() }))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Box display="flex" flexDirection="column" gap={0.5}>
+                  <Typography variant="caption" color="text.secondary">Source Color (Row Highlight)</Typography>
+                  <Box display="flex" alignItems="center" gap={1.5}>
+                    <input
+                      type="color"
+                      value={newSource.bg_color || "#2196f3"}
+                      onChange={(e) => setNewSource((prev) => ({ ...prev, bg_color: e.target.value }))}
+                      style={{
+                        width: 48,
+                        height: 36,
+                        padding: 0,
+                        border: "1px solid rgba(0, 0, 0, 0.23)",
+                        borderRadius: 4,
+                        cursor: "pointer",
+                        backgroundColor: "transparent",
+                      }}
+                    />
+                    <Typography variant="body2" fontFamily="monospace" fontWeight={600}>
+                      {newSource.bg_color || "#2196f3"}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+              <Grid item xs={12} display="flex" justifyContent="flex-end" gap={1}>
+                <Button
+                  variant="contained"
+                  disabled={saveSourceLoading || !newSource.name || !newSource.prefix}
+                  onClick={async () => {
+                    setSaveSourceLoading(true);
+                    setSourceError(null);
+                    try {
+                      if (newSource.prefix && newSource.prefix.length !== 2) {
+                         throw new Error("Prefix must be exactly 2 characters");
+                      }
+                      await leadsService.saveSource({
+                        name: newSource.name,
+                        prefix: newSource.prefix,
+                        bg_color: newSource.bg_color,
+                        text_color: newSource.bg_color || "#2196f3",
+                        website_url: "N/A",
+                        is_active: newSource.is_active,
+                      });
+                      setNewSource({
+                        name: "",
+                        website_url: "",
+                        prefix: "",
+                        bg_color: "#2196f3",
+                        text_color: "#2196f3",
+                        is_active: true
+                      });
+                      await loadSources();
+                    } catch (e: any) {
+                      setSourceError(e?.response?.data?.detail || e.message || "Failed to save lead source");
+                    } finally {
+                      setSaveSourceLoading(false);
+                    }
+                  }}
+                >
+                  {saveSourceLoading ? "Adding..." : "Add Source"}
+                </Button>
+              </Grid>
+            </Grid>
+          </Paper>
+
+          <Typography variant="subtitle2" fontWeight={700} mb={1}>Configured Sources</Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead sx={{ bgcolor: "action.hover" }}>
+                <TableRow>
+                   <TableCell><strong>Name</strong></TableCell>
+                   <TableCell align="center"><strong>Prefix</strong></TableCell>
+                   <TableCell align="center"><strong>Badge Preview</strong></TableCell>
+                   <TableCell align="center"><strong>Actions</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {leadSources.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} align="center">No lead sources configured.</TableCell>
+                  </TableRow>
+                ) : (
+                  leadSources.map((src) => (
+                    <TableRow key={src.id}>
+                      <TableCell>{src.name}</TableCell>
+                      <TableCell align="center"><code style={{ fontWeight: 700 }}>{src.prefix}</code></TableCell>
+                      <TableCell align="center">
+                        <span style={{
+                          backgroundColor: src.bg_color,
+                          borderLeft: `4px solid ${getLeftBarColor(src.bg_color || "#2196f3")}`,
+                          color: "inherit",
+                          padding: "4px 8px",
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          display: "inline-block"
+                        }}>
+                          {src.name}
+                        </span>
+                      </TableCell>
+                      <TableCell align="center">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          disabled={saveSourceLoading}
+                          onClick={async () => {
+                            if (!src.id) return;
+                            if (!confirm(`Are you sure you want to delete source '${src.name}'?`)) return;
+                            setSaveSourceLoading(true);
+                            try {
+                              await leadsService.deleteSource(src.id);
+                              await loadSources();
+                            } catch (e: any) {
+                              setSourceError(e?.response?.data?.detail || "Failed to delete lead source");
+                            } finally {
+                              setSaveSourceLoading(false);
+                            }
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSourcesOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
