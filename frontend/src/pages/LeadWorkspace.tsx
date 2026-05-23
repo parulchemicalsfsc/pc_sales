@@ -4,6 +4,7 @@ import {
   Alert, Divider, Button, TextField, MenuItem, Select, FormControl,
   InputLabel, Dialog, DialogTitle, DialogContent, DialogActions,
   IconButton, Tooltip, RadioGroup, FormControlLabel, Radio, Paper,
+  Autocomplete,
 } from "@mui/material";
 import {
   Phone as PhoneIcon, Email as EmailIcon, Business as BusinessIcon,
@@ -130,6 +131,72 @@ export default function LeadWorkspace() {
   const [otherReason, setOtherReason] = useState("");
   const [conversionNotes, setConversionNotes] = useState("");
   const [closeLoading, setCloseLoading] = useState(false);
+
+  // Add lead modal state
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
+  const [addLeadLoading, setAddLeadLoading] = useState(false);
+  const [existingSources, setExistingSources] = useState<string[]>(["website_a", "website_b", "website_c", "parul_chemicals", "psi"]);
+  const [addLeadForm, setAddLeadForm] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+    company_name: "",
+    product_interest: "",
+    message: "",
+    source_website: "",
+  });
+
+  useEffect(() => {
+    if (addLeadOpen) {
+      const fetchSources = async () => {
+        try {
+          const statsRes = await leadsService.getPipelineStats();
+          if (statsRes.data && statsRes.data.by_source) {
+            const dbSources = Object.keys(statsRes.data.by_source);
+            const combined = Array.from(new Set([...dbSources, "website_a", "website_b", "website_c", "parul_chemicals", "psi"]));
+            setExistingSources(combined.filter(Boolean));
+          }
+        } catch (e) {
+          console.error("Failed to fetch pipeline stats for sources", e);
+        }
+      };
+      fetchSources();
+    }
+  }, [addLeadOpen]);
+
+  const handleAddLeadSubmit = async () => {
+    if (!addLeadForm.full_name.trim() || !addLeadForm.source_website.trim()) return;
+    setAddLeadLoading(true);
+    try {
+      const res = await leadsService.createLead(addLeadForm);
+      setAddLeadOpen(false);
+      setAddLeadForm({
+        full_name: "",
+        email: "",
+        phone: "",
+        company_name: "",
+        product_interest: "",
+        message: "",
+        source_website: "",
+      });
+      setSuccess(`Lead created successfully with ID: ${res.data.lead_id}`);
+      
+      // Reload leads and select the new lead
+      const refreshedLeadsRes = await leadsService.getMy();
+      const updatedLeads = refreshedLeadsRes.data.leads || [];
+      setMyLeads(updatedLeads);
+      
+      // Find the new lead in the updated list and select it
+      const newLead = updatedLeads.find((l: Lead) => l.lead_id === res.data.lead_id);
+      if (newLead) {
+        selectLead(newLead);
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to create lead");
+    } finally {
+      setAddLeadLoading(false);
+    }
+  };
 
   const loadLeads = useCallback(async () => {
     if (!user) return;
@@ -374,7 +441,12 @@ export default function LeadWorkspace() {
           <Typography variant="h4" fontWeight={700}>Lead Workspace</Typography>
           <Typography variant="body2" color="text.secondary">Select a lead to work on it</Typography>
         </Box>
-        <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
+        <Box display="flex" alignItems="center" gap={1}>
+          <Button variant="contained" color="primary" onClick={() => setAddLeadOpen(true)}>
+            Add Lead
+          </Button>
+          <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
+        </Box>
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
@@ -773,6 +845,84 @@ export default function LeadWorkspace() {
             onClick={handleCloseLead}
             disabled={closeLoading || (closureType === "Rejected" && (!rejectionReason || (rejectionReason === "Other" && !otherReason)))}>
             {closeLoading ? "Closing…" : `Mark as ${closureType}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Lead Modal */}
+      <Dialog open={addLeadOpen} onClose={() => setAddLeadOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add Lead Manually</DialogTitle>
+        <DialogContent>
+          <Box display="flex" flexDirection="column" gap={2} mt={1}>
+            <TextField
+              label="Full Name *"
+              value={addLeadForm.full_name}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, full_name: e.target.value }))}
+              fullWidth
+              required
+            />
+            <TextField
+              label="Email"
+              type="email"
+              value={addLeadForm.email}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, email: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Phone"
+              value={addLeadForm.phone}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, phone: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Company Name"
+              value={addLeadForm.company_name}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, company_name: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Product Interest"
+              value={addLeadForm.product_interest}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, product_interest: e.target.value }))}
+              fullWidth
+            />
+            <Autocomplete
+              freeSolo
+              options={existingSources}
+              value={addLeadForm.source_website}
+              onChange={(event, newValue) => {
+                setAddLeadForm((prev) => ({ ...prev, source_website: newValue || "" }));
+              }}
+              onInputChange={(event, newInputValue) => {
+                setAddLeadForm((prev) => ({ ...prev, source_website: newInputValue || "" }));
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Source Website *"
+                  required
+                  fullWidth
+                />
+              )}
+            />
+            <TextField
+              label="Message / Description"
+              multiline
+              rows={3}
+              value={addLeadForm.message}
+              onChange={(e) => setAddLeadForm((prev) => ({ ...prev, message: e.target.value }))}
+              fullWidth
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddLeadOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddLeadSubmit}
+            disabled={!addLeadForm.full_name.trim() || !addLeadForm.source_website.trim() || addLeadLoading}
+          >
+            {addLeadLoading ? "Creating…" : "Create Lead"}
           </Button>
         </DialogActions>
       </Dialog>

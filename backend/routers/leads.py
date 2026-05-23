@@ -33,10 +33,24 @@ SOURCE_PREFIX_MAP = {
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _verify_intake_key(request: Request):
+def _verify_intake_key(request: Request, db: SupabaseClient):
+    # Check if this is a manual addition by a logged-in user with work_leads permission
+    user_email = request.headers.get("x-user-email")
+    if user_email:
+        from rbac_utils import get_user_permissions
+        permissions = get_user_permissions(user_email, db)
+        if "work_leads" in permissions:
+            return user_email
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Missing permission: 'work_leads'."
+            )
+
     key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
     if not key or key != LEAD_INTAKE_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return "system"
 
 
 import re
@@ -142,10 +156,10 @@ def _get_user_name(db: SupabaseClient, email: str) -> str:
 @router.post("/intake")
 def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(get_db)):
     """
-    Public endpoint for product websites to submit leads.
-    Protected by X-API-Key header.
+    Public endpoint for product websites to submit leads,
+    or manual intake for users with work_leads.
     """
-    _verify_intake_key(request)
+    logged_by = _verify_intake_key(request, db)
 
     source_website = str(payload.get("source_website", "unknown")).lower().strip()
     full_name = str(payload.get("full_name", "")).strip()
@@ -168,27 +182,49 @@ def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(ge
         "status": "Unassigned",
     }
 
+    if logged_by != "system":
+        lead_data["assigned_to"] = logged_by
+        lead_data["status"] = "Assigned"
+
     try:
         db.table("leads").insert(lead_data).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create lead: {e}")
 
-    _log_lead_activity(
-        db, lead_id, "Assignment",
-        f"Lead received from {source_website}",
-        logged_by="system", is_auto=True,
-    )
+    if logged_by == "system":
+        _log_lead_activity(
+            db, lead_id, "Assignment",
+            f"Lead received from {source_website}",
+            logged_by="system", is_auto=True,
+        )
+        _notify_lead_managers(
+            db,
+            title=f"New Lead: {full_name}",
+            message=f"New enquiry from {full_name} ({payload.get('company_name', 'N/A')}) via {source_website}. "
+                    f"Product: {payload.get('product_interest', 'N/A')}",
+            action_url="/leads",
+        )
+    else:
+        user_name = _get_user_name(db, logged_by)
+        _log_lead_activity(
+            db, lead_id, "Assignment",
+            f"Lead created manually by {user_name}",
+            logged_by=logged_by, is_auto=True,
+        )
+        _log_lead_activity(
+            db, lead_id, "Status Change",
+            f"Status changed from Unassigned to Assigned (automatically assigned to creator)",
+            logged_by=logged_by, is_auto=True,
+        )
+        _notify_lead_managers(
+            db,
+            title=f"New Lead (Manual): {full_name}",
+            message=f"New manual lead created by {user_name} for {full_name} ({payload.get('company_name', 'N/A')}).",
+            action_url="/leads",
+        )
 
-    _notify_lead_managers(
-        db,
-        title=f"New Lead: {full_name}",
-        message=f"New enquiry from {full_name} ({payload.get('company_name', 'N/A')}) via {source_website}. "
-                f"Product: {payload.get('product_interest', 'N/A')}",
-        action_url="/leads",
-    )
-
-    logger.info(f"[LEADS] New lead created: {lead_id} from {source_website}")
-    return {"lead_id": lead_id, "status": "Unassigned", "message": "Lead created successfully"}
+    logger.info(f"[LEADS] New lead created: {lead_id} (manual: {logged_by != 'system'})")
+    return {"lead_id": lead_id, "status": lead_data["status"], "message": "Lead created successfully"}
 
 
 # ─── LEAD MANAGER ENDPOINTS ───────────────────────────────────────────────────
@@ -479,6 +515,44 @@ def manager_comment(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding comment: {e}")
+
+
+@router.delete("/{lead_id}", dependencies=[Depends(verify_permission("manage_leads"))])
+def delete_lead(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Delete a lead. Lead Manager only."""
+    try:
+        # Check if lead exists
+        lead = _get_lead_or_404(db, lead_id)
+        
+        # 1. Delete associated quotations
+        db.table("quotations").eq("lead_id", lead_id).delete().execute()
+        
+        # 2. Delete associated lead activities
+        db.table("lead_activities").eq("lead_id", lead_id).delete().execute()
+        
+        # 3. Delete the lead
+        db.table("leads").eq("lead_id", lead_id).delete().execute()
+        
+        # Log this admin activity
+        act_logger = get_activity_logger(db)
+        act_logger.log_activity(
+            user_email=user_email,
+            action_type="DELETE",
+            action_description=f"Deleted lead {lead_id} (Name: {lead.get('full_name')})",
+            entity_type="lead",
+            entity_name=lead_id,
+            metadata={"lead_id": lead_id, "full_name": lead.get("full_name")},
+        )
+        
+        return {"message": f"Lead {lead_id} and all associated records deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting lead: {e}")
 
 
 # ─── LEAD OWNER ENDPOINTS ─────────────────────────────────────────────────────
