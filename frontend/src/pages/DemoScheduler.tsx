@@ -29,7 +29,7 @@ import {
   WarningAmber as WarningIcon,
   DateRange as DateRangeIcon,
 } from "@mui/icons-material";
-import { demoAPI } from "../services/api";
+import { demoAPI, formatError } from "../services/api";
 import DemoDialog from "../components/DemoDialog";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
@@ -160,7 +160,7 @@ export default function DemoScheduler() {
       const data = await demoAPI.getAll({ limit: 1000 });
       setDemos(data || []);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load demos");
+      setError(formatError(e) || "Failed to load demos");
     } finally {
       setLoadingDemos(false);
     }
@@ -172,7 +172,7 @@ export default function DemoScheduler() {
       const data = await demoAPI.getSuggestions(30);
       setSuggestions(data || []);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load suggestions");
+      setError(formatError(e) || "Failed to load suggestions");
     } finally {
       setLoadingSuggestions(false);
     }
@@ -184,7 +184,7 @@ export default function DemoScheduler() {
       const data = await demoAPI.getRedemoHistory({ limit: 200 });
       setRedemos(data || []);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load redemo history");
+      setError(formatError(e) || "Failed to load redemo history");
     } finally {
       setLoadingRedemos(false);
     }
@@ -222,7 +222,7 @@ export default function DemoScheduler() {
       setStatusDialog({ open: false, demo: null });
       loadDemos();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to update demo status");
+      setError(formatError(e) || "Failed to update demo status");
     } finally {
       setUpdating(false);
     }
