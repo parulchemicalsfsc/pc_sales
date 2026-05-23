@@ -180,7 +180,7 @@ def recent_sales(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
         # Fetch recent sales with all FK columns to resolve buyer type
         sales_response = (
             db.table("sales")
-            .select("invoice_no, total_amount, sale_date, payment_status, buyer_type, customer_id, distributor_id, doctor_id, shopkeeper_id")
+            .select("invoice_no,total_amount,sale_date,payment_status,buyer_type,customer_id,distributor_id,doctor_id,shopkeeper_id")
             .order("created_at", desc=True)
             .limit(limit)
             .execute()
@@ -220,10 +220,10 @@ def recent_sales(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
             resp = db.table(table).select(select_cols).in_(id_col, list(ids)).execute()
             return {row[id_col]: row for row in (resp.data or [])}
 
-        customers_dict = fetch_by_ids("customers", "customer_id", customer_ids, "customer_id, name, village")
-        distributors_dict = fetch_by_ids("distributors", "distributor_id", distributor_ids, "distributor_id, name, mantri_name, village")
-        doctors_dict = fetch_by_ids("doctors", "doctor_id", doctor_ids, "doctor_id, name, village")
-        shopkeepers_dict = fetch_by_ids("shopkeepers", "shopkeeper_id", shopkeeper_ids, "shopkeeper_id, name, village")
+        customers_dict = fetch_by_ids("customers", "customer_id", customer_ids, "customer_id,name,village")
+        distributors_dict = fetch_by_ids("distributors", "distributor_id", distributor_ids, "distributor_id,mantri_name,village")
+        doctors_dict = fetch_by_ids("doctors", "doctor_id", doctor_ids, "doctor_id,name,village")
+        shopkeepers_dict = fetch_by_ids("shopkeepers", "shopkeeper_id", shopkeeper_ids, "shopkeeper_id,name,village")
 
         result = []
         for sale in sales_response.data:
@@ -231,7 +231,7 @@ def recent_sales(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
 
             if buyer_type in ("distributor", "mantri") and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
-                name = entity.get("mantri_name") or entity.get("name") if buyer_type == "mantri" else entity.get("name")
+                name = entity.get("mantri_name")
                 village = entity.get("village")
             elif buyer_type == "doctor" and sale.get("doctor_id"):
                 entity = doctors_dict.get(sale["doctor_id"], {})
@@ -276,7 +276,7 @@ def upcoming_demos(limit: int = 10, db: SupabaseClient = Depends(get_supabase)):
             # FIX-8: Embed customer and product joins — no separate full-table fetches
             demos_response = (
                 db.table("demos")
-                .select("demo_id, demo_date, demo_time, conversion_status, customers(name, village), products(product_name)")
+                .select("demo_id,demo_date,demo_time,conversion_status,customers(name,village),products(product_name)")
                 .gte("demo_date", today)
                 .eq("conversion_status", "Scheduled")
                 .order("demo_date")
