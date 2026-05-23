@@ -540,6 +540,10 @@ export const demoAPI = {
     const response = await apiClient.get("/api/demos/suggestions", { params: { limit } });
     return response.data;
   },
+  getRedemoHistory: async (params?: { skip?: number; limit?: number }) => {
+    const response = await apiClient.get("/api/demos/redemo", { params });
+    return response.data;
+  },
 };
 
 export const automationAPI = {
@@ -905,3 +909,50 @@ export const chatAPI = {
   },
 };
 
+/**
+ * Safe error parser to extract user-friendly error strings from server responses,
+ * especially handling FastAPI validation errors (422) which are returned as arrays of objects.
+ */
+export function formatError(err: any): string {
+  if (!err) return "";
+  if (typeof err === "string") return err;
+
+  // Extract from AxiosError response structure
+  const responseData = err?.response?.data;
+  
+  if (responseData) {
+    // 1. If detail exists
+    const detail = responseData.detail;
+    if (detail) {
+      if (typeof detail === "string") {
+        return detail;
+      }
+      if (Array.isArray(detail)) {
+        return detail
+          .map((d: any) => {
+            if (typeof d === "string") return d;
+            if (d && typeof d === "object") {
+              const loc = d.loc ? d.loc.filter((l: any) => l !== "body" && l !== "query").join(".") : "";
+              const msg = d.msg || JSON.stringify(d);
+              return loc ? `${loc}: ${msg}` : msg;
+            }
+            return String(d);
+          })
+          .join(", ");
+      }
+      if (typeof detail === "object") {
+        return JSON.stringify(detail);
+      }
+    }
+
+    // 2. If message or error exists in response body
+    const msg = responseData.message || responseData.error;
+    if (msg) {
+      return typeof msg === "string" ? msg : JSON.stringify(msg);
+    }
+  }
+
+  // 3. Fallback to general Axios error messages or JavaScript Error messages
+  const fallback = err?.message || err?.error || String(err);
+  return typeof fallback === "string" ? fallback : JSON.stringify(fallback);
+}

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { useTranslation } from '../hooks/useTranslation';
 import {
     Box,
     Typography,
@@ -111,6 +112,7 @@ const SCORE_LOGIC = [
 
 
 export default function Algorithm() {
+    const { t } = useTranslation();
     const theme = useTheme();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [file, setFile] = useState<File | null>(null);
@@ -132,7 +134,7 @@ export default function Algorithm() {
             setFile(droppedFile);
             setError(null);
         } else {
-            setError('Only .xlsx and .xls files are supported');
+            setError(t('algorithm.onlyExcelSupported', 'Only .xlsx and .xls files are supported'));
         }
     }, []);
 
@@ -148,7 +150,7 @@ export default function Algorithm() {
             } else if (file) {
                 formData.append('file', file);
             } else {
-                setError('Please select an Excel file or use sample data');
+                setError(t('algorithm.selectExcelOrSample', 'Please select an Excel file or use sample data'));
                 setLoading(false);
                 return;
             }
@@ -164,7 +166,7 @@ export default function Algorithm() {
 
             setResult(response.data);
         } catch (err: any) {
-            const msg = err?.response?.data?.detail || err?.message || 'Algorithm failed';
+            const msg = err?.response?.data?.detail || err?.message || t('algorithm.failed', 'Algorithm failed');
             setError(msg);
         } finally {
             setLoading(false);
@@ -181,7 +183,7 @@ export default function Algorithm() {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
                     <ScienceIcon sx={{ fontSize: 32, color: 'primary.main' }} />
                     <Typography variant="h4" sx={{ fontWeight: 700 }}>
-                        Mantri Priority Algorithm
+                        {t('algorithm.title', 'Mantri Priority Algorithm')}
                     </Typography>
                     <Chip label="v3" size="small" color="primary" />
                 </Box>
@@ -227,10 +229,10 @@ export default function Algorithm() {
                         />
                         <UploadIcon sx={{ fontSize: 40, color: file ? 'success.main' : 'text.secondary', mb: 1 }} />
                         <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                            {file ? file.name : 'Drop Excel file here or click to browse'}
+                            {file ? file.name : t('algorithm.dropExcelHere', 'Drop Excel file here or click to browse')}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                            Supports .xlsx and .xls files
+                            {t('algorithm.supportsExcel', 'Supports .xlsx and .xls files')}
                         </Typography>
                     </Box>
 
@@ -251,7 +253,7 @@ export default function Algorithm() {
                                 '&:hover': { background: 'linear-gradient(135deg, #5568d3 0%, #6941a0 100%)' },
                             }}
                         >
-                            {loading ? 'Processing...' : 'Run Algorithm'}
+                            {loading ? t('algorithm.processing', 'Processing...') : t('algorithm.runAlgorithm', 'Run Algorithm')}
                         </Button>
                         <Button
                             variant="outlined"
@@ -260,7 +262,7 @@ export default function Algorithm() {
                             disabled={loading}
                             sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
                         >
-                            Try with Sample Data
+                            {t('algorithm.trySampleData', 'Try with Sample Data')}
                         </Button>
                     </Box>
                 </Box>
@@ -277,10 +279,10 @@ export default function Algorithm() {
             {result && (
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
                     {[
-                        { label: 'URGENT', count: result.stats.urgent, color: '#C00000', bg: '#FFD7D7', emoji: '🔴' },
-                        { label: 'HIGH', count: result.stats.high, color: '#E26B0A', bg: '#FFE7CC', emoji: '🟠' },
-                        { label: 'MEDIUM', count: result.stats.medium, color: '#BF8F00', bg: '#FFFACC', emoji: '🟡' },
-                        { label: 'LOW', count: result.stats.low, color: '#375623', bg: '#E2EFDA', emoji: '🟢' },
+                        { label: 'urgent', count: result.stats.urgent, color: '#C00000', bg: '#FFD7D7', emoji: '🔴' },
+                        { label: 'high', count: result.stats.high, color: '#E26B0A', bg: '#FFE7CC', emoji: '🟠' },
+                        { label: 'medium', count: result.stats.medium, color: '#BF8F00', bg: '#FFFACC', emoji: '🟡' },
+                        { label: 'low', count: result.stats.low, color: '#375623', bg: '#E2EFDA', emoji: '🟢' },
                     ].map((s) => (
                         <Paper
                             key={s.label}
@@ -296,7 +298,7 @@ export default function Algorithm() {
                                 {s.emoji} {s.count}
                             </Typography>
                             <Typography variant="body2" sx={{ fontWeight: 600, color: s.color, mt: 0.5 }}>
-                                {s.label}
+                                {t(`algorithm.${s.label}`)}
                             </Typography>
                         </Paper>
                     ))}
@@ -306,11 +308,11 @@ export default function Algorithm() {
             {/* ── Summary Bar ── */}
             {result && (
                 <Paper sx={{ p: 2, mb: 3, borderRadius: 2, display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Chip label={`Month: ${result.stats.current_month}`} color="primary" variant="outlined" />
-                    <Chip label={`Total Rows: ${result.stats.total_raw}`} variant="outlined" />
-                    <Chip label={`Scored: ${result.stats.total_scored}`} color="success" variant="outlined" />
-                    <Chip label={`Dropped: ${result.stats.dropped}`} color="warning" variant="outlined" />
-                    <Tooltip title="Rows with missing scoring fields are automatically dropped">
+                    <Chip label={t('algorithm.monthLabel', 'Month: {month}').replace('{month}', result.stats.current_month)} color="primary" variant="outlined" />
+                    <Chip label={t('algorithm.totalRowsLabel', 'Total Rows: {count}').replace('{count}', String(result.stats.total_raw))} variant="outlined" />
+                    <Chip label={t('algorithm.scoredLabel', 'Scored: {count}').replace('{count}', String(result.stats.total_scored))} color="success" variant="outlined" />
+                    <Chip label={t('algorithm.droppedLabel', 'Dropped: {count}').replace('{count}', String(result.stats.dropped))} color="warning" variant="outlined" />
+                    <Tooltip title={t('algorithm.rowsDroppedTooltip', 'Rows with missing scoring fields are automatically dropped')}>
                         <IconButton size="small"><InfoIcon fontSize="small" /></IconButton>
                     </Tooltip>
                 </Paper>
@@ -323,42 +325,86 @@ export default function Algorithm() {
                         <Table stickyHeader size="small" sx={{ minWidth: 2200 }}>
                             <TableHead>
                                 <TableRow>
-                                    {ORIGINAL_COLUMNS.map((col) => (
-                                        <TableCell
-                                            key={col.key}
-                                            sx={{
-                                                fontWeight: 700,
-                                                fontSize: '0.75rem',
-                                                minWidth: col.width,
-                                                bgcolor: theme.palette.mode === 'dark' ? '#1a237e' : '#2C4770',
-                                                color: '#fff',
-                                                whiteSpace: 'nowrap',
-                                                borderRight: `1px solid ${alpha('#fff', 0.1)}`,
-                                            }}
-                                        >
-                                            {col.label}
-                                        </TableCell>
-                                    ))}
-                                    {SCORE_COLUMNS.map((col) => (
-                                        <TableCell
-                                            key={col.key}
-                                            sx={{
-                                                fontWeight: 700,
-                                                fontSize: '0.75rem',
-                                                minWidth: col.width,
-                                                bgcolor: theme.palette.mode === 'dark' ? '#283593' : '#D6E4FF',
-                                                color: theme.palette.mode === 'dark' ? '#fff' : '#1F3864',
-                                                whiteSpace: 'nowrap',
-                                                borderRight: `1px solid ${alpha('#000', 0.1)}`,
-                                                textAlign: 'center',
-                                            }}
-                                        >
-                                            {col.label}
-                                        </TableCell>
-                                    ))}
+                                    {ORIGINAL_COLUMNS.map((col) => {
+                                        const keyMap: { [key: string]: string } = {
+                                            SR_NO: 'colSrNo',
+                                            MANTRI_NAME: 'colMantriName',
+                                            VILLAGE: 'colVillage',
+                                            TALUKA: 'colTaluka',
+                                            DISTRICT: 'colDistrict',
+                                            STATE: 'colState',
+                                            DAIRY_TYPE: 'colDairyType',
+                                            SABHASAD_COUNT: 'colSabhasadCount',
+                                            NATURE_SABHASAD: 'colSabhasadNature',
+                                            SUPPORT: 'colSupport',
+                                            DELIVERY_PERIOD: 'colDeliveryPeriod',
+                                            DEMO_DAYS: 'colDemoDays',
+                                            DISPATCH_DAYS: 'colDispatchDays',
+                                            DECISION_MAKER: 'colDecisionMaker',
+                                            HIGH_LOW_HOLDER: 'colHolderType',
+                                            CURRENT_BUSINESS: 'colBusiness',
+                                            DATE: 'colDate',
+                                            MILK_MORNING: 'colMilkAm',
+                                            MILK_EVENING: 'colMilkPm'
+                                        };
+                                        const translationKey = keyMap[col.key];
+                                        const localizedLabel = translationKey ? t(`algorithm.${translationKey}`) : col.label;
+                                        return (
+                                            <TableCell
+                                                key={col.key}
+                                                sx={{
+                                                    fontWeight: 700,
+                                                    fontSize: '0.75rem',
+                                                    minWidth: col.width,
+                                                    bgcolor: theme.palette.mode === 'dark' ? '#1a237e' : '#2C4770',
+                                                    color: '#fff',
+                                                    whiteSpace: 'nowrap',
+                                                    borderRight: `1px solid ${alpha('#fff', 0.1)}`,
+                                                }}
+                                            >
+                                                {localizedLabel}
+                                            </TableCell>
+                                        );
+                                    })}
+                                    {SCORE_COLUMNS.map((col) => {
+                                        const keyMap: { [key: string]: string } = {
+                                            SCORE_SEASON: 'seasonWeight',
+                                            SCORE_PAYMENT: 'paymentWeight',
+                                            SCORE_HOLDER: 'holderWeight',
+                                            SCORE_BUSINESS: 'businessWeight',
+                                            SCORE_SABHASAD: 'sabhasadWeight',
+                                            SCORE_SUPPORT: 'supportWeight'
+                                        };
+                                        const translationKey = keyMap[col.key];
+                                        const localizedLabel = translationKey ? t(`algorithm.${translationKey}`) : col.label;
+                                        return (
+                                            <TableCell
+                                                key={col.key}
+                                                sx={{
+                                                    fontWeight: 700,
+                                                    fontSize: '0.75rem',
+                                                    minWidth: col.width,
+                                                    bgcolor: theme.palette.mode === 'dark' ? '#283593' : '#D6E4FF',
+                                                    color: theme.palette.mode === 'dark' ? '#fff' : '#1F3864',
+                                                    whiteSpace: 'nowrap',
+                                                    borderRight: `1px solid ${alpha('#000', 0.1)}`,
+                                                    textAlign: 'center',
+                                                }}
+                                            >
+                                                {localizedLabel}
+                                            </TableCell>
+                                        );
+                                    })}
                                     {/* Sticky score header cells */}
                                     {STICKY_COLUMNS.map((col, idx) => {
                                         const rightOffset = STICKY_COLUMNS.slice(idx + 1).reduce((s, c) => s + c.width, 0);
+                                        const keyMap: { [key: string]: string } = {
+                                            PRIORITY_RANK: 'stickyRank',
+                                            PRIORITY_LABEL: 'stickyPriority',
+                                            TOTAL_SCORE: 'stickyScore'
+                                        };
+                                        const translationKey = keyMap[col.key];
+                                        const localizedLabel = translationKey ? t(`algorithm.${translationKey}`) : col.label;
                                         return (
                                             <TableCell
                                                 key={col.key}
@@ -378,7 +424,7 @@ export default function Algorithm() {
                                                     boxShadow: idx === 0 ? '-4px 0 12px rgba(0,0,0,0.08)' : 'none',
                                                 }}
                                             >
-                                                {col.label}
+                                                {localizedLabel}
                                             </TableCell>
                                         );
                                     })}
@@ -443,7 +489,7 @@ export default function Algorithm() {
                                                     >
                                                         {isLabel ? (
                                                             <Chip
-                                                                label={`${priority.emoji} ${row.PRIORITY_LABEL}`}
+                                                                label={`${priority.emoji} ${t(`algorithm.${String(row.PRIORITY_LABEL || '').toLowerCase()}`, String(row.PRIORITY_LABEL || ''))}`}
                                                                 size="small"
                                                                 sx={{
                                                                     bgcolor: priority.bg,
@@ -473,7 +519,7 @@ export default function Algorithm() {
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <InfoIcon color="primary" />
-                        <Typography sx={{ fontWeight: 600 }}>Scoring Logic & Weights (Total: 100 pts)</Typography>
+                        <Typography sx={{ fontWeight: 600 }}>{t('algorithm.scoringLogicTitle', 'Scoring Logic & Weights (Total: 100 pts)')}</Typography>
                     </Box>
                 </AccordionSummary>
                 <AccordionDetails>
@@ -481,27 +527,75 @@ export default function Algorithm() {
                         <Table size="small">
                             <TableHead>
                                 <TableRow>
-                                    <TableCell sx={{ fontWeight: 700 }}>Feature</TableCell>
-                                    <TableCell sx={{ fontWeight: 700 }}>Weight</TableCell>
-                                    <TableCell sx={{ fontWeight: 700 }}>Logic</TableCell>
-                                    <TableCell sx={{ fontWeight: 700 }}>Range / Values</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('algorithm.feature', 'Feature')}</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('algorithm.weight', 'Weight')}</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('algorithm.logic', 'Logic')}</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('algorithm.rangeValues', 'Range / Values')}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {SCORE_LOGIC.map((s, i) => (
-                                    <TableRow key={i} sx={{ bgcolor: i % 2 === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent' }}>
-                                        <TableCell sx={{ fontWeight: 600 }}>{s.feature}</TableCell>
-                                        <TableCell><Chip label={s.weight} size="small" color="primary" variant="outlined" /></TableCell>
-                                        <TableCell sx={{ fontSize: '0.85rem' }}>{s.logic}</TableCell>
-                                        <TableCell sx={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{s.range}</TableCell>
-                                    </TableRow>
-                                ))}
+                                {SCORE_LOGIC.map((s, i) => {
+                                    const logicMap: {
+                                        [key: string]: {
+                                            feature: string;
+                                            logic: string;
+                                            range: string;
+                                        };
+                                    } = {
+                                        'Season Delivery': {
+                                            feature: 'logicSeasonDeliveryFeature',
+                                            logic: 'logicSeasonDeliveryDesc',
+                                            range: 'logicSeasonDeliveryRange',
+                                        },
+                                        'Payment (Dispatch)': {
+                                            feature: 'logicPaymentFeature',
+                                            logic: 'logicPaymentDesc',
+                                            range: 'logicPaymentRange',
+                                        },
+                                        'Village Holder': {
+                                            feature: 'logicHolderFeature',
+                                            logic: 'logicHolderDesc',
+                                            range: 'logicHolderRange',
+                                        },
+                                        'Business Status': {
+                                            feature: 'logicBusinessFeature',
+                                            logic: 'logicBusinessDesc',
+                                            range: 'logicBusinessRange',
+                                        },
+                                        'Sabhasad Awareness': {
+                                            feature: 'logicSabhasadFeature',
+                                            logic: 'logicSabhasadDesc',
+                                            range: 'logicSabhasadRange',
+                                        },
+                                        'Mantri Support': {
+                                            feature: 'logicSupportFeature',
+                                            logic: 'logicSupportDesc',
+                                            range: 'logicSupportRange',
+                                        },
+                                    };
+
+                                    const trans = logicMap[s.feature];
+                                    const featureText = trans ? t(`algorithm.${trans.feature}`) : s.feature;
+                                    const logicText = trans ? t(`algorithm.${trans.logic}`) : s.logic;
+                                    const rangeText = trans ? t(`algorithm.${trans.range}`) : s.range;
+                                    
+                                    const ptsCount = s.weight.split(' ')[0];
+                                    const weightText = t('algorithm.pts', '{count} pts').replace('{count}', ptsCount);
+
+                                    return (
+                                        <TableRow key={i} sx={{ bgcolor: i % 2 === 0 ? alpha(theme.palette.primary.main, 0.03) : 'transparent' }}>
+                                            <TableCell sx={{ fontWeight: 600 }}>{featureText}</TableCell>
+                                            <TableCell><Chip label={weightText} size="small" color="primary" variant="outlined" /></TableCell>
+                                            <TableCell sx={{ fontSize: '0.85rem' }}>{logicText}</TableCell>
+                                            <TableCell sx={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>{rangeText}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
                                 <TableRow sx={{ bgcolor: alpha(theme.palette.warning.main, 0.08) }}>
-                                    <TableCell sx={{ fontWeight: 700 }}>Row Removal</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('algorithm.rowRemoval', 'Row Removal')}</TableCell>
                                     <TableCell>—</TableCell>
                                     <TableCell colSpan={2} sx={{ fontSize: '0.85rem' }}>
-                                        Any row with even ONE missing/null/blank scoring field is dropped before scoring.
-                                        Fields checked: DELIVERY_PERIOD, DISPATCH_DAYS, HIGH_LOW_HOLDER, CURRENT_BUSINESS, NATURE_SABHASAD, SUPPORT
+                                        {t('algorithm.rowRemovalDesc', 'Any row with even ONE missing/null/blank scoring field is dropped before scoring. Fields checked: DELIVERY_PERIOD, DISPATCH_DAYS, HIGH_LOW_HOLDER, CURRENT_BUSINESS, NATURE_SABHASAD, SUPPORT')}
                                     </TableCell>
                                 </TableRow>
                             </TableBody>

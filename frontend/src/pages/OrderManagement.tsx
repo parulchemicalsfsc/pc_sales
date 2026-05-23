@@ -49,6 +49,8 @@ import {
   Cancel as CancelIcon,
   Print as PrintIcon,
   Delete as DeleteIcon,
+  HelpOutline as HelpIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { customerAPI, salesAPI, paymentAPI } from "../services/api";
@@ -118,6 +120,7 @@ export default function OrderManagement() {
   const [selectedOrderItems, setSelectedOrderItems] = useState<any[]>([]); // New state for items
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -588,6 +591,11 @@ export default function OrderManagement() {
         <Typography variant="h4" fontWeight="bold">
           {t("orderManagement.title", "Order Management")}
         </Typography>
+        <Tooltip title="How to use this page">
+          <IconButton onClick={() => setHelpOpen(true)} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, color: "primary.main" }}>
+            <HelpIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Statistics Cards */}
@@ -1160,6 +1168,38 @@ export default function OrderManagement() {
           >
             Cancel Order
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Help Dialog */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HelpIcon color="primary" />
+          How to Use Order Management
+          <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {[
+              { title: "Order Table", desc: "Each row shows an order's invoice number, customer, date, amount and current status. Use the search bar to filter by invoice, customer name, or mobile." },
+              { title: "Quick Status Advance", desc: "Click the arrow (▲) icon on the status chip to advance the order to the next stage: Pending → Prepared → Dispatched → Delivered." },
+              { title: "View Details", desc: "Click the eye (👁) icon to see full order info: customer details, purchased items list, payment info, and the order timeline stepper." },
+              { title: "Update Status", desc: "Click the edit (✏) icon to manually update the order and shipment status, add tracking numbers, and set shipment dates." },
+              { title: "Cancel Order", desc: "Click the trash/cancel icon to mark an order as Cancelled. The record is kept but flagged. Cancelled orders can be reprocessed from the ⋮ menu." },
+              { title: "More Actions Menu", desc: "The three-dot (⋮) menu on each row lets you: Return to Previous Status, Reprocess a Cancelled Order, or Cancel the Order." },
+              { title: "Filtering", desc: "Use the Customer Type filter to view orders by buyer type (Sabhasad, Mantri, Doctor, Shopkeeper, Field Officer)." },
+            ].map(item => (
+              <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setHelpOpen(false)} variant="contained" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Got it!</Button>
         </DialogActions>
       </Dialog>
     </Box>

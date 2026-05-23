@@ -37,7 +37,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { distributorAPI } from "../services/api";
+import { distributorAPI, apiClient } from "../services/api";
 import type { Distributor } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
@@ -55,6 +55,7 @@ export default function Distributors() {
   };
 
   const [distributors, setDistributors] = useState<Distributor[]>([]);
+  const [regions, setRegions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,8 +137,13 @@ export default function Distributors() {
     try {
       setLoading(true);
       setError(null);
-      const data = await distributorAPI.getAll({ limit: 1000 });
-      setDistributors(data);
+      const [distData, regionsRes] = await Promise.all([
+        distributorAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
+      ]);
+      setDistributors(distData);
+      const rNames = (regionsRes.data || []).map((r: any) => r.name);
+      setRegions(rNames);
     } catch (err) {
       setError(
         err instanceof Error
@@ -160,7 +166,7 @@ export default function Distributors() {
         village: "",
         taluka: "",
         district: "",
-        state: "Gujarat",
+        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
         mantri_name: "",
         mantri_mobile: "",
         sabhasad_morning: undefined,
@@ -215,7 +221,7 @@ export default function Distributors() {
           village: toUpperCaseSafe(formData.village),
           taluka: toUpperCaseSafe(formData.taluka),
           district: toUpperCaseSafe(formData.district),
-          state: toUpperCaseSafe(formData.state),
+          state: formData.state,
           dairy_type: toUpperCaseSafe(formData.dairy_type),
         };
 
@@ -231,7 +237,7 @@ export default function Distributors() {
           village: toUpperCaseSafe(formData.village),
           taluka: toUpperCaseSafe(formData.taluka),
           district: toUpperCaseSafe(formData.district),
-          state: toUpperCaseSafe(formData.state),
+          state: formData.state,
           dairy_type: toUpperCaseSafe(formData.dairy_type),
         };
         await distributorAPI.create(payload as Distributor);
@@ -1147,13 +1153,21 @@ export default function Distributors() {
             </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
                 label={tf("state")}
                 value={formData.state || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, state: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, state: e.target.value })
                 }
-              />
+              >
+                {regions.map((reg) => (
+                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                ))}
+                {regions.length === 0 && (
+                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                )}
+              </TextField>
             </Grid>
 
             {/* Section 2: Sabhasad & Counts */}

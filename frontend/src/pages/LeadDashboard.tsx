@@ -16,6 +16,7 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { leadsService, PipelineStats, Lead } from "../services/leadsService";
+import { useTranslation } from "../hooks/useTranslation";
 
 const STATUS_COLOR: Record<string, string> = {
   Unassigned: "#9e9e9e",
@@ -65,6 +66,7 @@ function StatCard({
 
 export default function LeadDashboard() {
   const { user, role } = useAuth();
+  const { t } = useTranslation();
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [myLeads, setMyLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,47 +112,47 @@ export default function LeadDashboard() {
       {/* Header */}
       <Box mb={4}>
         <Typography variant="h4" fontWeight={700}>
-          {isOwner ? "My Lead Dashboard" : "Lead Pipeline Dashboard"}
+          {isOwner ? t("leadDashboard.title", "My Lead Dashboard") : t("leadDashboard.managerTitle", "Lead Pipeline Dashboard")}
         </Typography>
         <Typography variant="body2" color="text.secondary">
           {isOwner
-            ? "Your assigned leads, follow-ups, and notifications at a glance"
-            : "Full pipeline overview — all sources, all owners"}
+            ? t("leadDashboard.subtitle", "Your assigned leads, follow-ups, and notifications at a glance")
+            : t("leadDashboard.managerSubtitle", "Full pipeline overview — all sources, all owners")}
         </Typography>
       </Box>
 
       {/* KPI Cards */}
       <Grid container spacing={3} mb={4}>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Total Leads" value={s.total} icon={<TrendingUpIcon />} color="#6366f1" />
+          <StatCard title={t("leadDashboard.totalLeads", "Total Leads")} value={s.total} icon={<TrendingUpIcon />} color="#6366f1" />
         </Grid>
         {!isOwner && (
           <Grid item xs={12} sm={6} md={3}>
-            <StatCard title="Unassigned" value={s.unassigned} icon={<InboxIcon />} color="#9e9e9e"
-              subtitle="Waiting for assignment" />
+            <StatCard title={t("leadDashboard.unassigned", "Unassigned")} value={s.unassigned} icon={<InboxIcon />} color="#9e9e9e"
+              subtitle={t("leadDashboard.waitingForAssignment", "Waiting for assignment")} />
           </Grid>
         )}
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="In Progress" value={s.in_progress + s.follow_up + s.assigned} icon={<WorkIcon />} color="#ff9800"
-            subtitle="Active leads" />
+          <StatCard title={t("leadWorkspace.inProgress", "In Progress")} value={s.in_progress + s.follow_up + s.assigned} icon={<WorkIcon />} color="#ff9800"
+            subtitle={t("leadDashboard.activeLeads", "Active leads")} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Overdue" value={s.overdue} icon={<WarningIcon />} color="#f44336"
-            subtitle="Follow-up date passed" />
+          <StatCard title={t("leadWorkspace.overdue", "Overdue")} value={s.overdue} icon={<WarningIcon />} color="#f44336"
+            subtitle={t("leadDashboard.followupPassed", "Follow-up date passed")} />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Converted This Month" value={s.converted_this_month} icon={<CheckCircleIcon />} color="#4caf50" />
+          <StatCard title={t("leadDashboard.convertedThisMonth", "Converted This Month")} value={s.converted_this_month} icon={<CheckCircleIcon />} color="#4caf50" />
         </Grid>
         {!isOwner && (
           <Grid item xs={12} sm={6} md={3}>
-            <StatCard title="Rejection Rate" value={`${rejectionRate}%`} icon={<CancelIcon />} color="#ef5350" />
+            <StatCard title={t("leadDashboard.rejectionRate", "Rejection Rate")} value={`${rejectionRate}%`} icon={<CancelIcon />} color="#ef5350" />
           </Grid>
         )}
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Total Converted" value={s.converted} icon={<CheckCircleIcon />} color="#2e7d32" />
+          <StatCard title={t("leadDashboard.totalConverted", "Total Converted")} value={s.converted} icon={<CheckCircleIcon />} color="#2e7d32" />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <StatCard title="Total Rejected" value={s.rejected} icon={<CancelIcon />} color="#b71c1c" />
+          <StatCard title={t("leadDashboard.totalRejected", "Total Rejected")} value={s.rejected} icon={<CancelIcon />} color="#b71c1c" />
         </Grid>
       </Grid>
 
@@ -159,14 +161,16 @@ export default function LeadDashboard() {
         <Grid item xs={12} md={6}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="h6" fontWeight={600} mb={2}>Leads by Status</Typography>
+              <Typography variant="h6" fontWeight={600} mb={2}>{t("leadDashboard.leadsByStatus", "Leads by Status")}</Typography>
               <Box display="flex" flexDirection="column" gap={1.5}>
                 {Object.entries(s.by_status).map(([status, count]) => (
                   <Box key={status}>
                     <Box display="flex" justifyContent="space-between" mb={0.5}>
                       <Box display="flex" alignItems="center" gap={1}>
                         <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: STATUS_COLOR[status] || "#999" }} />
-                        <Typography variant="body2">{status}</Typography>
+                        <Typography variant="body2">
+                          {t(`leadWorkspace.${status.charAt(0).toLowerCase() + status.slice(1).replace(" ", "")}`, status)}
+                        </Typography>
                       </Box>
                       <Typography variant="body2" fontWeight={600}>{count}</Typography>
                     </Box>
@@ -189,9 +193,9 @@ export default function LeadDashboard() {
         <Grid item xs={12} md={6}>
           <Card sx={{ height: "100%" }}>
             <CardContent>
-              <Typography variant="h6" fontWeight={600} mb={2}>Leads by Source Website</Typography>
+              <Typography variant="h6" fontWeight={600} mb={2}>{t("leadDashboard.leadsBySource", "Leads by Source Website")}</Typography>
               {Object.keys(s.by_source).length === 0 ? (
-                <Typography color="text.secondary" variant="body2">No data yet</Typography>
+                <Typography color="text.secondary" variant="body2">{t("common.noData", "No data available")}</Typography>
               ) : (
                 <Box display="flex" flexDirection="column" gap={2}>
                   {Object.entries(s.by_source).map(([src, count]) => (
@@ -201,7 +205,9 @@ export default function LeadDashboard() {
                       </Avatar>
                       <Box flex={1}>
                         <Typography variant="body2" fontWeight={600}>{src}</Typography>
-                        <Typography variant="caption" color="text.secondary">{count} lead{count !== 1 ? "s" : ""}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {t("leadDashboard.leadsCount", "{count} leads").replace("{count}", String(count))}
+                        </Typography>
                       </Box>
                       <Chip label={count} size="small" color="primary" variant="outlined" />
                     </Box>
@@ -217,17 +223,17 @@ export default function LeadDashboard() {
           <Grid item xs={12}>
             <Card>
               <CardContent>
-                <Typography variant="h6" fontWeight={600} mb={2}>My Active Leads</Typography>
+                <Typography variant="h6" fontWeight={600} mb={2}>{t("leadDashboard.myActiveLeads", "My Active Leads")}</Typography>
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Lead ID</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Company</TableCell>
-                        <TableCell>Product</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell>Follow-up Date</TableCell>
+                        <TableCell>{t("leadPipeline.leadId", "Lead ID")}</TableCell>
+                        <TableCell>{t("leadPipeline.name", "Name")}</TableCell>
+                        <TableCell>{t("leadPipeline.company", "Company")}</TableCell>
+                        <TableCell>{t("leadPipeline.product", "Product")}</TableCell>
+                        <TableCell>{t("leadPipeline.status", "Status")}</TableCell>
+                        <TableCell>{t("leadWorkspace.timelineEntryFollowup", "Follow-up Date")}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -243,11 +249,11 @@ export default function LeadDashboard() {
                               <TableCell>{lead.company_name || "—"}</TableCell>
                               <TableCell>{lead.product_interest || "—"}</TableCell>
                               <TableCell>
-                                <Chip label={lead.status} size="small"
+                                <Chip label={t(`leadWorkspace.${lead.status.charAt(0).toLowerCase() + lead.status.slice(1).replace(" ", "")}`, lead.status)} size="small"
                                   sx={{ bgcolor: STATUS_COLOR[lead.status] + "22", color: STATUS_COLOR[lead.status], fontWeight: 600 }} />
                               </TableCell>
                               <TableCell>
-                                <Tooltip title={isOverdue ? "Overdue!" : ""}>
+                                <Tooltip title={isOverdue ? t("leadWorkspace.overdue", "Overdue") + "!" : ""}>
                                   <Typography variant="body2" color={isOverdue ? "error" : "text.primary"}
                                     display="flex" alignItems="center" gap={0.5}>
                                     {isOverdue && <WarningIcon sx={{ fontSize: 14 }} />}
@@ -273,15 +279,15 @@ export default function LeadDashboard() {
               <CardContent>
                 <Box display="flex" alignItems="center" gap={1} mb={2}>
                   <WarningIcon color="error" />
-                  <Typography variant="h6" fontWeight={600} color="error.main">Overdue Follow-ups</Typography>
+                  <Typography variant="h6" fontWeight={600} color="error.main">{t("leadDashboard.overdueFollowups", "Overdue Follow-ups")}</Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary" mb={2}>
-                  {s.overdue} lead{s.overdue !== 1 ? "s" : ""} with follow-up date in the past — action required.
+                  {t("leadDashboard.overdueLeadsWarning", "{count} lead(s) with follow-up date in the past — action required.").replace("{count}", String(s.overdue))}
                 </Typography>
                 <Divider />
                 <Box mt={1}>
                   <Typography variant="caption" color="text.secondary">
-                    Go to the <strong>Leads Pipeline</strong> page, filter by status to find overdue leads and take action.
+                    {t("leadDashboard.overdueActionDesc", "Go to the Leads Pipeline page, filter by status to find overdue leads and take action.")}
                   </Typography>
                 </Box>
               </CardContent>

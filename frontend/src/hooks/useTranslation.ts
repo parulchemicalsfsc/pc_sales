@@ -10,7 +10,8 @@ import { getTranslation, getFieldTranslation } from "../i18n/i18n";
  * <p>{tf('customerName')}</p>
  */
 export const useTranslation = () => {
-  const language = useLanguageStore((state) => state.language);
+  const storeLanguage = useLanguageStore((state) => state.language);
+  const language = "en"; // Force English for initial rendering
 
   /**
    * Translate using translation key from JSON files
@@ -38,6 +39,6 @@ export const useTranslation = () => {
   return {
     t, // Translate using key from JSON files
     tf, // Translate field name with automatic fallback
-    language, // Current language code
+    language: storeLanguage, // Current language code
   };
 };

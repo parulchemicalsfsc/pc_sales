@@ -111,7 +111,7 @@ export default function ProductPricing() {
         }
     }, [user, navigate, hasPermission]);
 
-    const fetchConfig = async () => {
+    const fetchConfig = async (forceRegion?: string, forceCategory?: string) => {
         try {
             const [regRes, catRes] = await Promise.all([
                 axios.get(`${API_BASE_URL}/api/products/config/regions`, { headers: { "x-user-email": user?.email } }),
@@ -121,9 +121,20 @@ export default function ProductPricing() {
             const cData = catRes.data.map((c: any) => c.name);
             setRegions(rData);
             setCategories(cData);
-            
-            if (rData.length > 0 && !selectedRegion) setSelectedRegion(rData[0]);
-            if (cData.length > 0 && !selectedCategory) setSelectedCategory(cData[0]);
+
+            // If a forced value is provided (e.g. after adding), use it
+            if (forceRegion !== undefined) {
+                setSelectedRegion(forceRegion);
+            } else if (!selectedRegion || !rData.includes(selectedRegion)) {
+                // Current selection is empty or no longer valid → reset to first available
+                setSelectedRegion(rData.length > 0 ? rData[0] : "");
+            }
+
+            if (forceCategory !== undefined) {
+                setSelectedCategory(forceCategory);
+            } else if (!selectedCategory || !cData.includes(selectedCategory)) {
+                setSelectedCategory(cData.length > 0 ? cData[0] : "");
+            }
         } catch (err) {
             console.error("Error fetching config:", err);
         }
@@ -349,8 +360,8 @@ export default function ProductPricing() {
             await axios.post(`${API_BASE_URL}/api/products/config/regions`, { name: newRegionName.trim() }, {
                 headers: { "x-user-email": user?.email },
             });
-            await fetchConfig();
-            setSelectedRegion(newRegionName.trim());
+            // Pass the new region name as forceRegion so it is selected immediately
+            await fetchConfig(newRegionName.trim(), undefined);
             setOpenAddRegionDialog(false);
             setNewRegionName("");
             setSuccess("Region added successfully");
@@ -366,8 +377,8 @@ export default function ProductPricing() {
             await axios.post(`${API_BASE_URL}/api/products/config/categories`, { name: newCategoryName.trim() }, {
                 headers: { "x-user-email": user?.email },
             });
-            await fetchConfig();
-            setSelectedCategory(newCategoryName.trim());
+            // Pass the new category name as forceCategory so it is selected immediately
+            await fetchConfig(undefined, newCategoryName.trim());
             setOpenAddCategoryDialog(false);
             setNewCategoryName("");
             setSuccess("Category added successfully");
@@ -383,6 +394,8 @@ export default function ProductPricing() {
             await axios.delete(`${API_BASE_URL}/api/products/config/regions/${encodeURIComponent(region)}`, {
                 headers: { "x-user-email": user?.email },
             });
+            // Clear the deleted region so fetchConfig will auto-select the first valid one
+            setSelectedRegion("");
             await fetchConfig();
             setSuccess("Region deleted successfully");
             setTimeout(() => setSuccess(null), 3000);
@@ -397,6 +410,8 @@ export default function ProductPricing() {
             await axios.delete(`${API_BASE_URL}/api/products/config/categories/${encodeURIComponent(category)}`, {
                 headers: { "x-user-email": user?.email },
             });
+            // Clear the deleted category so fetchConfig will auto-select the first valid one
+            setSelectedCategory("");
             await fetchConfig();
             setSuccess("Category deleted successfully");
             setTimeout(() => setSuccess(null), 3000);

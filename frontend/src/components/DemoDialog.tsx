@@ -31,9 +31,13 @@ interface DemoDialogProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialData?: {
+    buyerType: string;
+    entityId: number;
+  };
 }
 
-export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps) {
+export default function DemoDialog({ open, onClose, onSuccess, initialData }: DemoDialogProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
@@ -45,7 +49,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
 
   const [doctors, setDoctors] = useState<any[]>([]);
   const [shopkeepers, setShopkeepers] = useState<any[]>([]);
-  const [buyerType, setBuyerType] = useState<string>("customer");
+  const [buyerType, setBuyerType] = useState<string>("mantri");
   const [entityId, setEntityId] = useState<number>(0);
 
   const [formData, setFormData] = useState({
@@ -53,17 +57,19 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
     demo_time: new Date(),
     product_id: 0,
     quantity_provided: 1,
-    follow_up_date: null as Date | null,
     demo_location: "",
     notes: "",
-    paid_amount: 0,
   });
 
   useEffect(() => {
     if (open) {
       loadFormData();
+      if (initialData) {
+        setBuyerType(initialData.buyerType);
+        setEntityId(initialData.entityId);
+      }
     }
-  }, [open]);
+  }, [open, initialData]);
 
   const loadFormData = async () => {
     try {
@@ -112,16 +118,6 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
       return;
     }
 
-    if (!formData.product_id) {
-      setError("Please select a product");
-      return;
-    }
-
-    if (formData.quantity_provided <= 0) {
-      setError("Quantity must be greater than 0");
-      return;
-    }
-
     try {
       setLoading(true);
 
@@ -135,11 +131,8 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
         demo_time: formData.demo_time.toTimeString().split(" ")[0].slice(0, 5),
         product_id: formData.product_id,
         quantity_provided: formData.quantity_provided,
-        follow_up_date: formData.follow_up_date
-          ? formData.follow_up_date.toISOString().split("T")[0]
-          : undefined,
         demo_location: formData.demo_location || undefined,
-        notes: (formData.notes || "") + (formData.paid_amount > 0 ? `\n\nInitial Payment: ₹${formData.paid_amount}` : ""),
+        notes: formData.notes || "",
         conversion_status: "Scheduled",
       };
 
@@ -154,17 +147,15 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   };
 
   const handleClose = () => {
-    setBuyerType("customer");
+    setBuyerType("mantri");
     setEntityId(0);
     setFormData({
       demo_date: new Date(),
       demo_time: new Date(),
       product_id: 0,
       quantity_provided: 1,
-      follow_up_date: null,
       demo_location: "",
       notes: "",
-      paid_amount: 0,
     });
     setError(null);
     onClose();
@@ -228,42 +219,6 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
                 />
               </Grid>
 
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>Product</InputLabel>
-                  <Select
-                    value={formData.product_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, product_id: Number(e.target.value) })
-                    }
-                    label="Product"
-                  >
-                    <MenuItem value={0}>
-                      <em>Select Product</em>
-                    </MenuItem>
-                    {products.map((product) => (
-                      <MenuItem key={product.product_id} value={product.product_id}>
-                        {product.product_name}
-                        {product.capacity_ltr && ` (${product.capacity_ltr}L)`}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  required
-                  type="number"
-                  label="Quantity Provided"
-                  value={formData.quantity_provided}
-                  onChange={(e) =>
-                    setFormData({ ...formData, quantity_provided: Number(e.target.value) })
-                  }
-                  inputProps={{ min: 1 }}
-                />
-              </Grid>
 
               <Grid item xs={12} sm={6}>
                 <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -302,21 +257,6 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
               </Grid>
 
               <Grid item xs={12} sm={6}>
-                <LocalizationProvider dateAdapter={AdapterDateFns}>
-                  <DatePicker
-                    label="Follow-up Date"
-                    value={formData.follow_up_date}
-                    onChange={(date) => setFormData({ ...formData, follow_up_date: date })}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                      },
-                    }}
-                  />
-                </LocalizationProvider>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Demo Location"
@@ -340,21 +280,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
                 />
               </Grid>
 
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label="Paid Amount / Deposit"
-                  value={formData.paid_amount}
-                  onChange={(e) =>
-                    setFormData({ ...formData, paid_amount: Number(e.target.value) })
-                  }
-                  InputProps={{
-                    startAdornment: <Typography sx={{ mr: 1 }}>₹</Typography>,
-                  }}
-                  helperText="Amount will be recorded in notes"
-                />
-              </Grid>
+
             </Grid>
           )}
         </DialogContent>
