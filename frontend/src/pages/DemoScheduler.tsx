@@ -140,6 +140,8 @@ export default function DemoScheduler() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [loadingRedemos, setLoadingRedemos]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [redemoError, setRedemoError] = useState<string | null>(null);
+  const [redemoLoaded, setRedemoLoaded] = useState(false);
 
   // Status-update dialog
   const [statusDialog, setStatusDialog] = useState<{ open: boolean; demo: DemoRecord | null }>({ open: false, demo: null });
@@ -181,17 +183,23 @@ export default function DemoScheduler() {
   const loadRedemoHistory = useCallback(async () => {
     try {
       setLoadingRedemos(true);
+      setRedemoError(null);
+      console.log("[DemoScheduler] Fetching redemo history from /api/demos/redemo...");
       const data = await demoAPI.getRedemoHistory({ limit: 200 });
+      console.log("[DemoScheduler] Redemo response:", data?.length, "records");
       setRedemos(data || []);
+      setRedemoLoaded(true);
     } catch (e: any) {
-      setError(formatError(e) || "Failed to load redemo history");
+      const msg = formatError(e) || "Failed to load redemo history";
+      console.error("[DemoScheduler] Redemo fetch error:", e, "→", msg);
+      setRedemoError(msg);
     } finally {
       setLoadingRedemos(false);
     }
   }, []);
 
   useEffect(() => { loadDemos(); }, [loadDemos]);
-  useEffect(() => { if (tab === 3 && redemos.length === 0) loadRedemoHistory(); }, [tab, loadRedemoHistory]);
+  useEffect(() => { if (tab === 3 && !redemoLoaded) loadRedemoHistory(); }, [tab, redemoLoaded, loadRedemoHistory]);
   useEffect(() => { if (tab === 4) loadSuggestions(); }, [tab, loadSuggestions]);
 
   // ── Derived stats ──────────────────────────────────────────────
@@ -618,12 +626,30 @@ export default function DemoScheduler() {
               <CircularProgress color="error" />
               <Typography fontSize={13} color="text.secondary">Loading redemo history…</Typography>
             </Box>
+          ) : redemoError ? (
+            <Paper variant="outlined" sx={{ p: 4, borderRadius: 2.5, textAlign: "center", borderColor: alpha("#dc2626", 0.3), bgcolor: alpha("#dc2626", 0.03) }}>
+              <WarningIcon sx={{ fontSize: 40, color: "#dc2626", mb: 1 }} />
+              <Typography color="#dc2626" fontWeight={700} mb={0.5}>Failed to load redemo history</Typography>
+              <Typography fontSize={12} color="text.secondary" mb={2.5} sx={{ maxWidth: 420, mx: "auto" }}>
+                {redemoError}
+              </Typography>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<RefreshIcon />}
+                onClick={() => { setRedemoLoaded(false); }}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+              >
+                Retry
+              </Button>
+            </Paper>
           ) : redemos.length === 0 ? (
             <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
               <RedemoIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
               <Typography color="text.secondary" fontWeight={500}>No redemo history records found.</Typography>
               <Typography fontSize={12} color="text.disabled" mt={0.5}>Records appear here after distributor data is imported with redemo flags.</Typography>
             </Paper>
+
           ) : (
             <>
               {/* Summary chips */}
