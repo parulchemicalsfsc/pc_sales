@@ -34,7 +34,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { shopkeeperAPI } from "../services/api";
+import { shopkeeperAPI, apiClient } from "../services/api";
 import type { Shopkeeper } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
@@ -45,6 +45,7 @@ export default function Shopkeepers() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
   const [shopkeepers, setShopkeepers] = useState<Shopkeeper[]>([]);
+  const [regions, setRegions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,8 +124,13 @@ export default function Shopkeepers() {
     try {
       setLoading(true);
       setError(null);
-      const data = await shopkeeperAPI.getAll({ limit: 1000 });
-      setShopkeepers(data);
+      const [shopkeepersData, regionsRes] = await Promise.all([
+        shopkeeperAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
+      ]);
+      setShopkeepers(shopkeepersData);
+      const rNames = (regionsRes.data || []).map((r: any) => r.name);
+      setRegions(rNames);
     } catch (err) {
       setError(
         err instanceof Error
@@ -148,7 +154,7 @@ export default function Shopkeepers() {
         village: "",
         taluka: "",
         district: "",
-        state: "Gujarat",
+        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
         mantri_name: "",
         mantri_mobile: "",
         sabhasad_morning: undefined,
@@ -931,13 +937,21 @@ export default function Shopkeepers() {
             </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
                 label={tf("state")}
                 value={formData.state || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, state: e.target.value })
                 }
-              />
+              >
+                {regions.map((reg) => (
+                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                ))}
+                {regions.length === 0 && (
+                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                )}
+              </TextField>
             </Grid>
 
             {/* Section 2: Sabhasad & Counts */}

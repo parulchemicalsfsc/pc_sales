@@ -42,7 +42,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, apiClient } from "../services/api";
 import type { Sale, Customer, Product, SaleItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -61,6 +61,7 @@ export default function Sales() {
   const [distributors, setDistributors] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [shopkeepers, setShopkeepers] = useState<any[]>([]);
+  const [regions, setRegions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,13 +156,14 @@ export default function Sales() {
       setError(null);
 
       // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
+      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
         doctorAPI.getAll({ limit: 1000 }),
         shopkeeperAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
       ]);
 
       if (salesResult.status === "fulfilled") {
@@ -200,6 +202,12 @@ export default function Sales() {
       } else {
         console.warn("Could not load shopkeepers:", shopkeepersResult.reason?.message);
       }
+      if (regionsResult.status === "fulfilled") {
+        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
+        setRegions(rNames);
+      } else {
+        console.warn("Could not load regions:", regionsResult.reason?.message);
+      }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
       const errorMessage =
@@ -212,11 +220,12 @@ export default function Sales() {
 
   const fetchDropdownData = async () => {
     try {
-      const [customersResult, distributorsResult, doctorsResult, shopkeepersResult] = await Promise.allSettled([
+      const [customersResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult] = await Promise.allSettled([
         customerAPI.getAll({ limit: 1000 }),
         distributorAPI.getAll({ limit: 1000 }),
         doctorAPI.getAll({ limit: 1000 }),
         shopkeeperAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
       ]);
       if (customersResult.status === "fulfilled") {
         setCustomers(customersResult.value.data || []);
@@ -232,6 +241,10 @@ export default function Sales() {
       if (shopkeepersResult.status === "fulfilled") {
         const skData = shopkeepersResult.value;
         setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
+      }
+      if (regionsResult.status === "fulfilled") {
+        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
+        setRegions(rNames);
       }
     } catch (e) {
       console.warn("Background fetch failed", e);
@@ -254,7 +267,7 @@ export default function Sales() {
       village: "",
       taluka: "",
       district: "",
-      state: "Gujarat",
+      state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
       adhar_no: "",
       status: "Active",
     });
@@ -1374,9 +1387,12 @@ export default function Sales() {
                         recalculateRates(customerCategory, "new", formData.customer_id, e.target.value);
                       }}
                     >
-                      <MenuItem value="Gujarat">Gujarat</MenuItem>
-                      <MenuItem value="Maharashtra">Maharashtra</MenuItem>
-                      <MenuItem value="Madhya Pradesh">Madhya Pradesh</MenuItem>
+                      {regions.map((reg) => (
+                        <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                      ))}
+                      {regions.length === 0 && (
+                        <MenuItem value="Gujarat">Gujarat</MenuItem>
+                      )}
                     </TextField>
                   </Grid>
                 </>

@@ -31,7 +31,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
-import { customerAPI } from "../services/api";
+import { customerAPI, apiClient } from "../services/api";
 import type { Customer } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
@@ -41,7 +41,7 @@ export default function Customers() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  const STATE_OPTIONS = ["GUJARAT", "MAHARASHTRA", "MADHYA PRADESH"];
+  const [regions, setRegions] = useState<string[]>([]);
 
   // Utility to safely convert value to uppercase
   const toUpperCaseSafe = (val: any) => {
@@ -62,7 +62,7 @@ export default function Customers() {
     village: "",
     taluka: "",
     district: "",
-    state: "GUJARAT",
+    state: "Gujarat",
     adhar_no: "",
     status: "Active",
   });
@@ -77,8 +77,13 @@ export default function Customers() {
     try {
       setLoading(true);
       setError(null);
-      const response = await customerAPI.getAll({ limit: 1000 });
-      setCustomers(response.data || []);
+      const [custRes, regionsRes] = await Promise.all([
+        customerAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
+      ]);
+      setCustomers(custRes.data || []);
+      const rNames = (regionsRes.data || []).map((r: any) => r.name);
+      setRegions(rNames);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("customers.loadError", "Failed to load Sabhasad"));
       console.error("Error loading Sabhasad:", err);
@@ -100,7 +105,7 @@ export default function Customers() {
         village: "",
         taluka: "",
         district: "",
-        state: "GUJARAT",
+        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
         adhar_no: "",
         status: "Active",
       });
@@ -118,7 +123,7 @@ export default function Customers() {
       village: "",
       taluka: "",
       district: "",
-      state: "GUJARAT",
+      state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
       adhar_no: "",
       status: "Active",
     });
@@ -140,7 +145,7 @@ export default function Customers() {
         village: toUpperCaseSafe(formData.village),
         taluka: toUpperCaseSafe(formData.taluka),
         district: toUpperCaseSafe(formData.district),
-        state: toUpperCaseSafe(formData.state),
+        state: formData.state,
         customer_code: toUpperCaseSafe(formData.customer_code),
       };
 
@@ -490,16 +495,19 @@ export default function Customers() {
                   fullWidth
                   select
                   label="State"
-                  value={formData.state || "GUJARAT"}
+                  value={formData.state || ""}
                   onChange={(e) =>
-                    setFormData({ ...formData, state: toUpperCaseSafe(e.target.value) })
+                    setFormData({ ...formData, state: e.target.value })
                   }
                 >
-                  {STATE_OPTIONS.map((option) => (
+                  {regions.map((option) => (
                     <MenuItem key={option} value={option}>
                       {option}
                     </MenuItem>
                   ))}
+                  {regions.length === 0 && (
+                    <MenuItem value="Gujarat">Gujarat</MenuItem>
+                  )}
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>

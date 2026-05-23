@@ -34,7 +34,7 @@ import {
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { doctorAPI } from "../services/api";
+import { doctorAPI, apiClient } from "../services/api";
 import type { Doctor } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
@@ -45,6 +45,7 @@ export default function Doctors() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [regions, setRegions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,8 +124,13 @@ export default function Doctors() {
     try {
       setLoading(true);
       setError(null);
-      const data = await doctorAPI.getAll({ limit: 1000 });
-      setDoctors(data);
+      const [doctorsData, regionsRes] = await Promise.all([
+        doctorAPI.getAll({ limit: 1000 }),
+        apiClient.get("/api/products/config/regions"),
+      ]);
+      setDoctors(doctorsData);
+      const rNames = (regionsRes.data || []).map((r: any) => r.name);
+      setRegions(rNames);
     } catch (err) {
       setError(
         err instanceof Error
@@ -148,7 +154,7 @@ export default function Doctors() {
         village: "",
         taluka: "",
         district: "",
-        state: "Gujarat",
+        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
         mantri_name: "",
         mantri_mobile: "",
         sabhasad_morning: undefined,
@@ -931,13 +937,21 @@ export default function Doctors() {
             </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
                 label={tf("state")}
                 value={formData.state || ""}
                 onChange={(e) =>
                   setFormData({ ...formData, state: e.target.value })
                 }
-              />
+              >
+                {regions.map((reg) => (
+                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                ))}
+                {regions.length === 0 && (
+                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                )}
+              </TextField>
             </Grid>
 
             {/* Section 2: Sabhasad & Counts */}
