@@ -45,7 +45,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
 
   const [doctors, setDoctors] = useState<any[]>([]);
   const [shopkeepers, setShopkeepers] = useState<any[]>([]);
-  const [buyerType, setBuyerType] = useState<string>("customer");
+  const [buyerType, setBuyerType] = useState<string>("mantri");
   const [entityId, setEntityId] = useState<number>(0);
 
   const [formData, setFormData] = useState({
@@ -112,16 +112,6 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
       return;
     }
 
-    if (!formData.product_id) {
-      setError("Please select a product");
-      return;
-    }
-
-    if (formData.quantity_provided <= 0) {
-      setError("Quantity must be greater than 0");
-      return;
-    }
-
     try {
       setLoading(true);
 
@@ -154,7 +144,7 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
   };
 
   const handleClose = () => {
-    setBuyerType("customer");
+    setBuyerType("mantri");
     setEntityId(0);
     setFormData({
       demo_date: new Date(),
@@ -228,42 +218,6 @@ export default function DemoDialog({ open, onClose, onSuccess }: DemoDialogProps
                 />
               </Grid>
 
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
-                  <InputLabel>Product</InputLabel>
-                  <Select
-                    value={formData.product_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, product_id: Number(e.target.value) })
-                    }
-                    label="Product"
-                  >
-                    <MenuItem value={0}>
-                      <em>Select Product</em>
-                    </MenuItem>
-                    {products.map((product) => (
-                      <MenuItem key={product.product_id} value={product.product_id}>
-                        {product.product_name}
-                        {product.capacity_ltr && ` (${product.capacity_ltr}L)`}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  required
-                  type="number"
-                  label="Quantity Provided"
-                  value={formData.quantity_provided}
-                  onChange={(e) =>
-                    setFormData({ ...formData, quantity_provided: Number(e.target.value) })
-                  }
-                  inputProps={{ min: 1 }}
-                />
-              </Grid>
 
               <Grid item xs={12} sm={6}>
                 <LocalizationProvider dateAdapter={AdapterDateFns}>
