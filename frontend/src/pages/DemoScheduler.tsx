@@ -741,11 +741,11 @@ export default function DemoScheduler() {
         </Box>
       )}
 
-      {/* ── New Demo Dialog ── */}
       <DemoDialog
         open={newDemoOpen}
         onClose={() => { setNewDemoOpen(false); setSuggestedDistributor(null); }}
         onSuccess={() => { setNewDemoOpen(false); setSuggestedDistributor(null); loadDemos(); }}
+        initialData={suggestedDistributor ? { buyerType: "mantri", entityId: suggestedDistributor.distributor_id } : undefined}
       />
 
       {/* ── Status Update Dialog ── */}
