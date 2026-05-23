@@ -52,6 +52,7 @@ import {
   TrendingUp as TrendingUpIcon,
   LocationOn as LocationIcon,
   Calculate as CalculateIcon,
+  HelpOutline as HelpIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -119,6 +120,7 @@ export default function CallingList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+  const [helpOpen, setHelpOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
@@ -298,6 +300,11 @@ export default function CallingList() {
               >
                 Calculator
               </Button>
+            </Tooltip>
+            <Tooltip title="How to use this page">
+              <IconButton size="medium" onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${border}`, borderRadius: 2, color: "#2563eb" }}>
+                <HelpIcon fontSize="small" />
+              </IconButton>
             </Tooltip>
             <IconButton size="medium" onClick={() => load(1)} disabled={loading} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
               <RefreshIcon fontSize="small" />
@@ -762,6 +769,39 @@ export default function CallingList() {
       <Snackbar open={!!toast} autoHideDuration={4000} onClose={() => setToast(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
         <Alert severity={toast?.sev || "info"} onClose={() => setToast(null)} sx={{ borderRadius: 2, fontWeight: 500 }}>{toast?.msg}</Alert>
       </Snackbar>
+
+      {/* Help Dialog */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HelpIcon color="primary" />
+          How to Use — Calling List
+          <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          <Stack spacing={2}>
+            {[
+              { emoji: "🟢", title: "Priority Colours", desc: "Each card has a left border colour — GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
+              { emoji: "📞", title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
+              { emoji: "✅", title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
+              { emoji: "📅", title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date — the system schedules a reminder for that day." },
+              { emoji: "🛒", title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
+              { emoji: "🧮", title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri — pick a Mantri and set approx. liters per Sabhasad." },
+              { emoji: "👤", title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
+            ].map(item => (
+              <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
+                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setHelpOpen(false)} variant="contained" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Got it!</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

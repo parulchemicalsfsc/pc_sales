@@ -96,6 +96,7 @@ export interface PendingPayment {
   paid_amount: number;
   pending_amount: number;
   items_summary?: string;
+  payment_terms?: string; // JSON string: {"type":"after_days","days":3} etc.
 }
 
 export interface Demo {

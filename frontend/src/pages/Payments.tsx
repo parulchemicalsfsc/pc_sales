@@ -40,6 +40,49 @@ import { PERMISSIONS } from "../config/permissions";
 export default function Payments() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  /** Returns true if the payment due date has passed (should show red).
+   *  Returns false if the payment is still within its terms window (show orange). */
+  const isPendingOverdue = (row: PendingPayment): boolean => {
+    if (!row.payment_terms) return true; // No terms = treat as immediately due
+    try {
+      const terms = JSON.parse(row.payment_terms);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const saleDate = new Date(row.sale_date);
+      saleDate.setHours(0, 0, 0, 0);
+
+      const termsType = terms.type;
+
+      if (termsType === "advance" || termsType === "on_delivery") {
+        // Should have been paid immediately — always overdue if still pending
+        return true;
+      }
+
+      if (termsType === "after_days") {
+        const days = parseInt(terms.days || "0", 10);
+        const dueDate = new Date(saleDate);
+        dueDate.setDate(dueDate.getDate() + days);
+        return today > dueDate;
+      }
+
+      if (termsType === "emi") {
+        // Check if ANY instalment due date has passed
+        const parts: { days: number; percentage: number }[] = terms.emiParts || [];
+        for (const part of parts) {
+          const partDue = new Date(saleDate);
+          partDue.setDate(partDue.getDate() + parseInt(String(part.days || 0), 10));
+          if (today > partDue) return true; // At least one instalment is overdue
+        }
+        return false;
+      }
+
+      // after_delivery or unknown — not overdue until explicitly marked
+      return false;
+    } catch {
+      return true; // Parse error = treat as overdue
+    }
+  };
   const { t, tf } = useTranslation();
   const location = useLocation();
   const pendingSectionRef = useRef<HTMLDivElement>(null);
@@ -319,11 +362,19 @@ export default function Payments() {
 
       width: 120,
 
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight={600} color="error.main">
-          ₹{params.value?.toLocaleString()}
-        </Typography>
-      ),
+      renderCell: (params) => {
+        const row = params.row as PendingPayment;
+        const isOverdue = isPendingOverdue(row);
+        return (
+          <Typography
+            variant="body2"
+            fontWeight={600}
+            color={isOverdue ? "error.main" : "warning.main"}
+          >
+            ₹{params.value?.toLocaleString()}
+          </Typography>
+        );
+      },
     },
 
     {

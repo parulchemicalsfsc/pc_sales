@@ -31,7 +31,9 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
   Divider,
+  Tooltip,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -43,6 +45,7 @@ import {
   TrendingUp as TrendingUpIcon,
   ShoppingCart as ShoppingCartIcon,
   CheckCircle as CheckCircleIcon,
+  HelpOutline as HelpIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -101,6 +104,7 @@ export default function CallDistribution() {
   const [adminData, setAdminData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Bulk state
   const [bulkEmail, setBulkEmail] = useState("");
@@ -255,12 +259,21 @@ export default function CallDistribution() {
     <Box>
       {/* Header */}
       <Box sx={{ mb: { xs: 2, md: 3 } }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
-          <PhoneIcon color="primary" /> {t("callDistribution.title", "Call Distribution")}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
+              <PhoneIcon color="primary" /> {t("callDistribution.title", "Call Distribution")}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
+            </Typography>
+          </Box>
+          <Tooltip title="How to use this page">
+            <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main", mt: 0.5 }}>
+              <HelpIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* Toast */}
@@ -711,6 +724,39 @@ export default function CallDistribution() {
             </>
           ) : null}
         </DialogContent>
+      </Dialog>
+
+      {/* Help Dialog */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HelpIcon color="primary" />
+          How to Use — Call Distribution
+          <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          <Stack spacing={2}>
+            {[
+              { emoji: "🚀", title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day — it auto-runs at 10 AM if not done manually." },
+              { emoji: "🔄", title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers — useful if workloads become uneven mid-day." },
+              { emoji: "📊", title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
+              { emoji: "📦", title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
+              { emoji: "🔀", title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },
+              { emoji: "🔁", title: "Individual Reassign", desc: "Scroll to the Reassign table to move any specific pending contact to a different telecaller using the Move To dropdown." },
+              { emoji: "⏰", title: "10 AM Countdown", desc: "The progress bar shows time remaining until 10 AM auto-distribution. Manual distribution before 10 AM prevents the auto-run." },
+            ].map(item => (
+              <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
+                <Typography sx={{ fontSize: 20, lineHeight: 1.4 }}>{item.emoji}</Typography>
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setHelpOpen(false)} variant="contained" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Got it!</Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );
