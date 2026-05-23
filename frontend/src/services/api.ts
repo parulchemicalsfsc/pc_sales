@@ -567,6 +567,10 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/admin/assignments", { params });
     return response.data;
   },
+  getTelecallerProfile: async (email: string) => {
+    const response = await apiClient.get("/api/automation/admin/telecaller-profile", { params: { email } });
+    return response.data;
+  },
   adminDistribute: async () => {
     const response = await apiClient.post("/api/automation/admin/distribute");
     return response.data;
