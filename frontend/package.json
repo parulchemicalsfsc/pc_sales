@@ -32,6 +32,7 @@
     "react-router-dom": "^6.20.0",
     "recharts": "^2.10.3",
     "translate": "^2.0.2",
+    "use-google-translate": "^1.0.23",
     "xlsx": "^0.18.5",
     "zustand": "^4.4.7"
   },

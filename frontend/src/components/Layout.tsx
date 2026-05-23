@@ -72,8 +72,29 @@ import { languages } from "../i18n/i18n";
 import { useAuth, supabase } from "../contexts/AuthContext";
 import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
+import useGoogleTranslate from "use-google-translate";
 import DutySheetPopup from "./DutySheetPopup";
 
+const supportedLanguages = {
+  en: {
+    code: "en",
+    name: "English",
+    isRTL: false,
+    countryCode: "us"
+  },
+  hi: {
+    code: "hi",
+    name: "Hindi",
+    isRTL: false,
+    countryCode: "in"
+  },
+  gu: {
+    code: "gu",
+    name: "Gujarati",
+    isRTL: false,
+    countryCode: "in"
+  }
+};
 
 const EXPANDED_DRAWER_WIDTH = 240;
 const COLLAPSED_DRAWER_WIDTH = 72;
@@ -311,6 +332,24 @@ export default function Layout({
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({});
   const { t } = useTranslation();
   const { language, setLanguage } = useLanguageStore();
+
+  const {
+    translate: googleTranslatePage,
+  } = useGoogleTranslate(
+    supportedLanguages,
+    "en",
+    "Sales Management",
+    [],
+    false,
+    5000
+  );
+
+  // Trigger Google Translate whenever the store language changes
+  useEffect(() => {
+    if (language) {
+      googleTranslatePage(language);
+    }
+  }, [language, googleTranslatePage]);
 
   const { user, signOut, hasPermission } = useAuth();
 
