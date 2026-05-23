@@ -28,6 +28,7 @@ import { demoAPI } from "../services/api";
 import DemoDialog from "../components/DemoDialog";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
+import { useTranslation } from "../hooks/useTranslation";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface DemoRecord {
@@ -99,6 +100,7 @@ function ScoreBadge({ score }: { score: number }) {
 // ── Component ──────────────────────────────────────────────────────
 export default function DemoScheduler() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const surface   = isDark ? "#1e1e2e" : "#fff";
@@ -204,7 +206,7 @@ export default function DemoScheduler() {
           </Typography>
           <Chip
             size="small"
-            label={meta.label}
+            label={t("demoScheduler." + demo.conversion_status.toLowerCase().replace(" ", ""), meta.label)}
             icon={meta.icon}
             sx={{ bgcolor: alpha(meta.color, 0.1), color: meta.color, fontWeight: 700, fontSize: 11, border: `1px solid ${alpha(meta.color, 0.25)}` }}
           />
@@ -246,7 +248,7 @@ export default function DemoScheduler() {
             onClick={() => openStatusDialog(demo)}
             sx={{ borderRadius: 2, textTransform: "none", fontSize: 12, fontWeight: 600 }}
           >
-            Update Status
+            {t("demoScheduler.updateStatus", "Update Status")}
           </Button>
         </PermissionGate>
       </Paper>
@@ -292,20 +294,26 @@ export default function DemoScheduler() {
         <Stack direction="row" spacing={2} flexWrap="wrap" mb={1.5}>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <GroupIcon sx={{ fontSize: 14, color: "#2563eb" }} />
-            <Typography fontSize={12} fontWeight={600}>{s.contact_in_group} contacts</Typography>
+            <Typography fontSize={12} fontWeight={600}>
+              {t("demoScheduler.contactsCount", "{count} contacts").replace("{count}", String(s.contact_in_group))}
+            </Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <ScoreIcon sx={{ fontSize: 14, color: PRIORITY_COLOR[s.priority_label] || "#2563eb" }} />
-            <Typography fontSize={12} fontWeight={600}>{s.priority_label}</Typography>
+            <Typography fontSize={12} fontWeight={600}>{t("demoScheduler.priority_" + s.priority_label.toLowerCase(), s.priority_label)}</Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <ScienceIcon sx={{ fontSize: 14, color: "text.secondary" }} />
-            <Typography fontSize={12} color="text.secondary">{s.total_demos} demos done</Typography>
+            <Typography fontSize={12} color="text.secondary">
+              {t("demoScheduler.demosDoneCount", "{count} demos done").replace("{count}", String(s.total_demos))}
+            </Typography>
           </Stack>
           {s.last_demo_date && (
             <Stack direction="row" spacing={0.5} alignItems="center">
               <CalIcon sx={{ fontSize: 14, color: "text.secondary" }} />
-              <Typography fontSize={12} color="text.secondary">Last: {fmtDate(s.last_demo_date)}</Typography>
+              <Typography fontSize={12} color="text.secondary">
+                {t("demoScheduler.lastDemoDate", "Last: {date}").replace("{date}", fmtDate(s.last_demo_date))}
+              </Typography>
             </Stack>
           )}
         </Stack>
@@ -325,7 +333,7 @@ export default function DemoScheduler() {
             onClick={() => { setSuggestedDistributor(s); setNewDemoOpen(true); }}
             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: 12, boxShadow: "none" }}
           >
-            Schedule Demo
+            {t("demoScheduler.scheduleDemo", "Schedule Demo")}
           </Button>
         </PermissionGate>
       </Paper>
@@ -340,10 +348,10 @@ export default function DemoScheduler() {
         <Box>
           <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
             <ScienceIcon sx={{ color: "#2563eb", fontSize: 28 }} />
-            <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>Demo Scheduler</Typography>
+            <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>{t("demoScheduler.title", "Demo Scheduler")}</Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Track scheduled demos, view completion status, and get AI-powered suggestions on who to demo next.
+            {t("demoScheduler.subtitle", "Track scheduled demos, view completion status, and get AI-powered suggestions on who to demo next.")}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
@@ -351,10 +359,10 @@ export default function DemoScheduler() {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => { setSuggestedDistributor(null); setNewDemoOpen(true); }}
+              onClick={() => { setNewDemoOpen(true); setSuggestedDistributor(null); }}
               sx={{ borderRadius: 2.5, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
             >
-              New Demo
+              {t("demoScheduler.newDemo", "New Demo")}
             </Button>
           </PermissionGate>
           <IconButton onClick={loadDemos} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
@@ -369,12 +377,12 @@ export default function DemoScheduler() {
       {!loadingDemos && (
         <Grid container spacing={2} mb={3}>
           {[
-            { label: "Total",      value: demos.length,      color: "#2563eb" },
-            { label: "Scheduled",  value: scheduled.length,  color: "#ea580c" },
-            { label: "Completed",  value: completed.length,  color: "#16a34a" },
-            { label: "Cancelled",  value: cancelled.length,  color: "#dc2626" },
-            { label: "No Show",    value: noShow.length,     color: "#ea580c" },
-            { label: "Conv. Rate", value: `${convRate}%`,    color: "#7c3aed" },
+            { label: t("demoScheduler.totalDemos", "Total"),      value: demos.length,      color: "#2563eb" },
+            { label: t("demoScheduler.scheduled", "Scheduled"),  value: scheduled.length,  color: "#ea580c" },
+            { label: t("demoScheduler.completed", "Completed"),  value: completed.length,  color: "#16a34a" },
+            { label: t("demoScheduler.cancelled", "Cancelled"),  value: cancelled.length,  color: "#dc2626" },
+            { label: t("demoScheduler.noShow", "No Show"),    value: noShow.length,     color: "#ea580c" },
+            { label: t("demoScheduler.convRate", "Conv. Rate"), value: `${convRate}%`,    color: "#7c3aed" },
           ].map(s => (
             <Grid item xs={6} sm={4} md={2.4} key={s.label}>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, bgcolor: surface, borderColor: border, textAlign: "center" }}>
@@ -390,7 +398,7 @@ export default function DemoScheduler() {
       {!loadingDemos && demos.length > 0 && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: surface, borderColor: border }}>
           <Stack direction="row" justifyContent="space-between" mb={1}>
-            <Typography fontSize={13} fontWeight={600}>Conversion Progress</Typography>
+            <Typography fontSize={13} fontWeight={600}>{t("demoScheduler.conversionProgress", "Conversion Progress")}</Typography>
             <Typography fontSize={13} fontWeight={700} color={convRate >= 50 ? "#16a34a" : "#ea580c"}>{convRate}%</Typography>
           </Stack>
           <LinearProgress
@@ -409,10 +417,10 @@ export default function DemoScheduler() {
           />
           <Stack direction="row" spacing={2} mt={1} flexWrap="wrap">
             {[
-              { label: "Scheduled", count: scheduled.length, color: "#2563eb" },
-              { label: "Completed", count: completed.length, color: "#16a34a" },
-              { label: "Cancelled", count: cancelled.length, color: "#dc2626" },
-              { label: "No Show",   count: noShow.length,    color: "#ea580c" },
+              { label: t("demoScheduler.scheduled", "Scheduled"), count: scheduled.length, color: "#2563eb" },
+              { label: t("demoScheduler.completed", "Completed"), count: completed.length, color: "#16a34a" },
+              { label: t("demoScheduler.cancelled", "Cancelled"), count: cancelled.length, color: "#dc2626" },
+              { label: t("demoScheduler.noShow", "No Show"),   count: noShow.length,    color: "#ea580c" },
             ].map(s => (
               <Stack key={s.label} direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: s.color }} />
@@ -432,11 +440,11 @@ export default function DemoScheduler() {
           scrollButtons="auto"
           sx={{ px: 1, "& .MuiTab-root": { textTransform: "none", fontWeight: 600 } }}
         >
-          <Tab label={`All Demos (${demos.length})`} />
-          <Tab label={`Scheduled (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
-          <Tab label={`Completed (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
+          <Tab label={t("demoScheduler.allDemos", "All Demos") + ` (${demos.length})`} />
+          <Tab label={t("demoScheduler.scheduled", "Scheduled") + ` (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
+          <Tab label={t("demoScheduler.completed", "Completed") + ` (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab
-            label="Demo Suggestions"
+            label={t("demoScheduler.demoSuggestions", "Demo Suggestions")}
             icon={<Badge badgeContent={suggestions.length || undefined} color="error"><AIIcon sx={{ fontSize: 16 }} /></Badge>}
             iconPosition="start"
           />
@@ -450,7 +458,7 @@ export default function DemoScheduler() {
         ) : tabDemos.length === 0 ? (
           <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
             <ScienceIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-            <Typography color="text.secondary" fontWeight={500}>No demos found for this filter.</Typography>
+            <Typography color="text.secondary" fontWeight={500}>{t("demoScheduler.noDemosFound", "No demos found for this filter.")}</Typography>
           </Paper>
         ) : (
           <Grid container spacing={2}>
@@ -468,9 +476,9 @@ export default function DemoScheduler() {
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
               <AIIcon sx={{ color: "#7c3aed", mt: 0.3 }} />
               <Box>
-                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>Demo Suggestions</Typography>
+                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>{t("demoScheduler.demoSuggestions", "Demo Suggestions")}</Typography>
                 <Typography fontSize={12} color="text.secondary" mt={0.3}>
-                  Distributors are ranked by a composite score: recency of last demo (35 pts) + priority score (30 pts) + group size (15 pts) + never-demoed bonus (20 pts). Higher score = schedule a demo sooner.
+                  {t("demoScheduler.distributorsRanked", "Distributors are ranked by a composite score: recency of last demo (35 pts) + priority score (30 pts) + group size (15 pts) + never-demoed bonus (20 pts). Higher score = schedule a demo sooner.")}
                 </Typography>
               </Box>
             </Stack>
@@ -479,12 +487,12 @@ export default function DemoScheduler() {
           {loadingSuggestions ? (
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 6, gap: 2 }}>
               <CircularProgress color="secondary" />
-              <Typography fontSize={13} color="text.secondary">Running algorithm…</Typography>
+              <Typography fontSize={13} color="text.secondary">{t("demoScheduler.runningAlgorithm", "Running algorithm…")}</Typography>
             </Box>
           ) : suggestions.length === 0 ? (
             <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
               <AIIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-              <Typography color="text.secondary" fontWeight={500}>No suggestions available. Make sure distributors are active and scored.</Typography>
+              <Typography color="text.secondary" fontWeight={500}>{t("demoScheduler.noSuggestions", "No suggestions available. Make sure distributors are active and scored.")}</Typography>
             </Paper>
           ) : (
             <Grid container spacing={2}>
@@ -516,23 +524,25 @@ export default function DemoScheduler() {
         <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <EditIcon color="primary" />
-            Update Demo Status
+            {t("demoScheduler.updateDemoStatus", "Update Demo Status")}
           </Stack>
         </DialogTitle>
         <DialogContent>
           {statusDialog.demo && (
             <Typography fontSize={13} color="text.secondary" mb={2}>
-              Updating <b>{statusDialog.demo.customer_name || statusDialog.demo.distributor_name}</b> — {fmtDate(statusDialog.demo.demo_date)}
+              {t("demoScheduler.updatingDemoFor", "Updating {name} — {date}")
+                .replace("{name}", statusDialog.demo.customer_name || statusDialog.demo.distributor_name || "")
+                .replace("{date}", fmtDate(statusDialog.demo.demo_date))}
             </Typography>
           )}
           <Stack spacing={2} mt={1}>
             {/* Status picker as chip group */}
-            <Typography fontSize={13} fontWeight={600}>New Status</Typography>
+            <Typography fontSize={13} fontWeight={600}>{t("demoScheduler.newStatus", "New Status")}</Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {Object.entries(STATUS_META).map(([key, meta]) => (
                 <Chip
                   key={key}
-                  label={meta.label}
+                  label={t("demoScheduler." + key.toLowerCase().replace(" ", ""), meta.label)}
                   onClick={() => setNewStatus(key)}
                   sx={{
                     fontWeight: 700, cursor: "pointer",
@@ -544,7 +554,7 @@ export default function DemoScheduler() {
               ))}
             </Stack>
             <TextField
-              label="Notes (optional)"
+              label={t("demoScheduler.notesOptional", "Notes (optional)")}
               multiline
               rows={2}
               fullWidth
@@ -557,7 +567,7 @@ export default function DemoScheduler() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
           <Button onClick={() => setStatusDialog({ open: false, demo: null })} sx={{ borderRadius: 2, textTransform: "none" }}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button
             variant="contained"

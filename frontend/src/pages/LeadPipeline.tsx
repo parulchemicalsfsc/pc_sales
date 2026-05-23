@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
 import { leadsService, Lead, LeadActivity } from "../services/leadsService";
+import { useTranslation } from "../hooks/useTranslation";
 
 const STATUS_COLOR: Record<string, string> = {
   Unassigned: "#9e9e9e", Assigned: "#2196f3",
@@ -36,6 +37,7 @@ const ACTIVITY_ICON: Record<string, React.ReactNode> = {
 };
 
 function TimelineEntry({ act }: { act: LeadActivity }) {
+  const { t } = useTranslation();
   const isManagerNote = act.activity_type === "Manager Note";
   const isAuto = act.is_auto;
   return (
@@ -54,22 +56,25 @@ function TimelineEntry({ act }: { act: LeadActivity }) {
         </Box>
         <Chip label={act.activity_type} size="small"
           sx={{ height: 20, fontSize: "0.68rem", bgcolor: isManagerNote ? "#9c27b020" : undefined }} />
-        {isAuto && <Chip label="System" size="small" sx={{ height: 18, fontSize: "0.65rem" }} variant="outlined" />}
+        {isAuto && <Chip label={t("leadWorkspace.timelineEntrySystem", "System")} size="small" sx={{ height: 18, fontSize: "0.65rem" }} variant="outlined" />}
         <Typography variant="caption" color="text.secondary" ml="auto">
           {new Date(act.logged_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
         </Typography>
       </Box>
       {act.summary && <Typography variant="body2" fontWeight={500}>{act.summary}</Typography>}
-      {act.outcome && <Typography variant="caption" color="text.secondary">Outcome: {act.outcome}</Typography>}
-      {act.next_action && <Typography variant="caption" color="text.secondary" display="block">Next: {act.next_action}</Typography>}
-      {act.follow_up_date && <Typography variant="caption" color="text.secondary" display="block">Follow-up: {act.follow_up_date}</Typography>}
-      <Typography variant="caption" color="text.secondary" display="block">— {act.logged_by}</Typography>
+      {act.outcome && <Typography variant="caption" color="text.secondary">{t("leadWorkspace.timelineEntryOutcome", "Outcome")}: {act.outcome}</Typography>}
+      {act.next_action && <Typography variant="caption" color="text.secondary" display="block">{t("leadWorkspace.timelineEntryNext", "Next")}: {act.next_action}</Typography>}
+      {act.follow_up_date && <Typography variant="caption" color="text.secondary" display="block">{t("leadWorkspace.timelineEntryFollowup", "Follow-up")}: {act.follow_up_date}</Typography>}
+      <Typography variant="caption" color="text.secondary" display="block">
+        {t("leadWorkspace.timelineEntryLoggedBy", "— {logged_by}").replace("{logged_by}", act.logged_by)}
+      </Typography>
     </Box>
   );
 }
 
 export default function LeadPipeline() {
   const { user, hasPermission } = useAuth();
+  const { t } = useTranslation();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -188,8 +193,10 @@ export default function LeadPipeline() {
       {/* Header */}
       <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
         <Box>
-          <Typography variant="h4" fontWeight={700}>Lead Pipeline</Typography>
-          <Typography variant="body2" color="text.secondary">{total} total leads</Typography>
+          <Typography variant="h4" fontWeight={700}>{t("leadPipeline.title", "Lead Pipeline")}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t("leadPipeline.totalLeadsCount", "{count} total leads").replace("{count}", String(total))}
+          </Typography>
         </Box>
         <IconButton onClick={loadLeads} color="primary"><RefreshIcon /></IconButton>
       </Box>
@@ -201,42 +208,44 @@ export default function LeadPipeline() {
         <CardContent>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
-              <TextField fullWidth size="small" placeholder="Search by name, ID, company…"
+              <TextField fullWidth size="small" placeholder={t("leadPipeline.searchPlaceholder", "Search by name, ID, company…")}
                 value={search} onChange={(e) => setSearch(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }} />
             </Grid>
             <Grid item xs={6} md={2}>
               <FormControl fullWidth size="small">
-                <InputLabel>Status</InputLabel>
-                <Select value={filterStatus} label="Status" onChange={(e) => setFilterStatus(e.target.value)}>
-                  <MenuItem value="">All</MenuItem>
+                <InputLabel>{t("leadPipeline.status", "Status")}</InputLabel>
+                <Select value={filterStatus} label={t("leadPipeline.status", "Status")} onChange={(e) => setFilterStatus(e.target.value)}>
+                  <MenuItem value="">{t("leadPipeline.all", "All")}</MenuItem>
                   {["Unassigned", "Assigned", "In Progress", "Follow-up", "Converted", "Rejected"].map((s) => (
-                    <MenuItem key={s} value={s}>{s}</MenuItem>
+                    <MenuItem key={s} value={s}>
+                      {t(`leadWorkspace.${s.charAt(0).toLowerCase() + s.slice(1).replace(" ", "")}`, s)}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={6} md={2}>
               <FormControl fullWidth size="small">
-                <InputLabel>Owner</InputLabel>
-                <Select value={filterOwner} label="Owner" onChange={(e) => setFilterOwner(e.target.value)}>
-                  <MenuItem value="">All</MenuItem>
+                <InputLabel>{t("leadPipeline.owner", "Owner")}</InputLabel>
+                <Select value={filterOwner} label={t("leadPipeline.owner", "Owner")} onChange={(e) => setFilterOwner(e.target.value)}>
+                  <MenuItem value="">{t("leadPipeline.all", "All")}</MenuItem>
                   {owners.map((o) => <MenuItem key={o.email} value={o.email}>{o.name || o.email}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={6} md={2}>
               <FormControl fullWidth size="small">
-                <InputLabel>Source</InputLabel>
-                <Select value={filterSource} label="Source" onChange={(e) => setFilterSource(e.target.value)}>
-                  <MenuItem value="">All</MenuItem>
+                <InputLabel>{t("leadPipeline.source", "Source")}</InputLabel>
+                <Select value={filterSource} label={t("leadPipeline.source", "Source")} onChange={(e) => setFilterSource(e.target.value)}>
+                  <MenuItem value="">{t("leadPipeline.all", "All")}</MenuItem>
                   {sources.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={6} md={2}>
               <Button fullWidth variant="outlined" onClick={() => { setFilterStatus(""); setFilterOwner(""); setFilterSource(""); setSearch(""); }}>
-                Clear Filters
+                {t("leadPipeline.clearFilters", "Clear Filters")}
               </Button>
             </Grid>
           </Grid>
@@ -249,15 +258,15 @@ export default function LeadPipeline() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Lead ID</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Company</TableCell>
-                <TableCell>Product</TableCell>
-                <TableCell>Source</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Assigned To</TableCell>
-                <TableCell>Follow-up</TableCell>
-                <TableCell>Received</TableCell>
+                <TableCell>{t("leadPipeline.leadId", "Lead ID")}</TableCell>
+                <TableCell>{t("leadPipeline.name", "Name")}</TableCell>
+                <TableCell>{t("leadPipeline.company", "Company")}</TableCell>
+                <TableCell>{t("leadPipeline.product", "Product")}</TableCell>
+                <TableCell>{t("leadPipeline.source", "Source")}</TableCell>
+                <TableCell>{t("leadPipeline.status", "Status")}</TableCell>
+                <TableCell>{t("leadPipeline.assignedTo", "Assigned To")}</TableCell>
+                <TableCell>{t("leadPipeline.followUp", "Follow-up")}</TableCell>
+                <TableCell>{t("leadPipeline.received", "Received")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -265,7 +274,7 @@ export default function LeadPipeline() {
                 <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6 }}><CircularProgress /></TableCell></TableRow>
               ) : filteredLeads.length === 0 ? (
                 <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6 }}>
-                  <Typography color="text.secondary">No leads found</Typography>
+                  <Typography color="text.secondary">{t("leadWorkspace.noLeadsFound", "No leads found")}</Typography>
                 </TableCell></TableRow>
               ) : filteredLeads.map((lead) => {
                 const isOverdue = lead.follow_up_date && lead.follow_up_date < today && !["Converted", "Rejected"].includes(lead.status);
@@ -279,12 +288,12 @@ export default function LeadPipeline() {
                       <Chip label={lead.source_website} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell>
-                      <Chip label={lead.status} size="small"
+                      <Chip label={t(`leadWorkspace.${lead.status.charAt(0).toLowerCase() + lead.status.slice(1).replace(" ", "")}`, lead.status)} size="small"
                         sx={{ bgcolor: STATUS_COLOR[lead.status] + "22", color: STATUS_COLOR[lead.status], fontWeight: 600, border: "none" }} />
                     </TableCell>
-                    <TableCell>{lead.assigned_to || <Typography variant="caption" color="text.secondary">Unassigned</Typography>}</TableCell>
+                    <TableCell>{lead.assigned_to || <Typography variant="caption" color="text.secondary">{t("leadPipeline.unassigned", "Unassigned")}</Typography>}</TableCell>
                     <TableCell>
-                      <Tooltip title={isOverdue ? "OVERDUE" : ""}>
+                      <Tooltip title={isOverdue ? t("leadWorkspace.overdue", "OVERDUE") : ""}>
                         <Typography variant="body2" color={isOverdue ? "error" : "inherit"} display="flex" alignItems="center" gap={0.5}>
                           {isOverdue && <WarningIcon sx={{ fontSize: 14 }} />}
                           {lead.follow_up_date || "—"}
@@ -314,7 +323,7 @@ export default function LeadPipeline() {
               <Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Typography variant="caption" fontFamily="monospace" color="text.secondary">{selectedLead.lead_id}</Typography>
-                  <Chip label={selectedLead.status} size="small"
+                  <Chip label={t(`leadWorkspace.${selectedLead.status.charAt(0).toLowerCase() + selectedLead.status.slice(1).replace(" ", "")}`, selectedLead.status)} size="small"
                     sx={{ bgcolor: STATUS_COLOR[selectedLead.status] + "22", color: STATUS_COLOR[selectedLead.status], fontWeight: 700 }} />
                 </Box>
                 <Typography variant="h6" fontWeight={700}>{selectedLead.full_name}</Typography>
@@ -326,21 +335,21 @@ export default function LeadPipeline() {
             {/* Closure banner */}
             {selectedLead.closure_type === "Converted" && (
               <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
-                <Typography fontWeight={600}>Converted</Typography>
+                <Typography fontWeight={600}>{t("leadWorkspace.converted", "Converted")}</Typography>
                 {selectedLead.conversion_notes && <Typography variant="body2">{selectedLead.conversion_notes}</Typography>}
               </Alert>
             )}
             {selectedLead.closure_type === "Rejected" && (
               <Alert severity="error" icon={<CancelIcon />} sx={{ mb: 2 }}>
-                <Typography fontWeight={600}>Rejected</Typography>
-                {selectedLead.rejection_reason && <Typography variant="body2">Reason: {selectedLead.rejection_reason}</Typography>}
+                <Typography fontWeight={600}>{t("leadWorkspace.rejected", "Rejected")}</Typography>
+                {selectedLead.rejection_reason && <Typography variant="body2">{t("leadWorkspace.rejectionReason", "Reason")}: {selectedLead.rejection_reason}</Typography>}
               </Alert>
             )}
 
             {/* Customer Info */}
             <Card variant="outlined" sx={{ mb: 2 }}>
               <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
-                <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">Customer Info</Typography>
+                <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary">{t("leadPipeline.customerInfo", "Customer Info")}</Typography>
                 <Grid container spacing={1} mt={0.5}>
                   {[
                     { icon: <EmailIcon sx={{ fontSize: 14 }} />, label: selectedLead.email },
@@ -357,8 +366,8 @@ export default function LeadPipeline() {
                   ))}
                   {selectedLead.message && (
                     <Grid item xs={12}>
-                      <Typography variant="caption" color="text.secondary">Message</Typography>
-                      <Typography variant="body2" sx={{ fontStyle: "italic" }}>"{selectedLead.message}"</Typography>
+                      <Typography variant="caption" color="text.secondary">{t("leadPipeline.message", "Message")}</Typography>
+                      <Typography variant="body2" sx={{ fontStyle: "italic" }}>{t("leadWorkspace.originalMessageQuote", '"{message}"').replace("{message}", selectedLead.message)}</Typography>
                     </Grid>
                   )}
                 </Grid>
@@ -369,7 +378,7 @@ export default function LeadPipeline() {
             <Box display="flex" gap={1} mb={2} flexWrap="wrap">
               <Chip icon={<LanguageIcon />} label={selectedLead.source_website} size="small" variant="outlined" />
               {selectedLead.assigned_to && <Chip icon={<PersonIcon />} label={selectedLead.assigned_to} size="small" variant="outlined" />}
-              {selectedLead.follow_up_date && <Chip icon={<ScheduleIcon />} label={`Follow-up: ${selectedLead.follow_up_date}`} size="small" variant="outlined" />}
+              {selectedLead.follow_up_date && <Chip icon={<ScheduleIcon />} label={`${t("leadWorkspace.timelineEntryFollowup", "Follow-up")}: ${selectedLead.follow_up_date}`} size="small" variant="outlined" />}
             </Box>
 
             {/* Actions */}
@@ -377,11 +386,11 @@ export default function LeadPipeline() {
               <Box display="flex" gap={1} mb={2} flexWrap="wrap">
                 <Button variant="contained" size="small" startIcon={<AssignmentIcon />}
                   onClick={() => { setAssignTo(selectedLead.assigned_to || ""); setAssignOpen(true); }}>
-                  {selectedLead.assigned_to ? "Reassign" : "Assign"}
+                  {selectedLead.assigned_to ? t("leadPipeline.reassign", "Reassign") : t("leadPipeline.assign", "Assign")}
                 </Button>
                 <Button variant="outlined" size="small" startIcon={<CommentIcon />}
                   onClick={() => setCommentOpen(true)} disabled={!selectedLead.assigned_to}>
-                  Leave Note
+                  {t("leadPipeline.leaveNote", "Leave Note")}
                 </Button>
               </Box>
             )}
@@ -389,9 +398,9 @@ export default function LeadPipeline() {
             <Divider sx={{ mb: 2 }} />
 
             {/* Timeline */}
-            <Typography variant="subtitle2" fontWeight={700} mb={1.5}>Activity Timeline</Typography>
+            <Typography variant="subtitle2" fontWeight={700} mb={1.5}>{t("leadPipeline.activityTimeline", "Activity Timeline")}</Typography>
             {activitiesLoading ? <CircularProgress size={20} /> :
-              activities.length === 0 ? <Typography variant="body2" color="text.secondary">No activities yet</Typography> :
+              activities.length === 0 ? <Typography variant="body2" color="text.secondary">{t("leadWorkspace.noActivities", "No activities yet")}</Typography> :
                 activities.map((a) => <TimelineEntry key={a.activity_id} act={a} />)
             }
           </Box>
@@ -400,36 +409,36 @@ export default function LeadPipeline() {
 
       {/* Assign Modal */}
       <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{selectedLead?.assigned_to ? "Reassign Lead" : "Assign Lead"}</DialogTitle>
+        <DialogTitle>{selectedLead?.assigned_to ? t("leadPipeline.reassignLead", "Reassign Lead") : t("leadPipeline.assignLead", "Assign Lead")}</DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 2, mb: 2 }}>
-            <InputLabel>Lead Owner</InputLabel>
-            <Select value={assignTo} label="Lead Owner" onChange={(e) => setAssignTo(e.target.value)}>
+            <InputLabel>{t("leadPipeline.leadOwner", "Lead Owner")}</InputLabel>
+            <Select value={assignTo} label={t("leadPipeline.leadOwner", "Lead Owner")} onChange={(e) => setAssignTo(e.target.value)}>
               {owners.map((o) => <MenuItem key={o.email} value={o.email}>{o.name || o.email}</MenuItem>)}
             </Select>
           </FormControl>
-          <TextField fullWidth multiline rows={2} label="Optional note for the owner" value={assignNote}
+          <TextField fullWidth multiline rows={2} label={t("leadPipeline.optionalNote", "Optional note for the owner")} value={assignNote}
             onChange={(e) => setAssignNote(e.target.value)} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAssignOpen(false)}>Cancel</Button>
+          <Button onClick={() => setAssignOpen(false)}>{t("common.cancel", "Cancel")}</Button>
           <Button variant="contained" onClick={handleAssign} disabled={!assignTo || assignLoading}>
-            {assignLoading ? "Assigning…" : "Assign"}
+            {assignLoading ? t("leadPipeline.assigning", "Assigning…") : t("leadPipeline.assign", "Assign")}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Comment Modal */}
       <Dialog open={commentOpen} onClose={() => setCommentOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Leave Manager Note</DialogTitle>
+        <DialogTitle>{t("leadPipeline.leaveManagerNote", "Leave Manager Note")}</DialogTitle>
         <DialogContent>
-          <TextField fullWidth multiline rows={3} label="Note" sx={{ mt: 2 }} value={commentText}
-            onChange={(e) => setCommentText(e.target.value)} placeholder="This note will be visible to the lead owner…" />
+          <TextField fullWidth multiline rows={3} label={t("leadWorkspace.timelineEntryNote", "Note")} sx={{ mt: 2 }} value={commentText}
+            onChange={(e) => setCommentText(e.target.value)} placeholder={t("leadPipeline.notePlaceholder", "This note will be visible to the lead owner…")} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCommentOpen(false)}>Cancel</Button>
+          <Button onClick={() => setCommentOpen(false)}>{t("common.cancel", "Cancel")}</Button>
           <Button variant="contained" onClick={handleComment} disabled={!commentText.trim() || commentLoading}>
-            {commentLoading ? "Sending…" : "Send Note"}
+            {commentLoading ? t("leadPipeline.sending", "Sending…") : t("leadPipeline.sendNote", "Send Note")}
           </Button>
         </DialogActions>
       </Dialog>
