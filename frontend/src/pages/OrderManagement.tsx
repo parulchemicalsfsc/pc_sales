@@ -1175,7 +1175,7 @@ export default function OrderManagement() {
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HelpIcon color="primary" />
-          How to Use — Order Management
+          How to Use Order Management
           <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ pt: 0 }}>

@@ -593,7 +593,7 @@ export default function DemoScheduler() {
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HelpIcon color="primary" />
-          How to Use — Demo Scheduler
+          How to Use Demo Scheduler
           <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ pt: 0 }}>
@@ -603,7 +603,7 @@ export default function DemoScheduler() {
               { title: "Tabs Overview", desc: "All Demos shows every record. Scheduled tab shows upcoming demos. Completed tab shows demos that are done or converted. AI Suggestions tab recommends who to demo next." },
               { title: "Updating Demo Status", desc: "Click \"Update Status\" on any demo card to change it to Completed, Converted, Cancelled, or No Show. Add notes when updating." },
               { title: "AI Demo Suggestions", desc: "The AI Suggestions tab ranks distributors by a composite score: recency of last demo, priority score, group size, and never-demoed bonus. Higher score = schedule sooner." },
-              { title: "Urgency Score Badge", desc: "Each suggestion card has a score badge — RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },
+              { title: "Urgency Score Badge", desc: "Each suggestion card has a score badge. RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },
               { title: "Conversion Progress Bar", desc: "The progress bar at the top shows what % of demos have been Completed or Converted out of all demos." },
               { title: "Scheduling from Suggestions", desc: "Click \"Schedule Demo\" on any suggestion card to pre-fill the new demo form with that distributor's details." },
             ].map(item => (

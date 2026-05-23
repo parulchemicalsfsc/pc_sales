@@ -730,14 +730,14 @@ export default function CallDistribution() {
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HelpIcon color="primary" />
-          How to Use — Call Distribution
+          How to Use Call Distribution
           <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2}>
             {[
-              { title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day — it auto-runs at 10 AM if not done manually." },
-              { title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers — useful if workloads become uneven mid-day." },
+              { title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day. It auto-runs at 10 AM if not done manually." },
+              { title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers. This is useful if workloads become uneven mid-day." },
               { title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
               { title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
               { title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },

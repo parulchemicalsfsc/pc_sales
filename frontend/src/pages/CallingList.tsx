@@ -774,18 +774,18 @@ export default function CallingList() {
       <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HelpIcon color="primary" />
-          How to Use — Calling List
+          How to Use Calling List
           <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
         </DialogTitle>
         <DialogContent sx={{ pt: 0 }}>
           <Stack spacing={2}>
             {[
-              { title: "Priority Colours", desc: "Each card has a left border colour — GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
+              { title: "Priority Colours", desc: "Each card has a left border colour. GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
               { title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
               { title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
-              { title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date — the system schedules a reminder for that day." },
+              { title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date the system schedules a reminder for that day." },
               { title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
-              { title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri — pick a Mantri and set approx. liters per Sabhasad." },
+              { title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri pick a Mantri and set approx. liters per Sabhasad." },
               { title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
             ].map(item => (
               <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
