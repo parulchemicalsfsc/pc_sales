@@ -55,32 +55,6 @@ def verify_lead_access(
     return user_email
 
 
-SOURCE_PREFIX_MAP = {
-    "website_a": "WA",
-    "website_b": "WB",
-    "website_c": "WC",
-    "parul_chemicals": "PC",
-    "psi": "PS",
-    "press stamping industries": "PS",
-    "press_stamping_industries": "PS",
-}
-
-def _get_prefix_for_source(source_website: str) -> str:
-    # 1. Generate a 2-letter prefix automatically
-    clean_name = re.sub(r'[^a-zA-Z0-9\s_]', '', source_website).strip()
-    words = re.split(r'[\s_]+', clean_name)
-    words = [w for w in words if w]
-    
-    if not words:
-        prefix = "LD"
-    elif len(words) == 1:
-        prefix = words[0][:2].upper().ljust(2, 'X')
-    else:
-        prefix = (words[0][0] + words[1][0]).upper()
-        
-    # Check if there is a hardcoded override
-    return SOURCE_PREFIX_MAP.get(source_website.lower(), prefix)
-
 
 def _generate_lead_id(db: SupabaseClient, prefix: str) -> str:
     # Count existing leads with this specific prefix to ensure uniqueness
@@ -186,16 +160,7 @@ def _normalize_name(name: str) -> str:
 
 
 def _is_name_match(incoming: str, registered: str) -> bool:
-    norm_in = _normalize_name(incoming)
-    norm_reg = _normalize_name(registered)
-    if norm_in == norm_reg:
-        return True
-    # Support common abbreviations/overrides
-    if norm_in == "psi" and "pressstamping" in norm_reg:
-        return True
-    if norm_in == "pcsales" and "parulchemical" in norm_reg:
-        return True
-    return False
+    return incoming.strip() == registered.strip()
 
 
 def _get_lead_owners(db: SupabaseClient, lead_id: str) -> list[str]:
@@ -275,7 +240,7 @@ def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(ge
     lead_data = {
         "lead_id": lead_id,
         "source_id": payload.get("source_id"),
-        "source_website": incoming_source,
+        "source_website": source_website,
         "full_name": full_name,
         "email": email,
         "phone": phone,
@@ -526,7 +491,6 @@ def get_lead_sources(db: SupabaseClient = Depends(get_db)):
 def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
     """Create or update a lead source. Lead Manager only."""
     name = str(payload.get("name", "")).strip()
-    website_url = str(payload.get("website_url", "")).strip() or "N/A"
     prefix = str(payload.get("prefix", "")).strip().upper()
     bg_color = str(payload.get("bg_color", "#e3f2fd")).strip()
     text_color = str(payload.get("text_color", "#0d47a1")).strip()
@@ -540,7 +504,6 @@ def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
 
     source_data = {
         "name": name,
-        "website_url": website_url,
         "bg_color": bg_color,
         "text_color": text_color,
         "is_active": bool(payload.get("is_active", True))
@@ -553,6 +516,9 @@ def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
             db.table("lead_sources").eq("id", source_id).update(source_data).execute()
             return {"message": "Lead source updated successfully"}
         except Exception as e:
+            err_msg = str(e)
+            if "duplicate key" in err_msg or "already exists" in err_msg or "409 Client Error: Conflict" in err_msg:
+                raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
             raise HTTPException(status_code=500, detail=f"Failed to update lead source: {e}")
     else:
         # Check prefix uniqueness
@@ -562,8 +528,19 @@ def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
             return {"message": "Lead source created successfully"}
         except Exception as e:
             err_msg = str(e)
-            if "duplicate key" in err_msg or "already exists" in err_msg:
-                raise HTTPException(status_code=400, detail="A source with this Name, URL, or Prefix already exists.")
+            # PostgREST 409 Conflict indicates unique constraint violation (duplicate name or prefix)
+            if "duplicate key" in err_msg or "already exists" in err_msg or "409 Client Error: Conflict" in err_msg:
+                raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
+            
+            # Optionally try to parse the JSON for more detailed info
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    err_json = e.response.json()
+                    if err_json.get("code") == "23505": # Postgres unique_violation
+                        raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
+                except Exception:
+                    pass
+
             raise HTTPException(status_code=500, detail=f"Failed to create lead source: {e}")
 
 

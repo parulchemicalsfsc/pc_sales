@@ -73,7 +73,6 @@ export interface Quotation {
 export interface LeadSource {
   id?: number;
   name: string;
-  website_url: string;
   prefix: string;
   bg_color: string;
   text_color: string;

@@ -116,7 +116,6 @@ export default function LeadPipeline() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [newSource, setNewSource] = useState<Partial<LeadSource>>({
     name: "",
-    website_url: "",
     prefix: "",
     bg_color: "#2196f3",
     text_color: "#2196f3",
@@ -193,40 +192,9 @@ export default function LeadPipeline() {
   };
 
   const getRowStyles = (sourceName: string) => {
-    const normalize = (val: string) => val.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-    const extractDomain = (url: string) => {
-      let u = url.trim().toLowerCase();
-      if (!u.startsWith("http://") && !u.startsWith("https://")) {
-        u = "http://" + u;
-      }
-      try {
-        const parsed = new URL(u);
-        let domain = parsed.hostname;
-        if (domain.startsWith("www.")) {
-          domain = domain.substring(4);
-        }
-        return domain;
-      } catch {
-        return u;
-      }
-    };
-
-    const incomingNorm = normalize(sourceName);
-    const incomingDomain = extractDomain(sourceName);
-
-    const matched = leadSources.find((s) => {
-      const srcNorm = normalize(s.name);
-      if (incomingNorm === srcNorm) return true;
-
-      const srcDomain = extractDomain(s.website_url);
-      if (incomingDomain && srcDomain && incomingDomain === srcDomain) return true;
-
-      // Legacy matching support
-      if (incomingNorm === "psi" && srcNorm.includes("pressstamping")) return true;
-      if (incomingNorm === "pcsales" && srcNorm.includes("parulchemical")) return true;
-
-      return false;
-    });
+    const matched = leadSources.find(
+      (s) => s.name.trim().toLowerCase() === sourceName.trim().toLowerCase()
+    );
 
     if (matched && matched.is_active) {
       const baseColor = matched.bg_color || "#2196f3";
@@ -807,12 +775,10 @@ export default function LeadPipeline() {
                         prefix: newSource.prefix,
                         bg_color: newSource.bg_color,
                         text_color: newSource.bg_color || "#2196f3",
-                        website_url: "N/A",
                         is_active: newSource.is_active,
                       });
                       setNewSource({
                         name: "",
-                        website_url: "",
                         prefix: "",
                         bg_color: "#2196f3",
                         text_color: "#2196f3",
