@@ -115,7 +115,7 @@ export const leadsService = {
   getPipelineStats: () => apiClient.get<PipelineStats>("/api/leads/stats/pipeline"),
 
   /** Lead Manager: assign or reassign a lead */
-  assign: (leadId: string, assigned_to: string, note?: string) =>
+  assign: (leadId: string, assigned_to: string | string[], note?: string) =>
     apiClient.post(`/api/leads/${leadId}/assign`, { assigned_to, note }),
 
   /** Lead Manager: leave a manager note */

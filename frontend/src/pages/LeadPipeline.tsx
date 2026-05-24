@@ -98,7 +98,7 @@ export default function LeadPipeline() {
 
   // Assign modal
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignTo, setAssignTo] = useState("");
+  const [assignTo, setAssignTo] = useState<string[]>([]);
   const [assignNote, setAssignNote] = useState("");
   const [assignLoading, setAssignLoading] = useState(false);
 
@@ -313,12 +313,12 @@ export default function LeadPipeline() {
   };
 
   const handleAssign = async () => {
-    if (!selectedLead || !assignTo) return;
+    if (!selectedLead || assignTo.length === 0) return;
     setAssignLoading(true);
     try {
       await leadsService.assign(selectedLead.lead_id, assignTo, assignNote || undefined);
       setAssignOpen(false);
-      setAssignTo(""); setAssignNote("");
+      setAssignTo([]); setAssignNote("");
       await loadLeads();
       const res = await leadsService.getOne(selectedLead.lead_id);
       setSelectedLead(res.data);
@@ -491,7 +491,28 @@ export default function LeadPipeline() {
                       <Chip label={t(`leadWorkspace.${lead.status.charAt(0).toLowerCase() + lead.status.slice(1).replace(" ", "")}`, lead.status)} size="small"
                         sx={{ bgcolor: STATUS_COLOR[lead.status] + "22", color: STATUS_COLOR[lead.status], fontWeight: 600, border: "none" }} />
                     </TableCell>
-                    <TableCell>{lead.assigned_to || <Typography variant="caption" color="text.secondary">{t("leadPipeline.unassigned", "Unassigned")}</Typography>}</TableCell>
+                    <TableCell>
+                      {lead.assigned_to ? (
+                        <Box display="flex" flexWrap="wrap" gap={0.5}>
+                          {lead.assigned_to.split(",").map((email) => {
+                            const trimmed = email.trim();
+                            const owner = owners.find((o) => o.email === trimmed);
+                            return (
+                              <Chip
+                                key={trimmed}
+                                label={owner ? owner.name || trimmed : trimmed}
+                                size="small"
+                                variant="outlined"
+                              />
+                            );
+                          })}
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          {t("leadPipeline.unassigned", "Unassigned")}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Tooltip title={isOverdue ? t("leadWorkspace.overdue", "OVERDUE") : ""}>
                         <Typography variant="body2" color={isOverdue ? "error" : "inherit"} display="flex" alignItems="center" gap={0.5}>
@@ -574,10 +595,26 @@ export default function LeadPipeline() {
               </CardContent>
             </Card>
 
-            {/* Internal Info */}
+             {/* Internal Info */}
             <Box display="flex" gap={1} mb={2} flexWrap="wrap">
               <Chip icon={<LanguageIcon />} label={selectedLead.source_website} size="small" variant="outlined" />
-              {selectedLead.assigned_to && <Chip icon={<PersonIcon />} label={selectedLead.assigned_to} size="small" variant="outlined" />}
+              {selectedLead.assigned_to ? (
+                <Box display="flex" flexWrap="wrap" gap={0.5} sx={{ display: 'inline-flex', mr: 1 }}>
+                  {selectedLead.assigned_to.split(",").map((email) => {
+                    const trimmed = email.trim();
+                    const owner = owners.find((o) => o.email === trimmed);
+                    return (
+                      <Chip
+                        key={trimmed}
+                        icon={<PersonIcon />}
+                        label={owner ? owner.name || trimmed : trimmed}
+                        size="small"
+                        variant="outlined"
+                      />
+                    );
+                  })}
+                </Box>
+              ) : null}
               {selectedLead.follow_up_date && <Chip icon={<ScheduleIcon />} label={`${t("leadWorkspace.timelineEntryFollowup", "Follow-up")}: ${selectedLead.follow_up_date}`} size="small" variant="outlined" />}
             </Box>
 
@@ -587,7 +624,13 @@ export default function LeadPipeline() {
                 {!selectedLead.closure_type && (
                   <>
                     <Button variant="contained" size="small" startIcon={<AssignmentIcon />}
-                      onClick={() => { setAssignTo(selectedLead.assigned_to || ""); setAssignOpen(true); }}>
+                      onClick={() => {
+                        const currentOwners = selectedLead.assigned_to 
+                          ? selectedLead.assigned_to.split(",").map(s => s.trim()) 
+                          : [];
+                        setAssignTo(currentOwners);
+                        setAssignOpen(true);
+                      }}>
                       {selectedLead.assigned_to ? t("leadPipeline.reassign", "Reassign") : t("leadPipeline.assign", "Assign")}
                     </Button>
                     <Button variant="outlined" size="small" startIcon={<CommentIcon />}
@@ -620,9 +663,27 @@ export default function LeadPipeline() {
         <DialogTitle>{selectedLead?.assigned_to ? t("leadPipeline.reassignLead", "Reassign Lead") : t("leadPipeline.assignLead", "Assign Lead")}</DialogTitle>
         <DialogContent>
           <FormControl fullWidth sx={{ mt: 2, mb: 2 }}>
-            <InputLabel>{t("leadPipeline.leadOwner", "Lead Owner")}</InputLabel>
-            <Select value={assignTo} label={t("leadPipeline.leadOwner", "Lead Owner")} onChange={(e) => setAssignTo(e.target.value)}>
-              {owners.map((o) => <MenuItem key={o.email} value={o.email}>{o.name || o.email}</MenuItem>)}
+            <InputLabel id="lead-owners-label">{t("leadPipeline.leadOwner", "Lead Owner")}</InputLabel>
+            <Select
+              labelId="lead-owners-label"
+              multiple
+              value={assignTo}
+              label={t("leadPipeline.leadOwner", "Lead Owner")}
+              onChange={(e) => setAssignTo(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value as string[])}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map((value) => {
+                    const owner = owners.find(o => o.email === value);
+                    return <Chip key={value} label={owner ? owner.name || value : value} size="small" />;
+                  })}
+                </Box>
+              )}
+            >
+              {owners.map((o) => (
+                <MenuItem key={o.email} value={o.email}>
+                  {o.name || o.email}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
           <TextField fullWidth multiline rows={2} label={t("leadPipeline.optionalNote", "Optional note for the owner")} value={assignNote}
@@ -630,7 +691,7 @@ export default function LeadPipeline() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAssignOpen(false)}>{t("common.cancel", "Cancel")}</Button>
-          <Button variant="contained" onClick={handleAssign} disabled={!assignTo || assignLoading}>
+          <Button variant="contained" onClick={handleAssign} disabled={assignTo.length === 0 || assignLoading}>
             {assignLoading ? t("leadPipeline.assigning", "Assigning…") : t("leadPipeline.assign", "Assign")}
           </Button>
         </DialogActions>

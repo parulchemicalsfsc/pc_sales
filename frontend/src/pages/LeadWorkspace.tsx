@@ -642,6 +642,18 @@ export default function LeadWorkspace() {
                             <Grid item xs={6}><Typography variant="caption" color="text.secondary">{t("leadWorkspace.status", "Status")}</Typography><Typography variant="body2">{t(`leadWorkspace.${selected.status.charAt(0).toLowerCase() + selected.status.slice(1).replace(" ", "")}`, selected.status)}</Typography></Grid>
                             <Grid item xs={6}><Typography variant="caption" color="text.secondary">{t("leadWorkspace.timelineEntryFollowup", "Follow-up Date")}</Typography><Typography variant="body2" color={isOverdue ? "error" : "inherit"}>{selected.follow_up_date || "—"}</Typography></Grid>
                             <Grid item xs={6}><Typography variant="caption" color="text.secondary">{t("leadPipeline.received", "Received")}</Typography><Typography variant="body2">{new Date(selected.created_at).toLocaleDateString("en-IN")}</Typography></Grid>
+                            <Grid item xs={12} sx={{ mt: 1 }}>
+                               <Typography variant="caption" color="text.secondary">{t("leadPipeline.leadOwner", "Lead Owner")}</Typography>
+                               <Box display="flex" flexWrap="wrap" gap={0.5} mt={0.5}>
+                                 {selected.assigned_to ? (
+                                   selected.assigned_to.split(",").map((email) => (
+                                     <Chip key={email.trim()} label={email.trim()} size="small" variant="outlined" />
+                                   ))
+                                 ) : (
+                                   <Typography variant="body2">—</Typography>
+                                 )}
+                               </Box>
+                             </Grid>
                           </Grid>
                         </CardContent>
                       </Card>
