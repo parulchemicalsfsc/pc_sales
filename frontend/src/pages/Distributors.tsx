@@ -525,6 +525,34 @@ export default function Distributors() {
       renderCell: (params) => <span>{displayValue(params.value)}</span>,
     },
     {
+      field: "is_redemo",
+      headerName: "REDEMO",
+      width: 120,
+      headerAlign: "center",
+      align: "center",
+      headerClassName: "multi-line-header",
+      renderCell: (params) => {
+        const isRedemo = params.value === true;
+        return (
+          <Chip
+            label={isRedemo ? "YES" : "NO"}
+            size="small"
+            sx={{
+              fontWeight: 700,
+              backgroundColor: isRedemo 
+                ? (isDarkMode ? "rgba(3,169,244,0.25)" : "#93C5FD") // Darker light blue background
+                : (isDarkMode ? "rgba(75,85,99,0.2)" : "#F3F4F6"),
+              color: isRedemo 
+                ? (isDarkMode ? "#F87171" : "#991B1B") // Darker red text for YES
+                : (isDarkMode ? "#D1D5DB" : "#374151"), // Darker text for NO
+              borderRadius: "6px",
+              minWidth: "60px",
+            }}
+          />
+        );
+      },
+    },
+    {
       field: "taluka",
       headerName: tf("taluka"),
       width: 150,
