@@ -1,7 +1,8 @@
 from typing import Optional, List
+import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from models import Shopkeeper
-from supabase_db import SupabaseClient, get_supabase
+from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
 
@@ -215,3 +216,36 @@ async def update_shopkeeper(
                 )
             except Exception:
                 pass
+
+
+@router.delete("/{shopkeeper_id}", dependencies=[Depends(verify_permission("edit_shopkeeper"))])
+def delete_shopkeeper(
+    shopkeeper_id: int,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Delete a shopkeeper"""
+    try:
+        shopkeeper_id = int(shopkeeper_id)
+        print("Deleting Shopkeeper ID:", shopkeeper_id)
+
+        url = f"{SUPABASE_URL}/rest/v1/shopkeepers?shopkeeper_id=eq.{shopkeeper_id}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.delete(url, headers=headers)
+        print("DELETE STATUS:", response.status_code)
+        print("DELETE RESPONSE:", response.text)
+
+        if response.status_code not in [200, 204]:
+            raise HTTPException(status_code=500, detail=response.text)
+
+        return {"message": "Shopkeeper deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("DELETE ERROR:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))

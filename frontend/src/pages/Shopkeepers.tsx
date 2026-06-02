@@ -19,6 +19,8 @@ import {
   Divider,
   Tooltip,
   MenuItem,
+  Menu,
+  Snackbar,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -31,6 +33,7 @@ import {
   LocationOn as LocationOnIcon,
   Refresh as RefreshIcon,
   Group as GroupIcon,
+  MoreVert as MoreVertIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -65,6 +68,32 @@ export default function Shopkeepers() {
   const [submitting, setSubmitting] = useState(false);
   const [renameField, setRenameField] = useState<string | null>(null);
   const [newColumnName, setNewColumnName] = useState("");
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [selectedShopkeeper, setSelectedShopkeeper] = useState<Shopkeeper | null>(null);
+  const [toast, setToast] = useState<{ open: boolean; message: string; severity: "success" | "error" }>({ open: false, message: "", severity: "success" });
+
+  const handleDeleteClick = (row: Shopkeeper) => {
+    setSelectedShopkeeper(row);
+    setDeleteOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!selectedShopkeeper?.shopkeeper_id) return;
+    console.log("[DELETE] Module: Shopkeeper | Record ID:", selectedShopkeeper.shopkeeper_id);
+    try {
+      await shopkeeperAPI.delete(selectedShopkeeper.shopkeeper_id);
+      console.log("[DELETE SUCCESS] Module: Shopkeeper | Record ID:", selectedShopkeeper.shopkeeper_id);
+      setToast({ open: true, message: "Shopkeeper deleted successfully", severity: "success" });
+      loadShopkeepers();
+    } catch (error: any) {
+      console.error("[DELETE FAILED] Module: Shopkeeper | Error:", error);
+      setToast({ open: true, message: error?.message || "Failed to delete shopkeeper", severity: "error" });
+    } finally {
+      setDeleteOpen(false);
+      setSelectedShopkeeper(null);
+    }
+  };
 
   const handleRenameClick = (field: string) => {
     setRenameField(field);
@@ -324,24 +353,67 @@ export default function Shopkeepers() {
     {
       field: "actions",
       headerName: t("common.actions"),
-      width: 120,
+      width: 100,
       sortable: false,
       headerAlign: "center",
       align: "center",
       headerClassName: "multi-line-header",
-      renderCell: (params) => (
-        <Box>
-          <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
+      renderCell: (params) => {
+        const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+        const open = Boolean(anchorEl);
+
+        const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
+          event.stopPropagation();
+          setAnchorEl(event.currentTarget);
+        };
+
+        const handleClose = (event?: React.MouseEvent) => {
+          if (event) event.stopPropagation();
+          setAnchorEl(null);
+        };
+
+        const handleAction = (action: () => void) => {
+          handleClose();
+          action();
+        };
+
+        return (
+          <Box onClick={(e) => e.stopPropagation()}>
             <IconButton
               size="small"
-              onClick={() => handleOpenDialog(params.row)}
-              color="primary"
+              onClick={handleOpen}
+              sx={{ color: "text.secondary" }}
             >
-              <EditIcon fontSize="small" />
+              <MoreVertIcon fontSize="small" />
             </IconButton>
-          </PermissionGate>
-        </Box>
-      ),
+            <Menu
+              anchorEl={anchorEl}
+              open={open}
+              onClose={() => handleClose()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
+                <MenuItem
+                  onClick={() => handleAction(() => handleOpenDialog(params.row))}
+                  sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2 }}
+                >
+                  <EditIcon fontSize="small" sx={{ color: "primary.main" }} />
+                  {t("common.edit", "Edit")}
+                </MenuItem>
+              </PermissionGate>
+              <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
+                <MenuItem
+                  onClick={() => handleAction(() => handleDeleteClick(params.row))}
+                  sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2, color: "error.main" }}
+                >
+                  <DeleteIcon fontSize="small" />
+                  {t("common.delete", "Delete")}
+                </MenuItem>
+              </PermissionGate>
+            </Menu>
+          </Box>
+        );
+      },
     },
     // 1. Shopkeeper Name (Moved to start)
     {
@@ -1290,6 +1362,36 @@ export default function Shopkeepers() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
+        <DialogTitle>Delete Record</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this record?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteOpen(false)}>{t("common.cancel", "Cancel")}</Button>
+          <Button color="error" variant="contained" onClick={handleConfirmDelete}>
+            {t("common.delete", "Delete")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Toast Notifications */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={4000}
+        onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setToast((prev) => ({ ...prev, open: false }))}
+          severity={toast.severity}
+          sx={{ width: "100%" }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
