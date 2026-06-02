@@ -43,6 +43,7 @@ import {
 } from "@mui/icons-material";
 import { fileAPI } from "../services/api";
 import { useTranslation } from "../hooks/useTranslation";
+// @ts-ignore
 import * as XLSX from "xlsx";
 
 type ImportType = "customer" | "payment" | "demos" | "sales" | "sabhasad";

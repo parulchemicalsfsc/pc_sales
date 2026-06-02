@@ -235,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Sign out ─────────────────────────────────────────────────────────────────
   const signOut = async () => {
     // Log LOGOUT event first (silent fail ok — don't block actual logout)
-    await activityAPI.logAuth("LOGOUT").catch(() => { });
+    activityAPI.logAuth("LOGOUT").catch(() => { });
     await supabase.auth.signOut();
     setPermissions(new Set());
     setPermissionsLoaded(false);

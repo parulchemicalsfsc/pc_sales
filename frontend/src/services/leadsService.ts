@@ -70,6 +70,16 @@ export interface Quotation {
   notes?: string;
 }
 
+export interface LeadSource {
+  id?: number;
+  name: string;
+  prefix: string;
+  bg_color: string;
+  text_color: string;
+  is_active: boolean;
+  created_at?: string;
+}
+
 // ── API calls ─────────────────────────────────────────────────────────────────
 
 export const leadsService = {
@@ -104,7 +114,7 @@ export const leadsService = {
   getPipelineStats: () => apiClient.get<PipelineStats>("/api/leads/stats/pipeline"),
 
   /** Lead Manager: assign or reassign a lead */
-  assign: (leadId: string, assigned_to: string, note?: string) =>
+  assign: (leadId: string, assigned_to: string | string[], note?: string) =>
     apiClient.post(`/api/leads/${leadId}/assign`, { assigned_to, note }),
 
   /** Lead Manager: leave a manager note */
@@ -150,4 +160,24 @@ export const leadsService = {
   /** Lead Owner: upsert quotation */
   upsertQuotation: (leadId: string, data: Partial<Quotation>) =>
     apiClient.put<Quotation>(`/api/leads/${leadId}/quotation`, data),
+
+  /** Lead Owner: manually create a lead (submits to intake) */
+  createLead: (data: Partial<Lead>) =>
+    apiClient.post<{ lead_id: string; status: LeadStatus; message: string }>("/api/leads/intake", data),
+
+  /** Lead Manager: delete a lead */
+  deleteLead: (leadId: string) =>
+    apiClient.delete<{ message: string }>(`/api/leads/${leadId}`),
+
+  /** Both roles: get all configured lead sources */
+  getSources: () =>
+    apiClient.get<LeadSource[]>("/api/leads/sources"),
+
+  /** Lead Manager: save/update a lead source */
+  saveSource: (data: Partial<LeadSource>) =>
+    apiClient.post<{ message: string }>("/api/leads/sources", data),
+
+  /** Lead Manager: delete a lead source */
+  deleteSource: (id: number) =>
+    apiClient.delete<{ message: string }>(`/api/leads/sources/${id}`),
 };

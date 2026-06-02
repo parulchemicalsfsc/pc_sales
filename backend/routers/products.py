@@ -34,13 +34,26 @@ def get_all_products(db: SupabaseClient = Depends(get_db)):
 
 @router.get("/config/regions", dependencies=[Depends(verify_permission("view_products"))])
 def get_product_regions(db: SupabaseClient = Depends(get_db)):
-    """Get dynamic product regions"""
+    """Get dynamic product regions from DB; seeds defaults if table is empty"""
+    DEFAULT_REGIONS = [
+        {"name": "Gujarat"}, {"name": "Maharashtra"}, {"name": "Madhya Pradesh"},
+        {"name": "Rajasthan"}, {"name": "Uttar Pradesh"}, {"name": "Karnataka"},
+    ]
     try:
         res = db.table("product_regions").select("*").order("created_at").execute()
-        return res.data or []
+        if res.data:
+            return res.data
+        # Table exists but is empty – seed with defaults then return them
+        try:
+            for r in DEFAULT_REGIONS:
+                db.table("product_regions").insert(r).execute()
+            seeded = db.table("product_regions").select("*").order("created_at").execute()
+            return seeded.data or DEFAULT_REGIONS
+        except Exception:
+            return DEFAULT_REGIONS
     except Exception as e:
         print(f"[WARN] Failed fetching regions (maybe table missing): {e}")
-        return [{"name": "Gujarat"}, {"name": "Maharashtra"}, {"name": "Madhya Pradesh"}]
+        return DEFAULT_REGIONS
 
 
 @router.post("/config/regions", dependencies=[Depends(verify_permission("manage_products"))])
@@ -55,13 +68,26 @@ def create_product_region(region: ProductRegion, db: SupabaseClient = Depends(ge
 
 @router.get("/config/categories", dependencies=[Depends(verify_permission("view_products"))])
 def get_product_categories(db: SupabaseClient = Depends(get_db)):
-    """Get dynamic product categories"""
+    """Get dynamic product categories from DB; seeds defaults if table is empty"""
+    DEFAULT_CATEGORIES = [
+        {"name": "Sabhasad"}, {"name": "Mantri"}, {"name": "Doctor"},
+        {"name": "Shopkeeper"}, {"name": "Field Officer"},
+    ]
     try:
         res = db.table("product_categories").select("*").order("created_at").execute()
-        return res.data or []
+        if res.data:
+            return res.data
+        # Table exists but is empty – seed defaults
+        try:
+            for c in DEFAULT_CATEGORIES:
+                db.table("product_categories").insert(c).execute()
+            seeded = db.table("product_categories").select("*").order("created_at").execute()
+            return seeded.data or DEFAULT_CATEGORIES
+        except Exception:
+            return DEFAULT_CATEGORIES
     except Exception as e:
         print(f"[WARN] Failed fetching categories (maybe table missing): {e}")
-        return [{"name": "Sabhasad"}, {"name": "Mantri"}, {"name": "Doctor"}, {"name": "Shopkeeper"}, {"name": "Field Officer"}]
+        return DEFAULT_CATEGORIES
 
 
 @router.post("/config/categories", dependencies=[Depends(verify_permission("manage_products"))])
@@ -78,7 +104,7 @@ def create_product_category(category: ProductCategory, db: SupabaseClient = Depe
 def delete_product_region(region_name: str, db: SupabaseClient = Depends(get_db)):
     """Delete a product region"""
     try:
-        db.table("product_regions").eq("name", region_name).delete().execute()
+        db.table("product_regions").delete().eq("name", region_name).execute()
         return {"message": "Region deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -88,7 +114,7 @@ def delete_product_region(region_name: str, db: SupabaseClient = Depends(get_db)
 def delete_product_category(category_name: str, db: SupabaseClient = Depends(get_db)):
     """Delete a product category"""
     try:
-        db.table("product_categories").eq("name", category_name).delete().execute()
+        db.table("product_categories").delete().eq("name", category_name).execute()
         return {"message": "Category deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

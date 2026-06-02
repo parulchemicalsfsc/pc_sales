@@ -41,6 +41,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import { useTranslation } from "../hooks/useTranslation";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -64,6 +65,7 @@ function CustomTabPanel(props: TabPanelProps) {
 }
 
 export default function Forecasting() {
+  const { t } = useTranslation();
   const [tabIndex, setTabIndex] = useState(0);
 
   // Custom timeframe states
@@ -147,10 +149,10 @@ export default function Forecasting() {
       <Box sx={{ mb: 4, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
         <Box>
           <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Predictive Analytics
+            {t("forecasting.title", "Predictive Analytics")}
           </Typography>
           <Typography variant="subtitle1" color="text.secondary">
-            AI-driven forecasts based on seasonal multipliers and historic averages.
+            {t("forecasting.subtitle", "AI-driven forecasts based on seasonal multipliers and historic averages.")}
           </Typography>
         </Box>
         <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
@@ -158,7 +160,7 @@ export default function Forecasting() {
             <>
               <TextField
                 type="number"
-                label="History Months"
+                label={t("forecasting.historyMonths", "History Months")}
                 InputLabelProps={{ shrink: true }}
                 value={historyMonths}
                 onChange={(e) => setHistoryMonths(Number(e.target.value) || 1)}
@@ -167,7 +169,7 @@ export default function Forecasting() {
               />
               <TextField
                 type="number"
-                label="Forecast Months"
+                label={t("forecasting.forecastMonths", "Forecast Months")}
                 InputLabelProps={{ shrink: true }}
                 value={forecastMonths}
                 onChange={(e) => setForecastMonths(Number(e.target.value) || 1)}
@@ -179,7 +181,7 @@ export default function Forecasting() {
             <>
               <TextField
                 type="month"
-                label="Forecast Target Month"
+                label={t("forecasting.forecastTargetMonth", "Forecast Target Month")}
                 InputLabelProps={{ shrink: true }}
                 value={forecastMonthTarget}
                 onChange={(e) => setForecastMonthTarget(e.target.value)}
@@ -189,13 +191,13 @@ export default function Forecasting() {
               {tabIndex === 2 && (
                 <TextField
                   select
-                  label="District Filter"
+                  label={t("forecasting.districtFilter", "District Filter")}
                   value={district}
                   onChange={(e) => setDistrict(e.target.value)}
                   size="small"
                   sx={{ minWidth: 200 }}
                 >
-                  <MenuItem value="All">All Districts</MenuItem>
+                  <MenuItem value="All">{t("forecasting.allDistricts", "All Districts")}</MenuItem>
                   {availableDistricts.map(d => (
                     <MenuItem key={d} value={d}>{d}</MenuItem>
                   ))}
@@ -209,22 +211,22 @@ export default function Forecasting() {
       <Paper sx={{ width: '100%' }}>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} aria-label="forecasting tabs" variant="scrollable" scrollButtons="auto">
-            <Tab label="Overall Monthly Trend" />
-            <Tab label="District Forecast" />
-            <Tab label="Village Forecast" />
+            <Tab label={t("forecasting.overallMonthlyTrend", "Overall Monthly Trend")} />
+            <Tab label={t("forecasting.districtForecast", "District Forecast")} />
+            <Tab label={t("forecasting.villageForecast", "Village Forecast")} />
           </Tabs>
         </Box>
 
         {/* =============== MONTHLY TREND =============== */}
         <CustomTabPanel value={tabIndex} index={0}>
-          {monthlyLoading ? <CircularProgress /> : monthlyError ? <Alert severity="error">Failed to load forecast data</Alert> : (
+          {monthlyLoading ? <CircularProgress /> : monthlyError ? <Alert severity="error">{t("forecasting.noDataAvailable", "Failed to load forecast data")}</Alert> : (
             <Card elevation={0}>
               <CardContent>
                 <Box sx={{ mb: 3, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
                   <Box>
-                    <Typography variant="h6" fontWeight="bold">Rolling Data (Actuals + Forecast)</Typography>
+                    <Typography variant="h6" fontWeight="bold">{t("forecasting.rollingData", "Rolling Data (Actuals + Forecast)")}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Shows moving average projected forward, multiplied by expected seasonal pattern.
+                      {t("forecasting.rollingDataDesc", "Shows moving average projected forward, multiplied by expected seasonal pattern.")}
                     </Typography>
                   </Box>
                   <Stack direction="row" spacing={1}>
@@ -242,21 +244,26 @@ export default function Forecasting() {
                       <YAxis yAxisId="right" orientation="right" tickFormatter={(val) => `${val}L`} />
                       <RechartsTooltip
                         formatter={(value: any, name: string) => {
-                          if (name === "Revenue (Actual)" || name === "Revenue (Forecast)") return [`₹${value.toLocaleString()}`, name];
-                          if (name === "Liters") return [`${value.toLocaleString()} L`, name];
+                          const lowerName = name.toLowerCase();
+                          if (lowerName.includes("revenue") || lowerName.includes("राजस्व") || lowerName.includes("મહેસૂલ")) {
+                            return [`₹${value.toLocaleString()}`, name];
+                          }
+                          if (lowerName.includes("liter") || lowerName.includes("लीटर") || lowerName.includes("લિટર")) {
+                            return [`${value.toLocaleString()} L`, name];
+                          }
                           return [value, name];
                         }}
-                        labelFormatter={(label) => `Month: ${label}`}
+                        labelFormatter={(label) => `${t("forecasting.targetMonthLabel", "Month")}: ${label}`}
                       />
                       <Legend />
-                      <Bar yAxisId="left" dataKey="revenue" name="Revenue">
+                      <Bar yAxisId="left" dataKey="revenue" name={t("forecasting.forecastedRevenue", "Revenue")}>
                         {
                           (monthlyData?.series || []).map((entry: any, index: number) => (
                             <Cell key={`cell-${index}`} fill={entry.type === 'forecast' ? '#8884d8' : '#82ca9d'} fillOpacity={entry.type === 'forecast' ? 0.6 : 1} />
                           ))
                         }
                       </Bar>
-                      <Line yAxisId="right" type="monotone" dataKey="liters" name="Liters Volume" stroke="#ff7300" strokeWidth={2} />
+                      <Line yAxisId="right" type="monotone" dataKey="liters" name={t("forecasting.forecastedVolume", "Liters Volume")} stroke="#ff7300" strokeWidth={2} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </Box>
@@ -266,11 +273,11 @@ export default function Forecasting() {
                     <Table size="small">
                       <TableHead sx={{ bgcolor: 'action.hover' }}>
                         <TableRow>
-                          <TableCell>Month</TableCell>
-                          <TableCell>Type</TableCell>
-                          <TableCell align="right">Revenue</TableCell>
-                          <TableCell align="right">Volume (Liters)</TableCell>
-                          <TableCell align="right">Seasonal Diff</TableCell>
+                          <TableCell>{t("forecasting.targetMonthLabel", "Month")}</TableCell>
+                          <TableCell>{t("common.type", "Type")}</TableCell>
+                          <TableCell align="right">{t("forecasting.forecastedRevenue", "Revenue")}</TableCell>
+                          <TableCell align="right">{t("forecasting.forecastedVolume", "Volume (Liters)")}</TableCell>
+                          <TableCell align="right">{t("forecasting.seasonalDemandFactor", "Seasonal Diff")}</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -278,7 +285,7 @@ export default function Forecasting() {
                           <TableRow key={row.month} sx={{ bgcolor: row.type === 'forecast' ? 'rgba(136, 132, 216, 0.05)' : 'inherit' }}>
                             <TableCell>{row.month}</TableCell>
                             <TableCell>
-                              <Chip size="small" label={row.type.toUpperCase()} color={row.type === 'forecast' ? 'primary' : 'success'} variant="outlined" />
+                              <Chip size="small" label={t("forecasting." + row.type, row.type).toUpperCase()} color={row.type === 'forecast' ? 'primary' : 'success'} variant="outlined" />
                             </TableCell>
                             <TableCell align="right">₹{row.revenue.toLocaleString()}</TableCell>
                             <TableCell align="right">{row.liters.toLocaleString()} L</TableCell>
@@ -302,19 +309,19 @@ export default function Forecasting() {
                 <Grid container spacing={3} sx={{ mb: 3 }}>
                   <Grid item xs={12} md={4}>
                     <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'primary.main', color: 'primary.contrastText', borderRadius: 2 }}>
-                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Target Month</Typography>
+                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>{t("forecasting.targetMonthLabel", "Target Month")}</Typography>
                       <Typography variant="h5" fontWeight="bold">{districtData?.forecast_month}</Typography>
                     </Paper>
                   </Grid>
                   <Grid item xs={12} md={4}>
                     <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'info.main', color: 'info.contrastText', borderRadius: 2 }}>
-                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Seasonal Demand Factor</Typography>
+                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>{t("forecasting.seasonalDemandFactor", "Seasonal Demand Factor")}</Typography>
                       <Typography variant="h5" fontWeight="bold">{(districtData?.seasonal_factor || 1).toFixed(2)}x</Typography>
                     </Paper>
                   </Grid>
                   <Grid item xs={12} md={4}>
                     <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'success.main', color: 'success.contrastText', borderRadius: 2 }}>
-                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Total Est. Revenue</Typography>
+                      <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>{t("forecasting.totalEstRevenue", "Total Est. Revenue")}</Typography>
                       <Typography variant="h5" fontWeight="bold">
                         ₹{(districtData?.rows || []).reduce((acc: number, r: any) => acc + r.forecast_revenue, 0).toLocaleString()}
                       </Typography>
@@ -333,11 +340,11 @@ export default function Forecasting() {
                   <Table>
                     <TableHead sx={{ bgcolor: 'action.hover' }}>
                       <TableRow>
-                        <TableCell>Rank</TableCell>
-                        <TableCell>District</TableCell>
-                        <TableCell align="right">6-Month Avg Revenue</TableCell>
-                        <TableCell align="right">Forecasted Volume</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>Forecasted Revenue</TableCell>
+                        <TableCell>{t("forecasting.rank", "Rank")}</TableCell>
+                        <TableCell>{t("forecasting.district", "District")}</TableCell>
+                        <TableCell align="right">{t("forecasting.sixMonthAvgRevenue", "6-Month Avg Revenue")}</TableCell>
+                        <TableCell align="right">{t("forecasting.forecastedVolume", "Forecasted Volume")}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>{t("forecasting.forecastedRevenue", "Forecasted Revenue")}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -362,7 +369,7 @@ export default function Forecasting() {
                       ))}
                       {(districtData?.rows?.length === 0) && (
                         <TableRow>
-                          <TableCell colSpan={5} align="center" sx={{ py: 3 }}>No data available to forecast for this period.</TableCell>
+                          <TableCell colSpan={5} align="center" sx={{ py: 3 }}>{t("forecasting.noDataAvailable", "No data available to forecast for this period.")}</TableCell>
                         </TableRow>
                       )}
                     </TableBody>
@@ -388,12 +395,12 @@ export default function Forecasting() {
                   <Table>
                     <TableHead sx={{ bgcolor: 'action.hover' }}>
                       <TableRow>
-                        <TableCell>Rank</TableCell>
-                        <TableCell>Village</TableCell>
-                        <TableCell>District</TableCell>
-                        <TableCell align="right">6-Month Avg</TableCell>
-                        <TableCell align="right">Est. Volume</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>Est. Revenue</TableCell>
+                        <TableCell>{t("forecasting.rank", "Rank")}</TableCell>
+                        <TableCell>{t("forecasting.village", "Village")}</TableCell>
+                        <TableCell>{t("forecasting.district", "District")}</TableCell>
+                        <TableCell align="right">{t("forecasting.sixMonthAvg", "6-Month Avg")}</TableCell>
+                        <TableCell align="right">{t("forecasting.estVolume", "Est. Volume")}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>{t("forecasting.estRevenue", "Est. Revenue")}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -409,7 +416,7 @@ export default function Forecasting() {
                       ))}
                       {(villageData?.rows?.length === 0) && (
                         <TableRow>
-                          <TableCell colSpan={6} align="center" sx={{ py: 3 }}>No data available to forecast for this period.</TableCell>
+                          <TableCell colSpan={6} align="center" sx={{ py: 3 }}>{t("forecasting.noDataAvailable", "No data available to forecast for this period.")}</TableCell>
                         </TableRow>
                       )}
                     </TableBody>

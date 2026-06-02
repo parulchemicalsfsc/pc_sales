@@ -720,6 +720,94 @@ def get_telecallers(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/telecaller-profile")
+def get_telecaller_profile(
+    email: str = Query(..., description="Telecaller email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin: get all-time stats for a specific telecaller including their converted mantri sales."""
+    try:
+        # 1. All-time call assignments for this telecaller
+        all_assignments_res = db.table("calling_assignments") \
+            .select("assignment_id, customer_id, status, assigned_date") \
+            .eq("user_email", email) \
+            .execute()
+        all_assignments = all_assignments_res.data or []
+
+        total_assigned = len(all_assignments)
+        total_called = sum(1 for a in all_assignments if a.get("status") != "Pending")
+        
+        # All distributor IDs ever assigned to this telecaller
+        assigned_dist_ids = list(set(a["customer_id"] for a in all_assignments if a.get("customer_id")))
+
+        # 2. Find all sales made for those distributor IDs (all-time conversions)
+        converted_mantris = []
+        if assigned_dist_ids:
+            # Fetch sales in chunks to avoid URL length limits
+            chunk_size = 50
+            all_sales = []
+            for i in range(0, len(assigned_dist_ids), chunk_size):
+                chunk = assigned_dist_ids[i:i+chunk_size]
+                sales_res = db.table("sales") \
+                    .select("sale_id, distributor_id, sale_date, total_amount, invoice_no, buyer_type") \
+                    .in_("distributor_id", chunk) \
+                    .order("sale_date", desc=True) \
+                    .execute()
+                all_sales.extend(sales_res.data or [])
+
+            # Get distributor details for all sold-to distributors
+            sold_dist_ids = list(set(s["distributor_id"] for s in all_sales if s.get("distributor_id")))
+            distributors_map = {}
+            if sold_dist_ids:
+                for i in range(0, len(sold_dist_ids), chunk_size):
+                    chunk = sold_dist_ids[i:i+chunk_size]
+                    dist_res = db.table("distributors") \
+                        .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile") \
+                        .in_("distributor_id", chunk) \
+                        .execute()
+                    for d in (dist_res.data or []):
+                        distributors_map[d["distributor_id"]] = d
+
+            # Build converted mantri rows
+            for sale in all_sales:
+                dist_id = sale.get("distributor_id")
+                dist = distributors_map.get(dist_id, {})
+                converted_mantris.append({
+                    "sale_id": sale.get("sale_id"),
+                    "invoice_no": sale.get("invoice_no"),
+                    "sale_date": sale.get("sale_date"),
+                    "total_amount": sale.get("total_amount", 0),
+                    "distributor_id": dist_id,
+                    "mantri_name": dist.get("mantri_name", "Unknown"),
+                    "village": dist.get("village", ""),
+                    "taluka": dist.get("taluka", ""),
+                    "district": dist.get("district", ""),
+                    "mantri_mobile": dist.get("mantri_mobile", ""),
+                })
+
+        total_conversions = len(converted_mantris)
+        total_revenue = sum(m.get("total_amount", 0) or 0 for m in converted_mantris)
+
+        return {
+            "email": email,
+            "name": email.split("@")[0],
+            "stats": {
+                "total_assigned": total_assigned,
+                "total_called": total_called,
+                "pending": total_assigned - total_called,
+                "completion_rate": round((total_called / total_assigned * 100) if total_assigned > 0 else 0, 1),
+                "total_conversions": total_conversions,
+                "total_revenue": total_revenue,
+                "conversion_rate": round((total_conversions / total_called * 100) if total_called > 0 else 0, 1),
+            },
+            "converted_mantris": converted_mantris,
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching telecaller profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/assignments")
 def get_admin_assignments(
     target_date: Optional[str] = Query(None),

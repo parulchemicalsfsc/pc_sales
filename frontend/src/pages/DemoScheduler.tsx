@@ -23,11 +23,17 @@ import {
   FlashOn as UrgentIcon,
   Person as PersonIcon,
   Edit as EditIcon,
+  HelpOutline as HelpIcon,
+  Close as CloseIcon,
+  Replay as RedemoIcon,
+  WarningAmber as WarningIcon,
+  DateRange as DateRangeIcon,
 } from "@mui/icons-material";
-import { demoAPI } from "../services/api";
+import { demoAPI, formatError } from "../services/api";
 import DemoDialog from "../components/DemoDialog";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
+import { useTranslation } from "../hooks/useTranslation";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface DemoRecord {
@@ -61,6 +67,26 @@ interface Suggestion {
   days_since_last_demo?: number;
   suggestion_score: number;
   reason: string;
+}
+
+interface RedemoRecord {
+  history_id: number;
+  distributor_id?: number;
+  original_village?: string;
+  clean_village?: string;
+  mantri_name?: string;
+  mantri_mobile?: string;
+  redemo_detected?: boolean;
+  redemo_pattern?: string;
+  import_batch_id?: string;
+  imported_at?: string;
+  redemo_date?: string;
+  // enriched fields
+  distributor_mantri_name?: string;
+  distributor_village?: string;
+  distributor_taluka?: string;
+  distributor_district?: string;
+  distributor_status?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -99,18 +125,23 @@ function ScoreBadge({ score }: { score: number }) {
 // ── Component ──────────────────────────────────────────────────────
 export default function DemoScheduler() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const surface   = isDark ? "#1e1e2e" : "#fff";
   const surfaceMuted = isDark ? "#262637" : "#f8fafc";
   const border    = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
 
-  const [tab, setTab]         = useState(0);  // 0=All, 1=Scheduled, 2=Done, 3=AI Suggest
+  const [tab, setTab]         = useState(0);  // 0=All, 1=Scheduled, 2=Done, 3=Redemo, 4=AI Suggest
   const [demos, setDemos]     = useState<DemoRecord[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [redemos, setRedemos] = useState<RedemoRecord[]>([]);
   const [loadingDemos, setLoadingDemos]         = useState(true);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [loadingRedemos, setLoadingRedemos]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const [redemoError, setRedemoError] = useState<string | null>(null);
+  const [redemoLoaded, setRedemoLoaded] = useState(false);
 
   // Status-update dialog
   const [statusDialog, setStatusDialog] = useState<{ open: boolean; demo: DemoRecord | null }>({ open: false, demo: null });
@@ -121,6 +152,7 @@ export default function DemoScheduler() {
   // New demo dialog
   const [newDemoOpen, setNewDemoOpen] = useState(false);
   const [suggestedDistributor, setSuggestedDistributor] = useState<Suggestion | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // ── Fetch ──────────────────────────────────────────────────────
   const loadDemos = useCallback(async () => {
@@ -130,7 +162,7 @@ export default function DemoScheduler() {
       const data = await demoAPI.getAll({ limit: 1000 });
       setDemos(data || []);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load demos");
+      setError(formatError(e) || "Failed to load demos");
     } finally {
       setLoadingDemos(false);
     }
@@ -142,14 +174,33 @@ export default function DemoScheduler() {
       const data = await demoAPI.getSuggestions(30);
       setSuggestions(data || []);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to load suggestions");
+      setError(formatError(e) || "Failed to load suggestions");
     } finally {
       setLoadingSuggestions(false);
     }
   }, []);
 
+  const loadRedemoHistory = useCallback(async () => {
+    try {
+      setLoadingRedemos(true);
+      setRedemoError(null);
+      console.log("[DemoScheduler] Fetching redemo history from /api/demos/redemo...");
+      const data = await demoAPI.getRedemoHistory({ limit: 200 });
+      console.log("[DemoScheduler] Redemo response:", data?.length, "records");
+      setRedemos(data || []);
+      setRedemoLoaded(true);
+    } catch (e: any) {
+      const msg = formatError(e) || "Failed to load redemo history";
+      console.error("[DemoScheduler] Redemo fetch error:", e, "→", msg);
+      setRedemoError(msg);
+    } finally {
+      setLoadingRedemos(false);
+    }
+  }, []);
+
   useEffect(() => { loadDemos(); }, [loadDemos]);
-  useEffect(() => { if (tab === 3) loadSuggestions(); }, [tab, loadSuggestions]);
+  useEffect(() => { if (tab === 3 && !redemoLoaded) loadRedemoHistory(); }, [tab, redemoLoaded, loadRedemoHistory]);
+  useEffect(() => { if (tab === 4) loadSuggestions(); }, [tab, loadSuggestions]);
 
   // ── Derived stats ──────────────────────────────────────────────
   const scheduled  = demos.filter(d => d.conversion_status === "Scheduled");
@@ -179,7 +230,7 @@ export default function DemoScheduler() {
       setStatusDialog({ open: false, demo: null });
       loadDemos();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to update demo status");
+      setError(formatError(e) || "Failed to update demo status");
     } finally {
       setUpdating(false);
     }
@@ -204,7 +255,7 @@ export default function DemoScheduler() {
           </Typography>
           <Chip
             size="small"
-            label={meta.label}
+            label={t("demoScheduler." + demo.conversion_status.toLowerCase().replace(" ", ""), meta.label)}
             icon={meta.icon}
             sx={{ bgcolor: alpha(meta.color, 0.1), color: meta.color, fontWeight: 700, fontSize: 11, border: `1px solid ${alpha(meta.color, 0.25)}` }}
           />
@@ -246,7 +297,7 @@ export default function DemoScheduler() {
             onClick={() => openStatusDialog(demo)}
             sx={{ borderRadius: 2, textTransform: "none", fontSize: 12, fontWeight: 600 }}
           >
-            Update Status
+            {t("demoScheduler.updateStatus", "Update Status")}
           </Button>
         </PermissionGate>
       </Paper>
@@ -292,20 +343,26 @@ export default function DemoScheduler() {
         <Stack direction="row" spacing={2} flexWrap="wrap" mb={1.5}>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <GroupIcon sx={{ fontSize: 14, color: "#2563eb" }} />
-            <Typography fontSize={12} fontWeight={600}>{s.contact_in_group} contacts</Typography>
+            <Typography fontSize={12} fontWeight={600}>
+              {t("demoScheduler.contactsCount", "{count} contacts").replace("{count}", String(s.contact_in_group))}
+            </Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <ScoreIcon sx={{ fontSize: 14, color: PRIORITY_COLOR[s.priority_label] || "#2563eb" }} />
-            <Typography fontSize={12} fontWeight={600}>{s.priority_label}</Typography>
+            <Typography fontSize={12} fontWeight={600}>{t("demoScheduler.priority_" + s.priority_label.toLowerCase(), s.priority_label)}</Typography>
           </Stack>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <ScienceIcon sx={{ fontSize: 14, color: "text.secondary" }} />
-            <Typography fontSize={12} color="text.secondary">{s.total_demos} demos done</Typography>
+            <Typography fontSize={12} color="text.secondary">
+              {t("demoScheduler.demosDoneCount", "{count} demos done").replace("{count}", String(s.total_demos))}
+            </Typography>
           </Stack>
           {s.last_demo_date && (
             <Stack direction="row" spacing={0.5} alignItems="center">
               <CalIcon sx={{ fontSize: 14, color: "text.secondary" }} />
-              <Typography fontSize={12} color="text.secondary">Last: {fmtDate(s.last_demo_date)}</Typography>
+              <Typography fontSize={12} color="text.secondary">
+                {t("demoScheduler.lastDemoDate", "Last: {date}").replace("{date}", fmtDate(s.last_demo_date))}
+              </Typography>
             </Stack>
           )}
         </Stack>
@@ -325,9 +382,104 @@ export default function DemoScheduler() {
             onClick={() => { setSuggestedDistributor(s); setNewDemoOpen(true); }}
             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: 12, boxShadow: "none" }}
           >
-            Schedule Demo
+            {t("demoScheduler.scheduleDemo", "Schedule Demo")}
           </Button>
         </PermissionGate>
+      </Paper>
+    );
+  }
+
+  // ── Redemo History Card ────────────────────────────────────────
+  function RedemoCard({ record }: { record: RedemoRecord }) {
+    const isDetected = record.redemo_detected;
+    const accentColor = isDetected ? "#dc2626" : "#ea580c";
+    const name  = record.distributor_mantri_name || record.mantri_name || "Unknown";
+    const village = record.distributor_village || record.original_village || record.clean_village || "";
+    const loc   = [village, record.distributor_taluka, record.distributor_district].filter(Boolean).join(", ");
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2, borderRadius: 2.5, bgcolor: surface,
+          borderColor: isDetected ? alpha(accentColor, 0.35) : border,
+          position: "relative", overflow: "hidden",
+          transition: "all 0.15s",
+          "&::before": {
+            content: '""', position: "absolute", top: 0, left: 0, bottom: 0,
+            width: 4, bgcolor: accentColor, borderRadius: "3px 0 0 3px",
+          },
+          "&:hover": { boxShadow: `0 4px 18px ${alpha(accentColor, 0.12)}` },
+        }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={1}>
+          <Typography fontWeight={700} fontSize={14} noWrap sx={{ flex: 1, mr: 1 }}>
+            {name}
+          </Typography>
+          {isDetected ? (
+            <Chip
+              size="small"
+              label="Redemo Detected"
+              icon={<WarningIcon sx={{ fontSize: 13 }} />}
+              sx={{ bgcolor: alpha("#dc2626", 0.1), color: "#dc2626", fontWeight: 700, fontSize: 11, border: `1px solid ${alpha("#dc2626", 0.25)}` }}
+            />
+          ) : (
+            <Chip
+              size="small"
+              label="Scheduled"
+              sx={{ bgcolor: alpha("#ea580c", 0.1), color: "#ea580c", fontWeight: 700, fontSize: 11, border: `1px solid ${alpha("#ea580c", 0.25)}` }}
+            />
+          )}
+        </Stack>
+
+        <Stack spacing={0.5} mb={1.5}>
+          {loc && (
+            <Stack direction="row" spacing={0.6} alignItems="center">
+              <LocationIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+              <Typography fontSize={12} color="text.secondary">{loc}</Typography>
+            </Stack>
+          )}
+          {record.mantri_mobile && (
+            <Stack direction="row" spacing={0.6} alignItems="center">
+              <PersonIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+              <Typography fontSize={12} color="text.secondary">{record.mantri_mobile}</Typography>
+            </Stack>
+          )}
+          <Stack direction="row" spacing={2} flexWrap="wrap">
+            {record.redemo_date && (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <DateRangeIcon sx={{ fontSize: 13, color: "#2563eb" }} />
+                <Typography fontSize={12} color="text.secondary">
+                  Redemo: <b>{fmtDate(record.redemo_date)}</b>
+                </Typography>
+              </Stack>
+            )}
+            {record.imported_at && (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <CalIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+                <Typography fontSize={12} color="text.secondary">
+                  Imported: {fmtDate(record.imported_at)}
+                </Typography>
+              </Stack>
+            )}
+          </Stack>
+        </Stack>
+
+        {record.redemo_pattern && (
+          <Box sx={{ p: 1.2, borderRadius: 1.5, bgcolor: alpha(accentColor, 0.06), mb: 1 }}>
+            <Stack direction="row" spacing={0.8} alignItems="flex-start">
+              <TipIcon sx={{ fontSize: 14, color: accentColor, mt: 0.1 }} />
+              <Typography fontSize={11} color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                Pattern: <b>{record.redemo_pattern}</b>
+              </Typography>
+            </Stack>
+          </Box>
+        )}
+
+        {record.import_batch_id && (
+          <Typography fontSize={10} color="text.disabled" mt={0.5}>
+            Batch: {record.import_batch_id}
+          </Typography>
+        )}
       </Paper>
     );
   }
@@ -340,10 +492,10 @@ export default function DemoScheduler() {
         <Box>
           <Stack direction="row" spacing={1} alignItems="center" mb={0.5}>
             <ScienceIcon sx={{ color: "#2563eb", fontSize: 28 }} />
-            <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>Demo Scheduler</Typography>
+            <Typography variant="h5" fontWeight={800} letterSpacing={-0.5}>{t("demoScheduler.title", "Demo Scheduler")}</Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Track scheduled demos, view completion status, and get AI-powered suggestions on who to demo next.
+            {t("demoScheduler.subtitle", "Track scheduled demos, view completion status, and get AI-powered suggestions on who to demo next.")}
           </Typography>
         </Box>
         <Stack direction="row" spacing={1}>
@@ -351,15 +503,20 @@ export default function DemoScheduler() {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => { setSuggestedDistributor(null); setNewDemoOpen(true); }}
+              onClick={() => { setNewDemoOpen(true); setSuggestedDistributor(null); }}
               sx={{ borderRadius: 2.5, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
             >
-              New Demo
+              {t("demoScheduler.newDemo", "New Demo")}
             </Button>
           </PermissionGate>
           <IconButton onClick={loadDemos} sx={{ border: `1px solid ${border}`, borderRadius: 2 }}>
             <RefreshIcon fontSize="small" />
           </IconButton>
+          <Tooltip title="How to use this page">
+            <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${border}`, borderRadius: 2, color: "#2563eb" }}>
+              <HelpIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
       </Stack>
 
@@ -369,12 +526,12 @@ export default function DemoScheduler() {
       {!loadingDemos && (
         <Grid container spacing={2} mb={3}>
           {[
-            { label: "Total",      value: demos.length,      color: "#2563eb" },
-            { label: "Scheduled",  value: scheduled.length,  color: "#ea580c" },
-            { label: "Completed",  value: completed.length,  color: "#16a34a" },
-            { label: "Cancelled",  value: cancelled.length,  color: "#dc2626" },
-            { label: "No Show",    value: noShow.length,     color: "#ea580c" },
-            { label: "Conv. Rate", value: `${convRate}%`,    color: "#7c3aed" },
+            { label: t("demoScheduler.totalDemos", "Total"),      value: demos.length,      color: "#2563eb" },
+            { label: t("demoScheduler.scheduled", "Scheduled"),  value: scheduled.length,  color: "#ea580c" },
+            { label: t("demoScheduler.completed", "Completed"),  value: completed.length,  color: "#16a34a" },
+            { label: t("demoScheduler.cancelled", "Cancelled"),  value: cancelled.length,  color: "#dc2626" },
+            { label: t("demoScheduler.noShow", "No Show"),    value: noShow.length,     color: "#ea580c" },
+            { label: t("demoScheduler.convRate", "Conv. Rate"), value: `${convRate}%`,    color: "#7c3aed" },
           ].map(s => (
             <Grid item xs={6} sm={4} md={2.4} key={s.label}>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, bgcolor: surface, borderColor: border, textAlign: "center" }}>
@@ -390,7 +547,7 @@ export default function DemoScheduler() {
       {!loadingDemos && demos.length > 0 && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: surface, borderColor: border }}>
           <Stack direction="row" justifyContent="space-between" mb={1}>
-            <Typography fontSize={13} fontWeight={600}>Conversion Progress</Typography>
+            <Typography fontSize={13} fontWeight={600}>{t("demoScheduler.conversionProgress", "Conversion Progress")}</Typography>
             <Typography fontSize={13} fontWeight={700} color={convRate >= 50 ? "#16a34a" : "#ea580c"}>{convRate}%</Typography>
           </Stack>
           <LinearProgress
@@ -409,10 +566,10 @@ export default function DemoScheduler() {
           />
           <Stack direction="row" spacing={2} mt={1} flexWrap="wrap">
             {[
-              { label: "Scheduled", count: scheduled.length, color: "#2563eb" },
-              { label: "Completed", count: completed.length, color: "#16a34a" },
-              { label: "Cancelled", count: cancelled.length, color: "#dc2626" },
-              { label: "No Show",   count: noShow.length,    color: "#ea580c" },
+              { label: t("demoScheduler.scheduled", "Scheduled"), count: scheduled.length, color: "#2563eb" },
+              { label: t("demoScheduler.completed", "Completed"), count: completed.length, color: "#16a34a" },
+              { label: t("demoScheduler.cancelled", "Cancelled"), count: cancelled.length, color: "#dc2626" },
+              { label: t("demoScheduler.noShow", "No Show"),   count: noShow.length,    color: "#ea580c" },
             ].map(s => (
               <Stack key={s.label} direction="row" spacing={0.5} alignItems="center">
                 <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: s.color }} />
@@ -432,11 +589,16 @@ export default function DemoScheduler() {
           scrollButtons="auto"
           sx={{ px: 1, "& .MuiTab-root": { textTransform: "none", fontWeight: 600 } }}
         >
-          <Tab label={`All Demos (${demos.length})`} />
-          <Tab label={`Scheduled (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
-          <Tab label={`Completed (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
+          <Tab label={t("demoScheduler.allDemos", "All Demos") + ` (${demos.length})`} />
+          <Tab label={t("demoScheduler.scheduled", "Scheduled") + ` (${scheduled.length})`} icon={<PendingIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
+          <Tab label={t("demoScheduler.completed", "Completed") + ` (${completed.length})`} icon={<DoneIcon sx={{ fontSize: 16 }} />} iconPosition="start" />
           <Tab
-            label="Demo Suggestions"
+            label={"Redemo" + (redemos.length > 0 ? ` (${redemos.length})` : "")}
+            icon={<Badge badgeContent={redemos.filter(r => r.redemo_detected).length || undefined} color="error"><RedemoIcon sx={{ fontSize: 16 }} /></Badge>}
+            iconPosition="start"
+          />
+          <Tab
+            label={t("demoScheduler.demoSuggestions", "Demo Suggestions")}
             icon={<Badge badgeContent={suggestions.length || undefined} color="error"><AIIcon sx={{ fontSize: 16 }} /></Badge>}
             iconPosition="start"
           />
@@ -444,13 +606,94 @@ export default function DemoScheduler() {
       </Paper>
 
       {/* Tab Content */}
-      {tab !== 3 ? (
+      {tab === 3 ? (
+        /* ── Redemo History Tab ── */
+        <Box>
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: alpha("#dc2626", 0.03), borderColor: alpha("#dc2626", 0.18) }}>
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              <RedemoIcon sx={{ color: "#dc2626", mt: 0.3 }} />
+              <Box>
+                <Typography fontWeight={700} fontSize={14} sx={{ color: "#dc2626" }}>Redemo History</Typography>
+                <Typography fontSize={12} color="text.secondary" mt={0.3}>
+                  Records from the distributor redemo history log. Red badge shows distributors where a repeat demo pattern was automatically detected during import.
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
+
+          {loadingRedemos ? (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 6, gap: 2 }}>
+              <CircularProgress color="error" />
+              <Typography fontSize={13} color="text.secondary">Loading redemo history…</Typography>
+            </Box>
+          ) : redemoError ? (
+            <Paper variant="outlined" sx={{ p: 4, borderRadius: 2.5, textAlign: "center", borderColor: alpha("#dc2626", 0.3), bgcolor: alpha("#dc2626", 0.03) }}>
+              <WarningIcon sx={{ fontSize: 40, color: "#dc2626", mb: 1 }} />
+              <Typography color="#dc2626" fontWeight={700} mb={0.5}>Failed to load redemo history</Typography>
+              <Typography fontSize={12} color="text.secondary" mb={2.5} sx={{ maxWidth: 420, mx: "auto" }}>
+                {redemoError}
+              </Typography>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<RefreshIcon />}
+                onClick={() => { setRedemoLoaded(false); }}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+              >
+                Retry
+              </Button>
+            </Paper>
+          ) : redemos.length === 0 ? (
+            <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
+              <RedemoIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
+              <Typography color="text.secondary" fontWeight={500}>No redemo history records found.</Typography>
+              <Typography fontSize={12} color="text.disabled" mt={0.5}>Records appear here after distributor data is imported with redemo flags.</Typography>
+            </Paper>
+
+          ) : (
+            <>
+              {/* Summary chips */}
+              <Stack direction="row" spacing={1.5} mb={2.5} flexWrap="wrap">
+                <Chip
+                  icon={<RedemoIcon sx={{ fontSize: 14 }} />}
+                  label={`Total: ${redemos.length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#ea580c", 0.1), color: "#ea580c", border: `1px solid ${alpha("#ea580c", 0.25)}` }}
+                />
+                <Chip
+                  icon={<WarningIcon sx={{ fontSize: 14 }} />}
+                  label={`Detected: ${redemos.filter(r => r.redemo_detected).length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#dc2626", 0.1), color: "#dc2626", border: `1px solid ${alpha("#dc2626", 0.25)}` }}
+                />
+                <Chip
+                  icon={<DoneIcon sx={{ fontSize: 14 }} />}
+                  label={`Clear: ${redemos.filter(r => !r.redemo_detected).length}`}
+                  size="small"
+                  sx={{ fontWeight: 700, bgcolor: alpha("#16a34a", 0.1), color: "#16a34a", border: `1px solid ${alpha("#16a34a", 0.25)}` }}
+                />
+                <IconButton size="small" onClick={loadRedemoHistory} sx={{ border: `1px solid ${border}`, borderRadius: 1.5 }}>
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+              <Grid container spacing={2}>
+                {redemos.map(record => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={record.history_id}>
+                    <RedemoCard record={record} />
+                  </Grid>
+                ))}
+              </Grid>
+            </>
+          )}
+        </Box>
+      ) : tab !== 4 ? (
+        /* ── All / Scheduled / Completed Demo Tabs ── */
         loadingDemos ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress /></Box>
         ) : tabDemos.length === 0 ? (
           <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
             <ScienceIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-            <Typography color="text.secondary" fontWeight={500}>No demos found for this filter.</Typography>
+            <Typography color="text.secondary" fontWeight={500}>{t("demoScheduler.noDemosFound", "No demos found for this filter.")}</Typography>
           </Paper>
         ) : (
           <Grid container spacing={2}>
@@ -462,15 +705,15 @@ export default function DemoScheduler() {
           </Grid>
         )
       ) : (
-        /* AI Suggestions Tab */
+        /* ── AI Suggestions Tab ── */
         <Box>
           <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2.5, bgcolor: alpha("#7c3aed", 0.04), borderColor: alpha("#7c3aed", 0.2) }}>
             <Stack direction="row" spacing={1.5} alignItems="flex-start">
               <AIIcon sx={{ color: "#7c3aed", mt: 0.3 }} />
               <Box>
-                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>Demo Suggestions</Typography>
+                <Typography fontWeight={700} fontSize={14} sx={{ color: "#7c3aed" }}>{t("demoScheduler.demoSuggestions", "Demo Suggestions")}</Typography>
                 <Typography fontSize={12} color="text.secondary" mt={0.3}>
-                  Distributors are ranked by a composite score: recency of last demo (35 pts) + priority score (30 pts) + group size (15 pts) + never-demoed bonus (20 pts). Higher score = schedule a demo sooner.
+                  {t("demoScheduler.distributorsRanked", "Distributors are ranked by a composite score: recency of last demo (35 pts) + priority score (30 pts) + group size (15 pts) + never-demoed bonus (20 pts). Higher score = schedule a demo sooner.")}
                 </Typography>
               </Box>
             </Stack>
@@ -479,12 +722,12 @@ export default function DemoScheduler() {
           {loadingSuggestions ? (
             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 6, gap: 2 }}>
               <CircularProgress color="secondary" />
-              <Typography fontSize={13} color="text.secondary">Running algorithm…</Typography>
+              <Typography fontSize={13} color="text.secondary">{t("demoScheduler.runningAlgorithm", "Running algorithm…")}</Typography>
             </Box>
           ) : suggestions.length === 0 ? (
             <Paper variant="outlined" sx={{ p: 6, borderRadius: 2.5, textAlign: "center", borderColor: border }}>
               <AIIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
-              <Typography color="text.secondary" fontWeight={500}>No suggestions available. Make sure distributors are active and scored.</Typography>
+              <Typography color="text.secondary" fontWeight={500}>{t("demoScheduler.noSuggestions", "No suggestions available. Make sure distributors are active and scored.")}</Typography>
             </Paper>
           ) : (
             <Grid container spacing={2}>
@@ -498,11 +741,11 @@ export default function DemoScheduler() {
         </Box>
       )}
 
-      {/* ── New Demo Dialog ── */}
       <DemoDialog
         open={newDemoOpen}
         onClose={() => { setNewDemoOpen(false); setSuggestedDistributor(null); }}
         onSuccess={() => { setNewDemoOpen(false); setSuggestedDistributor(null); loadDemos(); }}
+        initialData={suggestedDistributor ? { buyerType: "mantri", entityId: suggestedDistributor.distributor_id } : undefined}
       />
 
       {/* ── Status Update Dialog ── */}
@@ -516,23 +759,25 @@ export default function DemoScheduler() {
         <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <EditIcon color="primary" />
-            Update Demo Status
+            {t("demoScheduler.updateDemoStatus", "Update Demo Status")}
           </Stack>
         </DialogTitle>
         <DialogContent>
           {statusDialog.demo && (
             <Typography fontSize={13} color="text.secondary" mb={2}>
-              Updating <b>{statusDialog.demo.customer_name || statusDialog.demo.distributor_name}</b> — {fmtDate(statusDialog.demo.demo_date)}
+              {t("demoScheduler.updatingDemoFor", "Updating {name} — {date}")
+                .replace("{name}", statusDialog.demo.customer_name || statusDialog.demo.distributor_name || "")
+                .replace("{date}", fmtDate(statusDialog.demo.demo_date))}
             </Typography>
           )}
           <Stack spacing={2} mt={1}>
             {/* Status picker as chip group */}
-            <Typography fontSize={13} fontWeight={600}>New Status</Typography>
+            <Typography fontSize={13} fontWeight={600}>{t("demoScheduler.newStatus", "New Status")}</Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {Object.entries(STATUS_META).map(([key, meta]) => (
                 <Chip
                   key={key}
-                  label={meta.label}
+                  label={t("demoScheduler." + key.toLowerCase().replace(" ", ""), meta.label)}
                   onClick={() => setNewStatus(key)}
                   sx={{
                     fontWeight: 700, cursor: "pointer",
@@ -544,7 +789,7 @@ export default function DemoScheduler() {
               ))}
             </Stack>
             <TextField
-              label="Notes (optional)"
+              label={t("demoScheduler.notesOptional", "Notes (optional)")}
               multiline
               rows={2}
               fullWidth
@@ -557,7 +802,7 @@ export default function DemoScheduler() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
           <Button onClick={() => setStatusDialog({ open: false, demo: null })} sx={{ borderRadius: 2, textTransform: "none" }}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button
             variant="contained"
@@ -568,6 +813,38 @@ export default function DemoScheduler() {
           >
             {updating ? "Saving…" : "Save Status"}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Help Dialog */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HelpIcon color="primary" />
+          How to Use Demo Scheduler
+          <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon sx={{ fontSize: 18 }} /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          <Stack spacing={2}>
+            {[
+              { title: "Schedule a New Demo", desc: "Click the \"New Demo\" button (top-right) to schedule a product demo for a Mantri/Distributor. Fill in the date, time, location, and product details." },
+              { title: "Tabs Overview", desc: "All Demos shows every record. Scheduled shows upcoming demos. Completed shows done or converted demos. Redemo shows distributors flagged for repeat demo evaluation. AI Suggestions recommends who to demo next based on scoring." },
+              { title: "Updating Demo Status", desc: "Click \"Update Status\" on any demo card to change it to Completed, Converted, Cancelled, or No Show. Add notes when updating." },
+              { title: "AI Demo Suggestions", desc: "The AI Suggestions tab ranks distributors by a composite score: recency of last demo, priority score, group size, and never-demoed bonus. Higher score = schedule sooner." },
+              { title: "Urgency Score Badge", desc: "Each suggestion card has a score badge. RED (70+) = urgent, ORANGE (45–69) = medium, BLUE (<45) = low urgency. Sort by score to prioritize." },
+              { title: "Conversion Progress Bar", desc: "The progress bar at the top shows what % of demos have been Completed or Converted out of all demos." },
+              { title: "Scheduling from Suggestions", desc: "Click \"Schedule Demo\" on any suggestion card to pre-fill the new demo form with that distributor's details." },
+            ].map(item => (
+              <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setHelpOpen(false)} variant="contained" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Got it!</Button>
         </DialogActions>
       </Dialog>
     </Box>

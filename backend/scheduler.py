@@ -151,30 +151,36 @@ def check_overdue_leads_job():
         leads = res.data or []
         logger.info(f"[SCHEDULER] Found {len(leads)} overdue lead(s)")
 
-        for lead in leads:
-            assigned_to = lead.get("assigned_to")
-            if not assigned_to:
-                continue
-            # Dedup: skip if a notification for this lead+today already exists
-            existing = db.table("notifications").select("notification_id") \
-                .eq("user_email", assigned_to) \
-                .eq("entity_type", "lead") \
-                .eq("action_url", "/lead-workspace") \
-                .ilike("title", f"%{lead['lead_id']}%") \
-                .gte("created_at", today) \
-                .execute()
-            if existing.data:
-                continue
+        if leads:
+            lead_ids = [l["lead_id"] for l in leads]
+            owners_res = db.table("lead_owners").select("lead_id, user_email").in_("lead_id", lead_ids).execute()
+            owners_by_lead = {}
+            for row in (owners_res.data or []):
+                owners_by_lead.setdefault(row["lead_id"], []).append(row["user_email"])
 
-            db.table("notifications").insert({
-                "user_email": assigned_to,
-                "title": f"Follow-up Overdue: {lead['lead_id']}",
-                "message": f"Your follow-up for lead {lead['lead_id']} ({lead.get('full_name', '')}) was due on {lead['follow_up_date']}.",
-                "notification_type": "warning",
-                "entity_type": "lead",
-                "action_url": "/lead-workspace",
-                "is_read": False,
-            }).execute()
+            for lead in leads:
+                lead_owners = owners_by_lead.get(lead["lead_id"], [])
+                for assigned_to in lead_owners:
+                    # Dedup: skip if a notification for this lead+today already exists
+                    existing = db.table("notifications").select("notification_id") \
+                        .eq("user_email", assigned_to) \
+                        .eq("entity_type", "lead") \
+                        .eq("action_url", "/lead-workspace") \
+                        .ilike("title", f"%{lead['lead_id']}%") \
+                        .gte("created_at", today) \
+                        .execute()
+                    if existing.data:
+                        continue
+
+                    db.table("notifications").insert({
+                        "user_email": assigned_to,
+                        "title": f"Follow-up Overdue: {lead['lead_id']}",
+                        "message": f"Your follow-up for lead {lead['lead_id']} ({lead.get('full_name', '')}) was due on {lead['follow_up_date']}.",
+                        "notification_type": "warning",
+                        "entity_type": "lead",
+                        "action_url": "/lead-workspace",
+                        "is_read": False,
+                    }).execute()
 
         logger.info(f"[SCHEDULER] ✅ Overdue lead check complete")
     except Exception as e:

@@ -7,6 +7,7 @@ No emails in v1.
 import os
 import logging
 from datetime import date, datetime
+import re
 from typing import Optional
 
 from activity_logger import get_activity_logger
@@ -19,45 +20,44 @@ router = APIRouter()
 
 LEAD_INTAKE_KEY = os.getenv("LEAD_INTAKE_KEY", "test-lead-key-change-me")
 
-# Source website → lead ID prefix mapping (update to real names later)
-SOURCE_PREFIX_MAP = {
-    "website_a": "WA",
-    "website_b": "WB",
-    "website_c": "WC",
-    "parul_chemicals": "PC",
-    "psi": "PS",
-    "press stamping industries": "PS",
-    "press_stamping_industries": "PS",
-}
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _verify_intake_key(request: Request):
+def _verify_intake_key(request: Request, db: SupabaseClient):
+    # Check if this is a manual addition by a logged-in user with work_leads permission
+    user_email = request.headers.get("x-user-email")
+    if user_email:
+        from rbac_utils import get_user_permissions
+        permissions = get_user_permissions(user_email, db)
+        if "work_leads" in permissions:
+            return user_email
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Missing permission: 'work_leads'."
+            )
+
     key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
     if not key or key != LEAD_INTAKE_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return "system"
 
 
-import re
+def verify_lead_access(
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Authentication required. Missing x-user-email header.")
+    from rbac_utils import get_user_permissions
+    permissions = get_user_permissions(user_email, db)
+    if "work_leads" not in permissions and "manage_leads" not in permissions:
+        raise HTTPException(status_code=403, detail="Access denied. Missing required leads permissions.")
+    return user_email
 
-def _generate_lead_id(db: SupabaseClient, source_website: str) -> str:
-    # 1. Generate a 2-letter prefix automatically
-    clean_name = re.sub(r'[^a-zA-Z0-9\s_]', '', source_website).strip()
-    words = re.split(r'[\s_]+', clean_name)
-    words = [w for w in words if w]
-    
-    if not words:
-        prefix = "LD"
-    elif len(words) == 1:
-        prefix = words[0][:2].upper().ljust(2, 'X')
-    else:
-        prefix = (words[0][0] + words[1][0]).upper()
-        
-    # Check if there is a hardcoded override
-    prefix = SOURCE_PREFIX_MAP.get(source_website.lower(), prefix)
-    
-    # 2. Count existing leads with this specific prefix to ensure uniqueness
+
+
+def _generate_lead_id(db: SupabaseClient, prefix: str) -> str:
+    # Count existing leads with this specific prefix to ensure uniqueness
     res = db.table("leads").select("lead_id").like("lead_id", f"{prefix}-%").execute()
     n = len(res.data or []) + 1
     return f"{prefix}-{n:04d}"
@@ -139,56 +139,166 @@ def _get_user_name(db: SupabaseClient, email: str) -> str:
 
 # ─── INTAKE ───────────────────────────────────────────────────────────────────
 
+from urllib.parse import urlparse
+import re
+
+def _extract_domain(url: str) -> str:
+    url = url.strip().lower()
+    if not url.startswith(("http://", "https://")):
+        url = "http://" + url
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain.split(":")[0]
+    except Exception:
+        return url
+
+def _normalize_name(name: str) -> str:
+    return re.sub(r'[^a-z0-9]', '', name.lower())
+
+
+def _is_name_match(incoming: str, registered: str) -> bool:
+    return incoming.strip() == registered.strip()
+
+
+def _get_lead_owners(db: SupabaseClient, lead_id: str) -> list[str]:
+    try:
+        res = db.table("lead_owners").select("user_email").eq("lead_id", lead_id).execute()
+        return [row["user_email"] for row in (res.data or [])]
+    except Exception as e:
+        logger.warning(f"Failed to fetch owners for lead {lead_id}: {e}")
+        return []
+
+
+def _is_lead_owner(db: SupabaseClient, lead_id: str, email: str) -> bool:
+    try:
+        res = db.table("lead_owners").select("user_email").eq("lead_id", lead_id).eq("user_email", email).execute()
+        return len(res.data or []) > 0
+    except Exception as e:
+        logger.warning(f"Failed to check owner for lead {lead_id}: {e}")
+        return False
+
+
 @router.post("/intake")
 def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(get_db)):
     """
-    Public endpoint for product websites to submit leads.
-    Protected by X-API-Key header.
+    Public endpoint for product websites to submit leads,
+    or manual intake for users with work_leads.
     """
-    _verify_intake_key(request)
+    logged_by = _verify_intake_key(request, db)
 
-    source_website = str(payload.get("source_website", "unknown")).lower().strip()
+    incoming_source = str(payload.get("source_website", "")).strip()
+    if not incoming_source:
+        raise HTTPException(status_code=400, detail="source_website is required")
+
     full_name = str(payload.get("full_name", "")).strip()
     if not full_name:
         raise HTTPException(status_code=400, detail="full_name is required")
 
-    lead_id = _generate_lead_id(db, source_website)
+    email = str(payload.get("email", "")).strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+
+    phone = str(payload.get("phone", "")).strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="phone is required")
+
+    company_name = str(payload.get("company_name", "")).strip()
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name is required")
+
+    product_interest = str(payload.get("product_interest", "")).strip()
+    if not product_interest:
+        raise HTTPException(status_code=400, detail="product_interest is required")
+
+    # Fetch active lead sources from Supabase
+    try:
+        active_sources = db.table("lead_sources").select("*").eq("is_active", True).execute().data or []
+    except Exception as e:
+        logger.error(f"Failed to fetch active sources: {e}")
+        active_sources = []
+
+    matched_source = None
+    for src in active_sources:
+        if _is_name_match(incoming_source, src["name"]):
+            matched_source = src
+            break
+
+    if not matched_source:
+        raise HTTPException(
+            status_code=400,
+            detail="Submissions are only accepted from registered websites. Please contact the administrator."
+        )
+
+    # Use official name and prefix for logging and ID generation
+    source_website = matched_source["name"]
+    prefix = matched_source["prefix"]
+    lead_id = _generate_lead_id(db, prefix)
 
     lead_data = {
         "lead_id": lead_id,
         "source_id": payload.get("source_id"),
         "source_website": source_website,
         "full_name": full_name,
-        "email": payload.get("email"),
-        "phone": payload.get("phone"),
+        "email": email,
+        "phone": phone,
         "country": payload.get("country"),
-        "company_name": payload.get("company_name"),
-        "product_interest": payload.get("product_interest"),
+        "company_name": company_name,
+        "product_interest": product_interest,
         "message": payload.get("message"),
         "status": "Unassigned",
     }
 
+    if logged_by != "system":
+        lead_data["assigned_to"] = logged_by
+        lead_data["status"] = "Assigned"
+
     try:
         db.table("leads").insert(lead_data).execute()
+        if logged_by != "system":
+            try:
+                db.table("lead_owners").insert({"lead_id": lead_id, "user_email": logged_by}).execute()
+            except Exception as owner_err:
+                logger.error(f"Failed to insert lead owner for {lead_id}: {owner_err}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create lead: {e}")
 
-    _log_lead_activity(
-        db, lead_id, "Assignment",
-        f"Lead received from {source_website}",
-        logged_by="system", is_auto=True,
-    )
+    if logged_by == "system":
+        _log_lead_activity(
+            db, lead_id, "Assignment",
+            f"Lead received from {source_website}",
+            logged_by="system", is_auto=True,
+        )
+        _notify_lead_managers(
+            db,
+            title=f"New Lead: {full_name}",
+            message=f"New enquiry from {full_name} ({payload.get('company_name', 'N/A')}) via {source_website}. "
+                    f"Product: {payload.get('product_interest', 'N/A')}",
+            action_url="/leads",
+        )
+    else:
+        user_name = _get_user_name(db, logged_by)
+        _log_lead_activity(
+            db, lead_id, "Assignment",
+            f"Lead created manually by {user_name}",
+            logged_by=logged_by, is_auto=True,
+        )
+        _log_lead_activity(
+            db, lead_id, "Status Change",
+            f"Status changed from Unassigned to Assigned (automatically assigned to creator)",
+            logged_by=logged_by, is_auto=True,
+        )
+        _notify_lead_managers(
+            db,
+            title=f"New Lead (Manual): {full_name}",
+            message=f"New manual lead created by {user_name} for {full_name} ({payload.get('company_name', 'N/A')}).",
+            action_url="/leads",
+        )
 
-    _notify_lead_managers(
-        db,
-        title=f"New Lead: {full_name}",
-        message=f"New enquiry from {full_name} ({payload.get('company_name', 'N/A')}) via {source_website}. "
-                f"Product: {payload.get('product_interest', 'N/A')}",
-        action_url="/leads",
-    )
-
-    logger.info(f"[LEADS] New lead created: {lead_id} from {source_website}")
-    return {"lead_id": lead_id, "status": "Unassigned", "message": "Lead created successfully"}
+    logger.info(f"[LEADS] New lead created: {lead_id} (manual: {logged_by != 'system'})")
+    return {"lead_id": lead_id, "status": lead_data["status"], "message": "Lead created successfully"}
 
 
 # ─── LEAD MANAGER ENDPOINTS ───────────────────────────────────────────────────
@@ -211,7 +321,11 @@ def get_all_leads(
         if status:
             query = query.eq("status", status)
         if assigned_to:
-            query = query.eq("assigned_to", assigned_to)
+            owner_res = db.table("lead_owners").select("lead_id").eq("user_email", assigned_to).execute()
+            matching_ids = [row["lead_id"] for row in (owner_res.data or [])]
+            if not matching_ids:
+                return {"leads": [], "total": 0, "limit": limit, "offset": offset}
+            query = query.in_("lead_id", matching_ids)
         if source:
             query = query.eq("source_website", source)
         if date_from:
@@ -221,18 +335,34 @@ def get_all_leads(
 
         query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
         res = query.execute()
+        leads = res.data or []
+
+        # Populate owners for each lead
+        if leads:
+            lead_ids = [l["lead_id"] for l in leads]
+            owners_res = db.table("lead_owners").select("lead_id, user_email").in_("lead_id", lead_ids).execute()
+            owners_by_lead = {}
+            for row in (owners_res.data or []):
+                lid = row["lead_id"]
+                email = row["user_email"]
+                owners_by_lead.setdefault(lid, []).append(email)
+            for lead in leads:
+                lead_owners = owners_by_lead.get(lead["lead_id"], [])
+                lead["assigned_to"] = ", ".join(lead_owners) if lead_owners else None
 
         count_q = db.table("leads").select("lead_id", count="exact")
         if status:
             count_q = count_q.eq("status", status)
         if assigned_to:
-            count_q = count_q.eq("assigned_to", assigned_to)
+            owner_res = db.table("lead_owners").select("lead_id").eq("user_email", assigned_to).execute()
+            matching_ids = [row["lead_id"] for row in (owner_res.data or [])]
+            count_q = count_q.in_("lead_id", matching_ids) if matching_ids else count_q.eq("lead_id", "none")
         if source:
             count_q = count_q.eq("source_website", source)
         count_res = count_q.execute()
         total = count_res.count or len(count_res.data or [])
 
-        return {"leads": res.data or [], "total": total, "limit": limit, "offset": offset}
+        return {"leads": leads, "total": total, "limit": limit, "offset": offset}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching leads: {e}")
 
@@ -248,7 +378,15 @@ def get_pipeline_stats(
         user_role = user_res.data[0].get("role", "staff") if user_res.data else "staff"
 
         if user_role == "lead_owner":
-            leads_res = db.table("leads").select("*").eq("assigned_to", user_email).execute()
+            owner_res = db.table("lead_owners").select("lead_id").eq("user_email", user_email).execute()
+            matching_ids = [row["lead_id"] for row in (owner_res.data or [])]
+            if not matching_ids:
+                return {
+                    "total": 0, "unassigned": 0, "assigned": 0, "in_progress": 0,
+                    "follow_up": 0, "converted": 0, "rejected": 0, "overdue": 0,
+                    "converted_this_month": 0, "by_source": {}, "by_status": {}
+                }
+            leads_res = db.table("leads").select("*").in_("lead_id", matching_ids).execute()
         else:
             leads_res = db.table("leads").select("*").execute()
 
@@ -298,12 +436,31 @@ def get_my_leads(
 ):
     """Get leads assigned to the current user. Lead Owner only."""
     try:
-        query = db.table("leads").select("*").eq("assigned_to", user_email)
+        owner_res = db.table("lead_owners").select("lead_id").eq("user_email", user_email).execute()
+        matching_ids = [row["lead_id"] for row in (owner_res.data or [])]
+        if not matching_ids:
+            return {"leads": [], "total": 0}
+
+        query = db.table("leads").select("*").in_("lead_id", matching_ids)
         if status:
             query = query.eq("status", status)
         res = query.order("created_at", desc=True).execute()
 
         leads = res.data or []
+        
+        # Populate owners for backward compatibility
+        if leads:
+            lead_ids = [l["lead_id"] for l in leads]
+            owners_res = db.table("lead_owners").select("lead_id, user_email").in_("lead_id", lead_ids).execute()
+            owners_by_lead = {}
+            for row in (owners_res.data or []):
+                lid = row["lead_id"]
+                email = row["user_email"]
+                owners_by_lead.setdefault(lid, []).append(email)
+            for lead in leads:
+                lead_owners = owners_by_lead.get(lead["lead_id"], [])
+                lead["assigned_to"] = ", ".join(lead_owners) if lead_owners else None
+
         today = date.today().isoformat()
 
         def sort_key(l):
@@ -316,6 +473,85 @@ def get_my_leads(
         return {"leads": leads, "total": len(leads)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching leads: {e}")
+
+
+# ─── LEAD SOURCES ENDPOINTS ───────────────────────────────────────────────────
+
+@router.get("/sources", dependencies=[Depends(verify_lead_access)])
+def get_lead_sources(db: SupabaseClient = Depends(get_db)):
+    """Fetch all configured lead sources."""
+    try:
+        res = db.table("lead_sources").select("*").order("name").execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching lead sources: {e}")
+
+
+@router.post("/sources", dependencies=[Depends(verify_permission("manage_leads"))])
+def save_lead_source(payload: dict, db: SupabaseClient = Depends(get_db)):
+    """Create or update a lead source. Lead Manager only."""
+    name = str(payload.get("name", "")).strip()
+    prefix = str(payload.get("prefix", "")).strip().upper()
+    bg_color = str(payload.get("bg_color", "#e3f2fd")).strip()
+    text_color = str(payload.get("text_color", "#0d47a1")).strip()
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(prefix) != 2:
+        raise HTTPException(status_code=400, detail="Prefix must be exactly 2 characters")
+    if not prefix.isalnum():
+        raise HTTPException(status_code=400, detail="Prefix must contain alphanumeric characters only")
+
+    source_data = {
+        "name": name,
+        "bg_color": bg_color,
+        "text_color": text_color,
+        "is_active": bool(payload.get("is_active", True))
+    }
+    
+    source_id = payload.get("id")
+    if source_id:
+        # Prefix is unique and immutable
+        try:
+            db.table("lead_sources").eq("id", source_id).update(source_data).execute()
+            return {"message": "Lead source updated successfully"}
+        except Exception as e:
+            err_msg = str(e)
+            if "duplicate key" in err_msg or "already exists" in err_msg or "409 Client Error: Conflict" in err_msg:
+                raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
+            raise HTTPException(status_code=500, detail=f"Failed to update lead source: {e}")
+    else:
+        # Check prefix uniqueness
+        source_data["prefix"] = prefix
+        try:
+            db.table("lead_sources").insert(source_data).execute()
+            return {"message": "Lead source created successfully"}
+        except Exception as e:
+            err_msg = str(e)
+            # PostgREST 409 Conflict indicates unique constraint violation (duplicate name or prefix)
+            if "duplicate key" in err_msg or "already exists" in err_msg or "409 Client Error: Conflict" in err_msg:
+                raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
+            
+            # Optionally try to parse the JSON for more detailed info
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    err_json = e.response.json()
+                    if err_json.get("code") == "23505": # Postgres unique_violation
+                        raise HTTPException(status_code=400, detail="A source with this Name or Prefix already exists. Please make sure the Name and the 2-letter Prefix are unique.")
+                except Exception:
+                    pass
+
+            raise HTTPException(status_code=500, detail=f"Failed to create lead source: {e}")
+
+
+@router.delete("/sources/{source_id}", dependencies=[Depends(verify_permission("manage_leads"))])
+def delete_lead_source(source_id: int, db: SupabaseClient = Depends(get_db)):
+    """Delete a lead source. Lead Manager only."""
+    try:
+        db.table("lead_sources").eq("id", source_id).delete().execute()
+        return {"message": "Lead source deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete lead source: {e}")
 
 
 @router.get("/{lead_id}/activities")
@@ -363,10 +599,12 @@ def get_lead_detail_owner(
 ):
     """Get lead detail for Lead Owner — restricted to their own leads."""
     try:
-        res = db.table("leads").select("*").eq("lead_id", lead_id).eq("assigned_to", user_email).execute()
-        if not res.data:
+        if not _is_lead_owner(db, lead_id, user_email):
             raise HTTPException(status_code=404, detail="Lead not found or not assigned to you")
-        return res.data[0]
+        lead = _get_lead_or_404(db, lead_id)
+        owners = _get_lead_owners(db, lead_id)
+        lead["assigned_to"] = ", ".join(owners) if owners else None
+        return lead
     except HTTPException:
         raise
     except Exception as e:
@@ -382,28 +620,47 @@ def assign_lead(
 ):
     """Assign or reassign a lead. Lead Manager only."""
     try:
-        assigned_to = payload.get("assigned_to", "").strip()
+        assigned_val = payload.get("assigned_to")
         note = payload.get("note", "").strip()
-        if not assigned_to:
+        if not assigned_val:
             raise HTTPException(status_code=400, detail="assigned_to is required")
 
+        if isinstance(assigned_val, str):
+            assigned_emails = [e.strip() for e in assigned_val.split(",") if e.strip()]
+        elif isinstance(assigned_val, list):
+            assigned_emails = [str(e).strip() for e in assigned_val if str(e).strip()]
+        else:
+            raise HTTPException(status_code=400, detail="assigned_to must be a string or list of emails")
+
+        if not assigned_emails:
+            raise HTTPException(status_code=400, detail="At least one owner email is required")
+
         lead = _get_lead_or_404(db, lead_id)
-        old_owner = lead.get("assigned_to")
-        is_reassign = bool(old_owner and old_owner != assigned_to)
+        old_owners = _get_lead_owners(db, lead_id)
+        is_reassign = set(old_owners) != set(assigned_emails)
 
-        owner_name = _get_user_name(db, assigned_to)
-        manager_name = _get_user_name(db, user_email)
+        # Update junction table
+        db.table("lead_owners").eq("lead_id", lead_id).delete().execute()
+        insert_rows = [{"lead_id": lead_id, "user_email": email} for email in assigned_emails]
+        db.table("lead_owners").insert(insert_rows).execute()
 
+        # Update legacy column
         db.table("leads").eq("lead_id", lead_id).update({
-            "assigned_to": assigned_to,
+            "assigned_to": ", ".join(assigned_emails),
             "status": "Assigned",
             "updated_at": datetime.utcnow().isoformat(),
         }).execute()
 
+        owner_names = []
+        for email in assigned_emails:
+            owner_names.append(_get_user_name(db, email))
+        owner_names_str = ", ".join(owner_names)
+        manager_name = _get_user_name(db, user_email)
+
         action = "Reassigned" if is_reassign else "Assigned"
         _log_lead_activity(
             db, lead_id, "Assignment",
-            f"{action} to {owner_name} by {manager_name}",
+            f"{action} to {owner_names_str} by {manager_name}",
             logged_by=user_email, is_auto=True,
         )
         _log_lead_activity(
@@ -414,33 +671,36 @@ def assign_lead(
         if note:
             _log_lead_activity(db, lead_id, "Manager Note", note, logged_by=user_email)
 
-        _notify_user(
-            db, assigned_to,
-            title=f"Lead {action}: {lead_id}",
-            message=f"Lead from {lead.get('full_name')} ({lead.get('company_name', 'N/A')}) has been "
-                    f"{'reassigned' if is_reassign else 'assigned'} to you."
-                    + (f" Manager note: {note}" if note else ""),
-            action_url="/lead-workspace",
-        )
-        if is_reassign and old_owner:
+        for email in assigned_emails:
             _notify_user(
-                db, old_owner,
-                title=f"Lead Reassigned: {lead_id}",
-                message=f"Lead from {lead.get('full_name')} has been reassigned to {owner_name}.",
+                db, email,
+                title=f"Lead {action}: {lead_id}",
+                message=f"Lead from {lead.get('full_name')} ({lead.get('company_name', 'N/A')}) has been "
+                        f"{'reassigned' if is_reassign else 'assigned'} to you."
+                        + (f" Manager note: {note}" if note else ""),
                 action_url="/lead-workspace",
             )
+            
+        for email in old_owners:
+            if email not in assigned_emails:
+                _notify_user(
+                    db, email,
+                    title=f"Lead Reassigned: {lead_id}",
+                    message=f"Lead from {lead.get('full_name')} has been reassigned to {owner_names_str}.",
+                    action_url="/lead-workspace",
+                )
 
         act_logger = get_activity_logger(db)
         act_logger.log_activity(
             user_email=user_email,
             action_type="UPDATE",
-            action_description=f"{action} lead {lead_id} to {owner_name}",
+            action_description=f"{action} lead {lead_id} to {owner_names_str}",
             entity_type="lead",
             entity_name=lead_id,
-            metadata={"lead_id": lead_id, "assigned_to": assigned_to},
+            metadata={"lead_id": lead_id, "assigned_to": assigned_emails},
         )
 
-        return {"message": f"Lead {action.lower()} successfully to {owner_name}"}
+        return {"message": f"Lead {action.lower()} successfully to {owner_names_str}"}
     except HTTPException:
         raise
     except Exception as e:
@@ -466,9 +726,10 @@ def manager_comment(
             "updated_at": datetime.utcnow().isoformat()
         }).execute()
 
-        if lead.get("assigned_to"):
+        owners = _get_lead_owners(db, lead_id)
+        for owner in owners:
             _notify_user(
-                db, lead["assigned_to"],
+                db, owner,
                 title=f"Manager Note on {lead_id}",
                 message=f"Your manager left a note: {text[:120]}{'...' if len(text) > 120 else ''}",
                 action_url="/lead-workspace",
@@ -479,6 +740,44 @@ def manager_comment(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding comment: {e}")
+
+
+@router.delete("/{lead_id}", dependencies=[Depends(verify_permission("manage_leads"))])
+def delete_lead(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Delete a lead. Lead Manager only."""
+    try:
+        # Check if lead exists
+        lead = _get_lead_or_404(db, lead_id)
+        
+        # 1. Delete associated quotations
+        db.table("quotations").eq("lead_id", lead_id).delete().execute()
+        
+        # 2. Delete associated lead activities
+        db.table("lead_activities").eq("lead_id", lead_id).delete().execute()
+        
+        # 3. Delete the lead
+        db.table("leads").eq("lead_id", lead_id).delete().execute()
+        
+        # Log this admin activity
+        act_logger = get_activity_logger(db)
+        act_logger.log_activity(
+            user_email=user_email,
+            action_type="DELETE",
+            action_description=f"Deleted lead {lead_id} (Name: {lead.get('full_name')})",
+            entity_type="lead",
+            entity_name=lead_id,
+            metadata={"lead_id": lead_id, "full_name": lead.get("full_name")},
+        )
+        
+        return {"message": f"Lead {lead_id} and all associated records deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting lead: {e}")
 
 
 # ─── LEAD OWNER ENDPOINTS ─────────────────────────────────────────────────────
@@ -492,10 +791,10 @@ def update_lead(
 ):
     """Update lead details. Lead Owner only — scoped to their own leads."""
     try:
-        lead_res = db.table("leads").select("*").eq("lead_id", lead_id).eq("assigned_to", user_email).execute()
-        if not lead_res.data:
+        if not _is_lead_owner(db, lead_id, user_email):
             raise HTTPException(status_code=404, detail="Lead not found or not assigned to you")
-        lead = lead_res.data[0]
+        lead_res = db.table("leads").select("*").eq("lead_id", lead_id).execute()
+        lead = lead_res.data[0] if lead_res.data else {}
 
         allowed = {"phone", "company_name", "status", "follow_up_date", "product_interest"}
         update_data = {k: v for k, v in payload.items() if k in allowed}
@@ -525,8 +824,7 @@ def log_activity(
 ):
     """Log an activity (Call/Email/Meeting/Note). Lead Owner only."""
     try:
-        lead_res = db.table("leads").select("lead_id").eq("lead_id", lead_id).eq("assigned_to", user_email).execute()
-        if not lead_res.data:
+        if not _is_lead_owner(db, lead_id, user_email):
             raise HTTPException(status_code=404, detail="Lead not found or not assigned to you")
 
         activity_type = payload.get("activity_type", "")
@@ -574,10 +872,10 @@ def close_lead(
 ):
     """Close a lead as Converted or Rejected. Lead Owner only."""
     try:
-        lead_res = db.table("leads").select("*").eq("lead_id", lead_id).eq("assigned_to", user_email).execute()
-        if not lead_res.data:
+        if not _is_lead_owner(db, lead_id, user_email):
             raise HTTPException(status_code=404, detail="Lead not found or not assigned to you")
-        lead = lead_res.data[0]
+        lead_res = db.table("leads").select("*").eq("lead_id", lead_id).execute()
+        lead = lead_res.data[0] if lead_res.data else {}
 
         closure_type = payload.get("closure_type", "")
         if closure_type not in ("Converted", "Rejected"):

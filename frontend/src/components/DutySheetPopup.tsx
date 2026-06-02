@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "../hooks/useTranslation";
 import {
   Dialog,
   DialogContent,
@@ -64,26 +65,6 @@ interface Telecaller {
   is_on_duty: boolean;
 }
 
-// ─── Small utility: IST time string ─────────────────────────────────────────
-const getISTTimeString = (): string => {
-  return new Date().toLocaleTimeString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-};
-
-const getISTDateString = (): string => {
-  return new Date().toLocaleDateString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-};
-
 // ─── Custom toggle switch styles ────────────────────────────────────────────
 const switchSx = (isOn: boolean) => ({
   "& .MuiSwitch-switchBase.Mui-checked": {
@@ -111,6 +92,37 @@ const switchSx = (isOn: boolean) => ({
 
 // ─── Component ───────────────────────────────────────────────────────────────
 const DutySheetPopup: React.FC = () => {
+  const { t, language } = useTranslation();
+
+  const getISTTimeString = useCallback((): string => {
+    const localeMap: { [key: string]: string } = {
+      en: "en-IN",
+      hi: "hi-IN",
+      gu: "gu-IN",
+    };
+    return new Date().toLocaleTimeString(localeMap[language] || "en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }, [language]);
+
+  const getISTDateString = useCallback((): string => {
+    const localeMap: { [key: string]: string } = {
+      en: "en-IN",
+      hi: "hi-IN",
+      gu: "gu-IN",
+    };
+    return new Date().toLocaleDateString(localeMap[language] || "en-IN", {
+      timeZone: "Asia/Kolkata",
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  }, [language]);
+
   const { user, role, permissionsLoaded } = useAuth();
 
   const [open, setOpen] = useState(false);
@@ -125,7 +137,11 @@ const DutySheetPopup: React.FC = () => {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(getISTTimeString()), 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [getISTTimeString]);
+
+  useEffect(() => {
+    setCurrentTime(getISTTimeString());
+  }, [language, getISTTimeString]);
 
   // ── Check if popup should open ──────────────────────────────────────────
   useEffect(() => {
@@ -192,14 +208,14 @@ const DutySheetPopup: React.FC = () => {
       const detail = err?.response?.data?.detail;
 
       if (status === 409) {
-        setSubmitError("Duty sheet was already submitted for today by another user.");
+        setSubmitError(t("dutySheet.alreadySubmitted", "Duty sheet was already submitted for today by another user."));
         setTimeout(() => setOpen(false), 2500);
       } else if (status === 400) {
-        setSubmitError(detail || "Submission window has closed (must be before 10:00 AM IST).");
+        setSubmitError(detail || t("dutySheet.windowClosed", "Submission window has closed (must be before 10:00 AM IST)."));
       } else if (status === 403) {
-        setSubmitError("You do not have permission to submit the duty sheet.");
+        setSubmitError(t("dutySheet.noPermission", "You do not have permission to submit the duty sheet."));
       } else {
-        setSubmitError(detail || "Submission failed. Please try again.");
+        setSubmitError(detail || t("dutySheet.failed", "Submission failed. Please try again."));
       }
     } finally {
       setSubmitting(false);
@@ -252,7 +268,7 @@ const DutySheetPopup: React.FC = () => {
             lineHeight: 1.3,
           }}
         >
-          Daily Telecaller Duty Sheet
+          {t("dutySheet.title", "Daily Telecaller Duty Sheet")}
         </Typography>
         <Box
           sx={{
@@ -294,7 +310,7 @@ const DutySheetPopup: React.FC = () => {
             letterSpacing: "0.01em",
           }}
         >
-          Must be submitted before 10:00 AM · Affects today's call distribution
+          {t("dutySheet.mustSubmitBefore", "Must be submitted before 10:00 AM · Affects today's call distribution")}
         </Typography>
       </Box>
 
@@ -378,8 +394,7 @@ const DutySheetPopup: React.FC = () => {
           >
             <CheckIcon sx={{ fontSize: 16, color: T.green, flexShrink: 0 }} />
             <Typography sx={{ fontFamily: T.sans, fontSize: "0.8rem", color: T.textPrimary }}>
-              Duty sheet submitted. Distribution will proceed with{" "}
-              <strong>{onDutyCount}</strong> telecaller{onDutyCount !== 1 ? "s" : ""}.
+              {t("dutySheet.dutySheetSubmitted", "Duty sheet submitted. Distribution will proceed with {count} telecallers.").replace("{count}", String(onDutyCount))}
             </Typography>
           </Box>
         )}
@@ -412,7 +427,7 @@ const DutySheetPopup: React.FC = () => {
                 letterSpacing: "0.08em",
               }}
             >
-              On Duty Today
+              {t("dutySheet.onDutyToday", "On Duty Today")}
             </Typography>
             <Typography
               sx={{
@@ -475,7 +490,7 @@ const DutySheetPopup: React.FC = () => {
           >
             <WarningIcon sx={{ fontSize: 14, color: T.amberDark, flexShrink: 0 }} />
             <Typography sx={{ fontFamily: T.sans, fontSize: "0.78rem", color: "#92400e" }}>
-              No telecallers on duty — distribution will be skipped today.
+              {t("dutySheet.noTelecallersWarning", "No telecallers on duty — distribution will be skipped today.")}
             </Typography>
           </Box>
         )}
@@ -490,8 +505,7 @@ const DutySheetPopup: React.FC = () => {
             lineHeight: 1.5,
           }}
         >
-          Toggle ON for telecallers present today. Only ON-duty telecallers will
-          receive call assignments.
+          {t("dutySheet.toggleOnInstruction", "Toggle ON for telecallers present today. Only ON-duty telecallers will receive call assignments.")}
         </Typography>
 
         {/* ── Select/Clear All — text-only ── */}
@@ -515,7 +529,7 @@ const DutySheetPopup: React.FC = () => {
               "&:disabled": { cursor: "not-allowed" },
             }}
           >
-            Select All
+            {t("dutySheet.selectAll", "Select All")}
           </Box>
           <Box
             sx={{
@@ -543,7 +557,7 @@ const DutySheetPopup: React.FC = () => {
               "&:disabled": { cursor: "not-allowed" },
             }}
           >
-            Clear All
+            {t("dutySheet.clearAll", "Clear All")}
           </Box>
         </Box>
 
@@ -563,7 +577,7 @@ const DutySheetPopup: React.FC = () => {
             <Typography
               sx={{ fontFamily: T.sans, fontSize: "0.82rem", color: T.textMuted }}
             >
-              No telecallers found in the system.
+              {t("dutySheet.noTelecallersFound", "No telecallers found in the system.")}
             </Typography>
           </Box>
         ) : (
@@ -649,7 +663,7 @@ const DutySheetPopup: React.FC = () => {
                       textAlign: "right",
                     }}
                   >
-                    {tc.is_on_duty ? "ON" : "OFF"}
+                    {tc.is_on_duty ? t("dutySheet.onDuty", "ON") : t("dutySheet.offDuty", "OFF")}
                   </Typography>
                   <Switch
                     checked={tc.is_on_duty}
@@ -708,15 +722,15 @@ const DutySheetPopup: React.FC = () => {
           {submitting ? (
             <>
               <CircularProgress size={14} sx={{ color: "#ffffff" }} />
-              Submitting...
+              {t("dutySheet.confirming", "Submitting...")}
             </>
           ) : submitSuccess ? (
             <>
               <CheckIcon sx={{ fontSize: 16 }} />
-              Duty Sheet Confirmed
+              {t("dutySheet.confirmed", "Duty Sheet Confirmed")}
             </>
           ) : (
-            `Submit Duty Sheet — ${onDutyCount} on duty`
+            t("dutySheet.submitDutySheet", "Submit Duty Sheet — {count} on duty").replace("{count}", String(onDutyCount))
           )}
         </Box>
       </DialogActions>

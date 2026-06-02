@@ -28,6 +28,12 @@ import {
   LinearProgress,
   useTheme,
   alpha,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
+  Tooltip,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -35,6 +41,11 @@ import {
   Autorenew as AutorenewIcon,
   Timer as TimerIcon,
   PhoneInTalk as PhoneIcon,
+  Close as CloseIcon,
+  TrendingUp as TrendingUpIcon,
+  ShoppingCart as ShoppingCartIcon,
+  CheckCircle as CheckCircleIcon,
+  HelpOutline as HelpIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -93,6 +104,7 @@ export default function CallDistribution() {
   const [adminData, setAdminData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Bulk state
   const [bulkEmail, setBulkEmail] = useState("");
@@ -108,6 +120,25 @@ export default function CallDistribution() {
   const [transferFrom, setTransferFrom] = useState("");
   const [transferTo, setTransferTo] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
+
+  // Telecaller Profile Dialog
+  const [profileDialogEmail, setProfileDialogEmail] = useState<string | null>(null);
+  const [profileData, setProfileData] = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  const handleOpenProfile = async (email: string) => {
+    setProfileDialogEmail(email);
+    setProfileData(null);
+    setProfileLoading(true);
+    try {
+      const data = await automationAPI.getTelecallerProfile(email);
+      setProfileData(data);
+    } catch (e: any) {
+      setProfileData({ error: e?.response?.data?.detail || "Failed to load profile" });
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (user && !canDistribute && !loading) {
@@ -228,12 +259,21 @@ export default function CallDistribution() {
     <Box>
       {/* Header */}
       <Box sx={{ mb: { xs: 2, md: 3 } }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
-          <PhoneIcon color="primary" /> {t("callDistribution.title", "Call Distribution")}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
-        </Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
+              <PhoneIcon color="primary" /> {t("callDistribution.title", "Call Distribution")}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
+            </Typography>
+          </Box>
+          <Tooltip title="How to use this page">
+            <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main", mt: 0.5 }}>
+              <HelpIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* Toast */}
@@ -269,7 +309,7 @@ export default function CallDistribution() {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                   {distStatus?.distributed
-                    ? `✅ Today's calls distributed (${distStatus.total_assigned || 0} assigned)`
+                    ? `Today's calls distributed (${distStatus.total_assigned || 0} assigned)`
                     : "Today's calls have not been distributed yet"}
                 </Typography>
               </Box>
@@ -329,10 +369,12 @@ export default function CallDistribution() {
                     <Grid item xs={12} sm={6} md={4} key={email}>
                       <Card
                         variant="outlined"
+                        onClick={() => handleOpenProfile(email)}
                         sx={{
                           borderRadius: 3,
+                          cursor: "pointer",
                           transition: "all 0.2s",
-                          "&:hover": { boxShadow: theme.shadows[4], transform: "translateY(-2px)" },
+                          "&:hover": { boxShadow: theme.shadows[4], transform: "translateY(-2px)", borderColor: theme.palette.primary.main },
                         }}
                       >
                         <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
@@ -470,8 +512,8 @@ export default function CallDistribution() {
                   ))}
                 </Select>
               </FormControl>
-              <Typography variant="body2" sx={{ color: "text.secondary", px: 1, display: { xs: "none", sm: "block" } }}>
-                ➡
+              <Typography variant="body2" sx={{ color: "text.secondary", px: 1, display: { xs: "none", sm: "block" }, fontSize: 20 }}>
+                →
               </Typography>
               <FormControl size="small" sx={{ minWidth: 200 }}>
                 <InputLabel>To (Available Telecaller)</InputLabel>
@@ -579,6 +621,142 @@ export default function CallDistribution() {
           )}
         </>
       )}
+
+      {/* ── Telecaller Profile Dialog ── */}
+      <Dialog
+        open={!!profileDialogEmail}
+        onClose={() => setProfileDialogEmail(null)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, maxHeight: "90vh" } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Stack direction="row" alignItems="center" spacing={1.5}>
+              <Avatar sx={{ bgcolor: alpha(theme.palette.primary.main, 0.12), color: "primary.main", fontWeight: 700 }}>
+                {profileDialogEmail?.charAt(0).toUpperCase()}
+              </Avatar>
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  {profileData?.name || profileDialogEmail?.split("@")[0]}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">{profileDialogEmail}</Typography>
+              </Box>
+            </Stack>
+            <IconButton onClick={() => setProfileDialogEmail(null)} size="small">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+
+        <Divider />
+
+        <DialogContent sx={{ pt: 2 }}>
+          {profileLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : profileData?.error ? (
+            <Alert severity="error">{profileData.error}</Alert>
+          ) : profileData ? (
+            <>
+              {/* ── Stat Cards ── */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {[
+                  { icon: <PhoneIcon />, label: "Total Assigned", value: profileData.stats.total_assigned, color: "#6366f1" },
+                  { icon: <CheckCircleIcon />, label: "Calls Done", value: profileData.stats.total_called, color: "#16a34a" },
+                  { icon: <TrendingUpIcon />, label: "Completion Rate", value: `${profileData.stats.completion_rate}%`, color: "#0891b2" },
+                  { icon: <ShoppingCartIcon />, label: "Total Orders", value: profileData.stats.total_conversions, color: "#ea580c" },
+                  { icon: <TrendingUpIcon />, label: "Conversion Rate", value: `${profileData.stats.conversion_rate}%`, color: "#7c3aed" },
+                  { icon: <ShoppingCartIcon />, label: "Total Revenue", value: `₹${(profileData.stats.total_revenue || 0).toLocaleString("en-IN")}`, color: "#b45309" },
+                ].map((s) => (
+                  <Grid item xs={6} sm={4} key={s.label}>
+                    <Paper elevation={0} sx={{ p: 2, borderRadius: 2.5, border: `1px solid ${theme.palette.divider}`, textAlign: "center" }}>
+                      <Box sx={{ color: s.color, mb: 0.5 }}>{s.icon}</Box>
+                      <Typography variant="h5" fontWeight={800} sx={{ color: s.color, lineHeight: 1.1 }}>{s.value}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>{s.label}</Typography>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+
+              <Divider sx={{ mb: 2 }} />
+
+              {/* ── Converted Mantris Table ── */}
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.72rem", letterSpacing: 0.5, color: "text.secondary" }}>
+                Orders Placed ({profileData.converted_mantris?.length || 0} total)
+              </Typography>
+
+              {profileData.converted_mantris?.length === 0 ? (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>No orders converted yet for this telecaller.</Alert>
+              ) : (
+                <TableContainer sx={{ maxHeight: 320, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+                  <Table stickyHeader size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Mantri Name</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Village</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Mobile</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Invoice</TableCell>
+                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Date</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Amount</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {profileData.converted_mantris.map((row: any, i: number) => (
+                        <TableRow key={row.sale_id || i} hover sx={{ "&:last-child td": { border: 0 } }}>
+                          <TableCell sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{row.mantri_name}</TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.village || "—"}</TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.mantri_mobile || "—"}</TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem" }}>
+                            <Chip label={row.invoice_no || "—"} size="small" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600 }} />
+                          </TableCell>
+                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.sale_date || "—"}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.8rem", color: "success.main" }}>
+                            ₹{(row.total_amount || 0).toLocaleString("en-IN")}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Help Dialog */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HelpIcon color="primary" />
+          How to Use Call Distribution
+          <IconButton onClick={() => setHelpOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0 }}>
+          <Stack spacing={2}>
+            {[
+              { title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day. It auto-runs at 10 AM if not done manually." },
+              { title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers. This is useful if workloads become uneven mid-day." },
+              { title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
+              { title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
+              { title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },
+              { title: "Individual Reassign", desc: "Scroll to the Reassign table to move any specific pending contact to a different telecaller using the Move To dropdown." },
+              { title: "10 AM Countdown", desc: "The progress bar shows time remaining until 10 AM auto-distribution. Manual distribution before 10 AM prevents the auto-run." },
+            ].map(item => (
+              <Box key={item.title} sx={{ display: "flex", gap: 1.5 }}>
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>{item.title}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{item.desc}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setHelpOpen(false)} variant="contained" sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}>Got it!</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

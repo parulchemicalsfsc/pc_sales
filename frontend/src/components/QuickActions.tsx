@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '../hooks/useTranslation';
 import {
   SpeedDial,
   SpeedDialAction,
@@ -35,6 +36,7 @@ interface QuickActionsProps {
 }
 
 export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const [open, setOpen] = useState(false);
@@ -45,7 +47,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
   const allActions = [
     {
       icon: <SearchIcon />,
-      name: 'Quick Search',
+      name: t('quickActions.quickSearch', 'Quick Search'),
       onClick: () => {
         setSearchDialogOpen(true);
         setOpen(false);
@@ -55,7 +57,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
     },
     {
       icon: <PersonAddIcon />,
-      name: 'Add Customer',
+      name: t('quickActions.addCustomer', 'Add Customer'),
       onClick: () => {
         navigate('/customers');
         setOpen(false);
@@ -65,7 +67,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
     },
     {
       icon: <ShoppingCartIcon />,
-      name: 'New Sale',
+      name: t('quickActions.newSale', 'New Sale'),
       onClick: () => {
         navigate('/sales');
         setOpen(false);
@@ -75,7 +77,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
     },
     {
       icon: <ScienceIcon />,
-      name: 'Schedule Demo',
+      name: t('quickActions.scheduleDemo', 'Schedule Demo'),
       onClick: () => {
         navigate('/demos');
         setOpen(false);
@@ -85,7 +87,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
     },
     {
       icon: <DownloadIcon />,
-      name: 'Export Reports',
+      name: t('quickActions.exportReports', 'Export Reports'),
       onClick: () => {
         // Example of "Block an action and show popup"
         if (!hasPermission(PERMISSIONS.VIEW_REPORTS)) {
@@ -120,7 +122,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
   return (
     <>
       <SpeedDial
-        ariaLabel="Quick actions"
+        ariaLabel={t('quickActions.quickActions', 'Quick actions')}
         sx={{
           position: 'fixed',
           bottom: 24,
@@ -170,7 +172,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SearchIcon color="primary" />
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Quick Search
+              {t('quickActions.quickSearch', 'Quick Search')}
             </Typography>
           </Box>
         </DialogTitle>
@@ -179,8 +181,8 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
             <TextField
               fullWidth
               autoFocus
-              label="Search by name, mobile, or invoice"
-              placeholder="Enter customer name, mobile number, or invoice number..."
+              label={t('quickActions.searchLabel', 'Search by name, mobile, or invoice')}
+              placeholder={t('quickActions.searchPlaceholder', 'Enter customer name, mobile number, or invoice number...')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyPress={(e) => {
@@ -191,7 +193,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
               sx={{ mb: 2 }}
             />
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <Tooltip title="Search by mobile number">
+              <Tooltip title={t('quickActions.searchMobileTooltip', 'Search by mobile number')}>
                 <Button
                   variant="outlined"
                   size="small"
@@ -201,16 +203,16 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
                     setSearchTerm('+91 ');
                   }}
                 >
-                  Mobile Search
+                  {t('quickActions.mobileSearch', 'Mobile Search')}
                 </Button>
               </Tooltip>
             </Box>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSearchDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setSearchDialogOpen(false)}>{t('quickActions.cancel', 'Cancel')}</Button>
           <Button variant="contained" onClick={handleSearch}>
-            Search
+            {t('quickActions.search', 'Search')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -228,7 +230,7 @@ export default function QuickActions({ onQuickSearch }: QuickActionsProps) {
           sx={{ width: '100%' }}
           variant="filled"
         >
-          Action not allowed: You do not have permission to perform this action.
+          {t('quickActions.permissionDenied', 'Action not allowed: You do not have permission to perform this action.')}
         </Alert>
       </Snackbar>
     </>

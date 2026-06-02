@@ -22,7 +22,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+scratch/
 # Virtual Environment
 venv/
 env/
