@@ -48,11 +48,13 @@ import type { Sale, Customer, Product, SaleItem } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Sales() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t, tf } = useTranslation();
+  const { hasPermission } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sales, setSales] = useState<Sale[]>([]);
@@ -1671,18 +1673,18 @@ export default function Sales() {
           open={Boolean(menuAnchor)}
           onClose={handleMenuClose}
         >
-          <PermissionGate permission={PERMISSIONS.EDIT_SALE}>
+          {hasPermission(PERMISSIONS.EDIT_SALE) && (
             <MenuItem onClick={handleEditClick}>
               <EditIcon sx={{ mr: 1 }} fontSize="small" color="secondary" />
               Edit Sale
             </MenuItem>
-          </PermissionGate>
-          <PermissionGate permission={PERMISSIONS.DELETE_SALE}>
+          )}
+          {hasPermission(PERMISSIONS.DELETE_SALE) && (
             <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>
               <DeleteIcon sx={{ mr: 1 }} fontSize="small" color="error" />
               Delete Sale
             </MenuItem>
-          </PermissionGate>
+          )}
         </Menu>
 
         {/* Delete Confirmation */}

@@ -114,7 +114,12 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
     setError(null);
 
     if (!entityId) {
-      setError(t("sales.selectCustomer", "Please select a Customer"));
+      setError(t("sales.selectCustomer", "Please select a person"));
+      return;
+    }
+
+    if (!formData.product_id) {
+      setError("Please select a product");
       return;
     }
 
@@ -139,8 +144,13 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
       await demoAPI.create(demoData as any);
       onSuccess();
       handleClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to schedule demo");
+    } catch (err: any) {
+      // Extract the server's detail message if available
+      const serverMsg =
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Failed to schedule demo";
+      setError(serverMsg);
     } finally {
       setLoading(false);
     }
@@ -193,7 +203,6 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
                   <MenuItem value="mantri">Mantri</MenuItem>
                   <MenuItem value="doctor">Doctor</MenuItem>
                   <MenuItem value="shopkeeper">Shopkeeper</MenuItem>
-                  <MenuItem value="field_officer">Field Officer</MenuItem>
                 </TextField>
               </Grid>
 
@@ -219,6 +228,25 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
                 />
               </Grid>
 
+              {/* Product selector — required by backend */}
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  select
+                  required
+                  label="Product *"
+                  value={formData.product_id || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, product_id: Number(e.target.value) })
+                  }
+                >
+                  {products.map((p: any) => (
+                    <MenuItem key={p.product_id} value={p.product_id}>
+                      {p.product_name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
 
               <Grid item xs={12} sm={6}>
                 <LocalizationProvider dateAdapter={AdapterDateFns}>

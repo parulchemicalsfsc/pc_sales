@@ -349,6 +349,67 @@ export default function Shopkeepers() {
     );
   };
 
+  // ── Action cell extracted as a proper React component so hooks are legal ──
+  function ShopkeeperActionCell({
+    row,
+  }: {
+    row: Shopkeeper;
+  }) {
+    const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+    const open = Boolean(anchorEl);
+
+    const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
+      event.stopPropagation();
+      setAnchorEl(event.currentTarget);
+    };
+
+    const handleClose = () => {
+      setAnchorEl(null);
+    };
+
+    const handleAction = (action: () => void) => {
+      handleClose();
+      action();
+    };
+
+    return (
+      <Box onClick={(e) => e.stopPropagation()}>
+        <IconButton
+          size="small"
+          onClick={handleOpen}
+          sx={{ color: "text.secondary" }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+        <Menu
+          anchorEl={anchorEl}
+          open={open}
+          onClose={handleClose}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
+            <MenuItem
+              onClick={() => handleAction(() => handleOpenDialog(row))}
+              sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2 }}
+            >
+              <EditIcon fontSize="small" sx={{ color: "primary.main" }} />
+              {t("common.edit", "Edit")}
+            </MenuItem>
+          </PermissionGate>
+          <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
+            <MenuItem
+              onClick={() => handleAction(() => handleDeleteClick(row))}
+              sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2, color: "error.main" }}
+            >
+              <DeleteIcon fontSize="small" />
+              {t("common.delete", "Delete")}
+            </MenuItem>
+          </PermissionGate>
+        </Menu>
+      </Box>
+    );
+  }
+
   const baseColumns: GridColDef[] = [
     {
       field: "actions",
@@ -358,62 +419,7 @@ export default function Shopkeepers() {
       headerAlign: "center",
       align: "center",
       headerClassName: "multi-line-header",
-      renderCell: (params) => {
-        const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-        const open = Boolean(anchorEl);
-
-        const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
-          event.stopPropagation();
-          setAnchorEl(event.currentTarget);
-        };
-
-        const handleClose = (event?: React.MouseEvent) => {
-          if (event) event.stopPropagation();
-          setAnchorEl(null);
-        };
-
-        const handleAction = (action: () => void) => {
-          handleClose();
-          action();
-        };
-
-        return (
-          <Box onClick={(e) => e.stopPropagation()}>
-            <IconButton
-              size="small"
-              onClick={handleOpen}
-              sx={{ color: "text.secondary" }}
-            >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-            <Menu
-              anchorEl={anchorEl}
-              open={open}
-              onClose={() => handleClose()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
-                <MenuItem
-                  onClick={() => handleAction(() => handleOpenDialog(params.row))}
-                  sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2 }}
-                >
-                  <EditIcon fontSize="small" sx={{ color: "primary.main" }} />
-                  {t("common.edit", "Edit")}
-                </MenuItem>
-              </PermissionGate>
-              <PermissionGate permission={PERMISSIONS.EDIT_SHOPKEEPER}>
-                <MenuItem
-                  onClick={() => handleAction(() => handleDeleteClick(params.row))}
-                  sx={{ fontSize: "0.875rem", gap: 1.5, py: 1, px: 2, color: "error.main" }}
-                >
-                  <DeleteIcon fontSize="small" />
-                  {t("common.delete", "Delete")}
-                </MenuItem>
-              </PermissionGate>
-            </Menu>
-          </Box>
-        );
-      },
+      renderCell: (params) => <ShopkeeperActionCell row={params.row} />,
     },
     // 1. Shopkeeper Name (Moved to start)
     {
