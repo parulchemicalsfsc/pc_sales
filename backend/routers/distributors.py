@@ -214,6 +214,7 @@ async def update_distributor(
             "district": distributor.district,
             "mantri_name": distributor.mantri_name,
             "mantri_mobile": distributor.mantri_mobile,
+            "sabhasad_count": distributor.sabhasad_count,
             "sabhasad_morning": int(distributor.sabhasad_morning or 0),
             "sabhasad_evening": int(distributor.sabhasad_evening or 0),
             "status": distributor.status,

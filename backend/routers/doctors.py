@@ -139,6 +139,7 @@ async def update_doctor(
             "district": doctor.district,
             "mantri_name": doctor.mantri_name,
             "mantri_mobile": doctor.mantri_mobile,
+            "sabhasad_count": doctor.sabhasad_count,
             "sabhasad_morning": int(doctor.sabhasad_morning or 0),
             "sabhasad_evening": int(doctor.sabhasad_evening or 0),
             "status": doctor.status,

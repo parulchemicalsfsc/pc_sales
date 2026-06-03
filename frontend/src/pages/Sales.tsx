@@ -328,7 +328,7 @@ export default function Sales() {
 
     // Use timeout to prevent MUI Dialog and Menu focus trap race conditions
     setTimeout(async () => {
-      fetchDropdownData(); // refresh dropdown items
+      fetchDropdownData(); // refresh dropdown items in background
       try {
         setLoading(true);
         // Fetch full sale details to get items
@@ -338,7 +338,32 @@ export default function Sales() {
 
         setEditingSaleId(saleId);
         setCustomerMode("existing");
-        setCustomerCategory("Sabhasad");
+
+        // ── Map buyer_type → customerCategory ──────────────────────────
+        const buyerType: string = sale?.buyer_type || "customer";
+        const categoryMap: Record<string, string> = {
+          mantri:       "Mantri",
+          distributor:  "Mantri",   // distributors share the Mantri dropdown
+          doctor:       "Doctor",
+          shopkeeper:   "Shopkeeper",
+          field_officer: "Field Officer",
+          customer:     "Sabhasad",
+        };
+        const resolvedCategory = categoryMap[buyerType] ?? "Sabhasad";
+        setCustomerCategory(resolvedCategory);
+
+        // ── Resolve the entity ID for the Autocomplete ─────────────────
+        // formData.customer_id stores the lookup ID regardless of entity type
+        let entityId = 0;
+        if (buyerType === "mantri" || buyerType === "distributor") {
+          entityId = sale?.distributor_id || 0;
+        } else if (buyerType === "doctor") {
+          entityId = sale?.doctor_id || 0;
+        } else if (buyerType === "shopkeeper") {
+          entityId = sale?.shopkeeper_id || 0;
+        } else {
+          entityId = sale?.customer_id || 0;
+        }
 
         // Safe Date Parsing
         let safeDateString = new Date().toISOString().split("T")[0];
@@ -347,25 +372,22 @@ export default function Sales() {
           if (!isNaN(d.getTime())) {
             safeDateString = d.toISOString().split("T")[0];
           } else if (typeof sale.sale_date === 'string' && sale.sale_date.length >= 10) {
-            safeDateString = sale.sale_date.substring(0, 10); // fallback for YYYY-MM-DD
+            safeDateString = sale.sale_date.substring(0, 10);
           }
         }
 
         setFormData({
-          customer_id: sale ? sale.customer_id : 0,
+          customer_id: entityId,
           invoice_no: (sale && sale.invoice_no) ? sale.invoice_no : "",
           sale_date: safeDateString,
           notes: (sale && sale.notes) ? sale.notes : "",
-          paid_amount: 0, // Paid amount tracking might be decoupled in payments
+          paid_amount: 0,
         });
 
         if (sale && sale.payment_terms) {
           try {
             const terms = JSON.parse(sale.payment_terms);
-            setPaymentTerms(prev => ({
-              ...prev,
-              ...terms
-            }));
+            setPaymentTerms(prev => ({ ...prev, ...terms }));
           } catch (e) { }
         }
 
@@ -380,6 +402,37 @@ export default function Sales() {
           setItems([{ product_id: 0, quantity: 1, rate: 0, amount: 0 }]);
         }
 
+        // ── Pre-resolve selectedEntity from the loaded lists ────────────
+        // Gives the Autocomplete something to display immediately
+        let resolvedEntity: { name: string; village: string; mobile: string } | null = null;
+
+        if ((buyerType === "mantri" || buyerType === "distributor") && entityId) {
+          const dist = distributors.find((d: any) => d.distributor_id === entityId);
+          if (dist) {
+            resolvedEntity = {
+              name: dist.mantri_name || dist.name || "",
+              village: dist.village || "",
+              mobile: dist.mantri_mobile || dist.mobile || "",
+            };
+          }
+        } else if (buyerType === "doctor" && entityId) {
+          const doc = doctors.find((d: any) => d.doctor_id === entityId);
+          if (doc) {
+            resolvedEntity = { name: doc.name || "", village: doc.village || "", mobile: doc.mobile || doc.mantri_mobile || "" };
+          }
+        } else if (buyerType === "shopkeeper" && entityId) {
+          const sk = shopkeepers.find((s: any) => s.shopkeeper_id === entityId);
+          if (sk) {
+            resolvedEntity = { name: sk.name || "", village: sk.village || "", mobile: sk.mobile || sk.mantri_mobile || "" };
+          }
+        } else if (entityId) {
+          const cust = customers.find((c: any) => c.customer_id === entityId);
+          if (cust) {
+            resolvedEntity = { name: cust.name || "", village: cust.village || "", mobile: cust.mobile || "" };
+          }
+        }
+        setSelectedEntity(resolvedEntity);
+
         setOpenDialog(true);
       } catch (err: any) {
         console.error("Error fetching sale details:", err);
@@ -389,6 +442,7 @@ export default function Sales() {
       }
     }, 10);
   };
+
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
@@ -479,14 +533,18 @@ export default function Sales() {
   const getEntityOptions = () => {
     if (customerCategory === "Mantri") {
       return distributors
-        .filter((d: any) => d.mantri_name)
-        .map((d: any) => ({
-          id: d.distributor_id,
-          label: `${d.mantri_name}${d.mantri_mobile ? ` (${d.mantri_mobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
-          name: d.mantri_name,
-          village: d.village || '',
-          mobile: d.mantri_mobile || d.mobile || '',
-        }));
+        .filter((d: any) => d.mantri_name || d.name)
+        .map((d: any) => {
+          const mName = d.mantri_name || d.name || 'Unknown';
+          const mMobile = d.mantri_mobile || d.mobile || '';
+          return {
+            id: d.distributor_id,
+            label: `${mName}${mMobile ? ` (${mMobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
+            name: mName,
+            village: d.village || '',
+            mobile: mMobile,
+          };
+        });
     } else if (customerCategory === "Doctor") {
       return doctors.map((d: any) => ({
         id: d.doctor_id,
@@ -1244,8 +1302,11 @@ export default function Sales() {
                   <Grid item xs={12} sm={6}>
                     <Autocomplete
                       options={getEntityOptions()}
-                      getOptionLabel={(option: any) => option.label || ''}
-                      value={getEntityOptions().find((o: any) => o.id === formData.customer_id) || null}
+                      getOptionLabel={(option: any) => option.label || option.name || ''}
+                      value={
+                        getEntityOptions().find((o: any) => o.id === formData.customer_id) ||
+                        (selectedEntity ? { ...selectedEntity, id: formData.customer_id, label: `${selectedEntity.name}${selectedEntity.mobile ? ` (${selectedEntity.mobile})` : ''}${selectedEntity.village ? ` - ${selectedEntity.village}` : ''}` } : null)
+                      }
                       onChange={(_e: any, newValue: any) => {
                         const newId = newValue ? newValue.id : 0;
                         setFormData({

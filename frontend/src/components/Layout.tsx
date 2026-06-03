@@ -183,18 +183,11 @@ const navigationItems: NavItem[] = [
     ]
   },
   {
-    id: "orders",
-    labelKey: "nav.orders",
-    icon: <LocalShippingIcon />,
-    path: "/orders",
-    permission: PERMISSIONS.VIEW_ORDERS,
-  },
-  {
-    id: "payments",
-    labelKey: "nav.payments",
-    icon: <PaymentIcon />,
-    path: "/payments",
-    permission: PERMISSIONS.VIEW_PAYMENTS,
+    id: "customers",
+    labelKey: "nav.customers",
+    icon: <PeopleIcon />,
+    path: "/customers",
+    permission: PERMISSIONS.VIEW_CUSTOMERS,
   },
   {
     id: "sales",
@@ -204,11 +197,18 @@ const navigationItems: NavItem[] = [
     permission: PERMISSIONS.VIEW_SALES,
   },
   {
-    id: "customers",
-    labelKey: "nav.customers",
-    icon: <PeopleIcon />,
-    path: "/customers",
-    permission: PERMISSIONS.VIEW_CUSTOMERS,
+    id: "payments",
+    labelKey: "nav.payments",
+    icon: <PaymentIcon />,
+    path: "/payments",
+    permission: PERMISSIONS.VIEW_PAYMENTS,
+  },
+  {
+    id: "orders",
+    labelKey: "nav.orders",
+    icon: <LocalShippingIcon />,
+    path: "/orders",
+    permission: PERMISSIONS.VIEW_ORDERS,
   },
   {
     id: "demo-scheduler",
@@ -746,7 +746,12 @@ export default function Layout({
                     </ListItemIcon>
                     {sidebarExpanded && (
                       <ListItemText
-                        primary={item.id === "distributors-group" ? "Distributors" : t(item.labelKey)}
+                        primary={
+                          item.id === "distributors-group" ? "Distributor" :
+                          item.id === "customers" ? "Sabhasad" :
+                          item.id === "orders" ? "Order Management" :
+                          t(item.labelKey)
+                        }
                         primaryTypographyProps={{
                           fontWeight: active ? 600 : 500,
                           fontSize: "0.875rem",

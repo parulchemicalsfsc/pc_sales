@@ -282,27 +282,32 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 elif sale.get("distributor_id"): buyer_type = "distributor"
                 else: buyer_type = "customer"
 
-            name, village = "Unknown", ""
+            name, village, mobile = "Unknown", "", ""
             if buyer_type == "mantri" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 name = entity.get("mantri_name") or entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
             elif buyer_type == "distributor" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
             elif buyer_type == "doctor" and sale.get("doctor_id"):
                 entity = doctors_dict.get(sale["doctor_id"], {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
             elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
             else:
                 entity = customers_dict.get(sale.get("customer_id"), {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
+                mobile = entity.get("mobile") or ""
 
             result.append(
                     {
@@ -311,6 +316,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                         "sale_date": sale.get("sale_date"),
                         "customer_name": name,
                         "village": village,
+                        "mobile": mobile,
                         "total_amount": total_amount,
                         "paid_amount": paid_amount,
                         "pending_amount": pending_amount,

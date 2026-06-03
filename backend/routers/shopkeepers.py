@@ -143,6 +143,7 @@ async def update_shopkeeper(
             "district": shopkeeper.district,
             "mantri_name": shopkeeper.mantri_name,
             "mantri_mobile": shopkeeper.mantri_mobile,
+            "sabhasad_count": shopkeeper.sabhasad_count,
             "sabhasad_morning": int(shopkeeper.sabhasad_morning or 0),
             "sabhasad_evening": int(shopkeeper.sabhasad_evening or 0),
             "status": shopkeeper.status,

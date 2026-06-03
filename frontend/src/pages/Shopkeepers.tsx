@@ -1049,10 +1049,12 @@ export default function Shopkeepers() {
                 inputProps={{ min: 0 }}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({
-                    ...formData,
-                    sabhasad_morning: val === "" ? undefined : Number(val),
-                  });
+                  const newMorning = val === "" ? undefined : Number(val);
+                  setFormData((prev) => ({
+                    ...prev,
+                    sabhasad_morning: newMorning,
+                    sabhasad_count: (newMorning || 0) + (prev.sabhasad_evening || 0)
+                  }));
                 }}
               />
             </Grid>
@@ -1066,10 +1068,12 @@ export default function Shopkeepers() {
                 inputProps={{ min: 0 }}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFormData({
-                    ...formData,
-                    sabhasad_evening: val === "" ? undefined : Number(val),
-                  });
+                  const newEvening = val === "" ? undefined : Number(val);
+                  setFormData((prev) => ({
+                    ...prev,
+                    sabhasad_evening: newEvening,
+                    sabhasad_count: (prev.sabhasad_morning || 0) + (newEvening || 0)
+                  }));
                 }}
               />
             </Grid>
