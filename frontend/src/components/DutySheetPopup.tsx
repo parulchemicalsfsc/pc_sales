@@ -151,6 +151,7 @@ const DutySheetPopup: React.FC = () => {
   const [selVillage, setSelVillage] = useState("");
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
   const [assignedTelecallers, setAssignedTelecallers] = useState<string[]>([]);
+  const [assignSelectOpen, setAssignSelectOpen] = useState(false);
 
   // Live clock
   useEffect(() => {
@@ -273,7 +274,15 @@ const DutySheetPopup: React.FC = () => {
       setSubmitSuccess(true);
       setTimeout(() => {
         setSubmitSuccess(false);
-        setAssignedTelecallers((prev) => [...prev, ...selectedTelecallers]);
+        setAssignedTelecallers((prev) => {
+          const newAssigned = [...prev, ...selectedTelecallers];
+          const availableTCs = telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers').map(t => t.email);
+          const allAssigned = availableTCs.every(email => newAssigned.includes(email));
+          if (allAssigned) {
+            setOpen(false);
+          }
+          return newAssigned;
+        });
         setSelVillage("");
         setSelectedTelecallers([]);
       }, 1500);
@@ -816,8 +825,14 @@ const DutySheetPopup: React.FC = () => {
                   <Select
                     label="Assign To"
                     multiple
+                    open={assignSelectOpen}
+                    onOpen={() => setAssignSelectOpen(true)}
+                    onClose={() => setAssignSelectOpen(false)}
                     value={selectedTelecallers}
-                    onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
+                    onChange={(e) => {
+                      setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value);
+                      setAssignSelectOpen(false);
+                    }}
                     sx={{ borderRadius: 1 }}
                     renderValue={(selected) => (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
