@@ -222,7 +222,7 @@ class SupabaseTable:
         return SupabaseResponse(response.json(), count=count)
 
     def insert(
-        self, data: Union[Dict[str, Any], List[Dict[str, Any]]], upsert: bool = False
+        self, data: Union[Dict[str, Any], List[Dict[str, Any]]], upsert: bool = False, on_conflict: Optional[str] = None
     ):
         """Insert data into table
 
@@ -239,16 +239,20 @@ class SupabaseTable:
             # Use upsert mode - will update on conflict
             headers["Prefer"] = "resolution=merge-duplicates,return=representation"
 
-        response = self._session.post(self.url, json=data, headers=headers)
+        url = self.url
+        if on_conflict:
+            url = f"{self.url}?on_conflict={on_conflict}"
+
+        response = self._session.post(url, json=data, headers=headers)
         response.raise_for_status()
 
         # Return a new table instance so execute() can be called if needed
         result = SupabaseTableResult(response.json())
         return result
 
-    def upsert(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]):
+    def upsert(self, data: Union[Dict[str, Any], List[Dict[str, Any]]], on_conflict: Optional[str] = None):
         """Upsert data (insert or update on conflict)"""
-        return self.insert(data, upsert=True)
+        return self.insert(data, upsert=True, on_conflict=on_conflict)
 
     def update(self, data: Dict[str, Any]):
         """Update records"""
