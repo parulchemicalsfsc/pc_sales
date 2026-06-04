@@ -62,6 +62,7 @@ const T = {
   redLight: "#fee2e2",
   mono: "'IBM Plex Mono', 'JetBrains Mono', monospace",
   sans: "'Inter', 'Helvetica Neue', Arial, sans-serif",
+  bgHover: "#e5e7eb",
 };
 
 // ─── Roles allowed to manage the duty sheet ─────────────────────────────────
