@@ -46,12 +46,17 @@ def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db))
             
         total_pending = max(0.0, total_sales - total_paid)
 
+        # Fetch recent call history
+        calls_res = db.table("call_logs").select("call_outcome, notes, created_at, user_email").eq("customer_id", customer_id).order("created_at", desc=True).limit(10).execute()
+        call_logs = calls_res.data or []
+
         return {
             "joined_date": joined_date,
             "sales_count": sales_count,
             "total_sales": total_sales,
             "total_paid": total_paid,
-            "total_pending": total_pending
+            "total_pending": total_pending,
+            "call_logs": call_logs
         }
     except HTTPException:
         raise
