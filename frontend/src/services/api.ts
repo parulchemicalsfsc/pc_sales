@@ -592,7 +592,6 @@ export const automationAPI = {
     district: string;
     taluka: string;
     village: string;
-    limit?: number;
   }) => {
     const response = await apiClient.post("/api/automation/admin/distribute-sabhsads", payload);
     return response.data;

@@ -148,7 +148,6 @@ const DutySheetPopup: React.FC = () => {
   const [selDistrict, setSelDistrict] = useState("");
   const [selTaluka, setSelTaluka] = useState("");
   const [selVillage, setSelVillage] = useState("");
-  const [sabhsadLimit, setSabhsadLimit] = useState(100);
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
 
   // Live clock
@@ -267,7 +266,6 @@ const DutySheetPopup: React.FC = () => {
         district: selDistrict,
         taluka: selTaluka,
         village: selVillage,
-        limit: sabhsadLimit,
       };
       await automationAPI.adminDistributeSabhsads(payload);
       setSubmitSuccess(true);
@@ -805,7 +803,7 @@ const DutySheetPopup: React.FC = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={8}>
+              <Grid item xs={12}>
                 <FormControl size="small" fullWidth>
                   <InputLabel>Assign To</InputLabel>
                   <Select
@@ -829,18 +827,6 @@ const DutySheetPopup: React.FC = () => {
                     ))}
                   </Select>
                 </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Limit per TC"
-                  value={sabhsadLimit}
-                  onChange={(e) => setSabhsadLimit(Math.max(1, parseInt(e.target.value) || 1))}
-                  fullWidth
-                  sx={{ borderRadius: 1 }}
-                  inputProps={{ min: 1 }}
-                />
               </Grid>
             </Grid>
           </Box>

@@ -132,7 +132,6 @@ export default function CallDistribution() {
   const [selDistrict, setSelDistrict] = useState("");
   const [selTaluka, setSelTaluka] = useState("");
   const [selVillage, setSelVillage] = useState("");
-  const [sabhsadLimit, setSabhsadLimit] = useState(100);
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
   const [sabhsadDistributing, setSabhsadDistributing] = useState(false);
 
@@ -222,7 +221,6 @@ export default function CallDistribution() {
         district: selDistrict,
         taluka: selTaluka,
         village: selVillage,
-        limit: sabhsadLimit,
       };
       const res = await automationAPI.adminDistributeSabhsads(payload);
       setToast({ msg: res.message || "Distributed successfully", sev: "success" });
@@ -533,49 +531,38 @@ export default function CallDistribution() {
                 </FormControl>
               </Grid>
               
-              <Grid item xs={12} sm={8}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Assign To Telecallers</InputLabel>
-                  <Select
-                    label="Assign To Telecallers"
-                    multiple
-                    value={selectedTelecallers}
-                    onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
-                    sx={{ borderRadius: 2 }}
-                    renderValue={(selected) => (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                        {selected.map((value) => (
-                          <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
-                        ))}
-                      </Box>
-                    )}
-                  >
-                    {telecallers.map((t) => (
-                      <MenuItem key={t.email} value={t.email}>
-                        {t.name || t.email.split("@")[0]}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid item xs={12}>
                 <Stack direction="row" spacing={2}>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Max per Telecaller"
-                    value={sabhsadLimit}
-                    onChange={(e) => setSabhsadLimit(Math.max(1, parseInt(e.target.value) || 1))}
-                    sx={{ width: 120, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-                    inputProps={{ min: 1 }}
-                  />
+                  <FormControl size="small" fullWidth>
+                    <InputLabel>Assign To Telecallers</InputLabel>
+                    <Select
+                      label="Assign To Telecallers"
+                      multiple
+                      value={selectedTelecallers}
+                      onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
+                      sx={{ borderRadius: 2 }}
+                      renderValue={(selected) => (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {selected.map((value) => (
+                            <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
+                          ))}
+                        </Box>
+                      )}
+                    >
+                      {telecallers.map((t) => (
+                        <MenuItem key={t.email} value={t.email}>
+                          {t.name || t.email.split("@")[0]}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                   <Button
                     variant="contained"
                     color="success"
                     disabled={selectedTelecallers.length === 0 || sabhsadDistributing}
                     startIcon={sabhsadDistributing ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
                     onClick={handleSabhsadDistribute}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, flex: 1 }}
+                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, minWidth: 120 }}
                   >
                     Assign
                   </Button>

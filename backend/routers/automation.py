@@ -1069,7 +1069,6 @@ class SabhsadDistributePayload(BaseModel):
     district: str
     taluka: str
     village: str
-    limit: Optional[int] = 100
 
 @router.post("/admin/distribute-sabhsads")
 def distribute_sabhsads(
@@ -1113,9 +1112,7 @@ def distribute_sabhsads(
         if not unassigned_ids:
             return {"message": "All sabhsads in this location are already assigned", "assigned": 0}
 
-        # Calculate limits and remainders (soft cap math)
-        max_total_assignments = len(payload.telecaller_emails) * (payload.limit or 100)
-        ids_to_assign = unassigned_ids[:max_total_assignments]
+        ids_to_assign = unassigned_ids
         
         today_str = get_today_ist()
         assignments = []
