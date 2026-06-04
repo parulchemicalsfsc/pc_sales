@@ -12,8 +12,11 @@ from typing import Optional
 
 from activity_logger import get_activity_logger
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
+from jinja2 import Environment, FileSystemLoader
+from num2words import num2words
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -982,7 +985,14 @@ def upsert_quotation(
         if not lead_res.data:
             raise HTTPException(status_code=404, detail="Lead not found")
 
-        allowed = {"quantity", "material", "unit_price", "total_value", "delivery_time", "payment_terms", "notes"}
+        allowed = {
+            "name", "email", "address_line_1", "address_line_2", "address_line_3", "quotation_no", "quotation_date", "buyer_order_no", 
+            "buyer_order_date", "lr_despatched_through", "destination", "supplier_code", 
+            "payment_terms", "items", "items_total", "grand_total", "cgst_percent", 
+            "cgst_amount", "sgst_percent", "sgst_amount", "total_gst_amount", "loose_count", 
+            "gst_note", "penalty_late_delivery", "delivery_requirement", "packing_forwarding", 
+            "freight_charges", "transportation_charge", "gst_percent", "gst_amount"
+        }
         update_data = {k: v for k, v in payload.items() if k in allowed}
         update_data["lead_id"] = lead_id
         update_data["updated_at"] = datetime.utcnow().isoformat()
@@ -995,10 +1005,8 @@ def upsert_quotation(
             res = db.table("quotations").insert(update_data).execute()
 
         # Log activity
-        qty = update_data.get('quantity') or 0
-        price = update_data.get('unit_price') or 0
-        total = update_data.get('total_value') or 0
-        summary = f"Generated quotation for {qty} units at ₹{price} (Total: ₹{total})"
+        total = update_data.get('grand_total') or 0
+        summary = f"Updated quotation (Grand Total: ₹{total})"
         
         _log_lead_activity(
             db, lead_id, "Quotation", summary,
@@ -1010,3 +1018,51 @@ def upsert_quotation(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error upserting quotation: {e}")
+
+@router.get("/{lead_id}/quotation/html")
+def get_quotation_html(
+    lead_id: str,
+    db: SupabaseClient = Depends(get_db),
+):
+    """Generate HTML quotation using Jinja2 templates."""
+    try:
+        lead_res = db.table("leads").select("*").eq("lead_id", lead_id).execute()
+        if not lead_res.data:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead = lead_res.data[0]
+        
+        quote_res = db.table("quotations").select("*").eq("lead_id", lead_id).execute()
+        if not quote_res.data:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        quote = quote_res.data[0]
+
+        # Template data
+        data = {**quote}
+        data["lead"] = lead
+        data["quote_items"] = data.get("items") or []
+        
+        # Helper function for currency conversion
+        def in_words(amount):
+            try:
+                words = num2words(int(round(float(amount))), lang='en_IN')
+                return f"Rs. {words.upper()} ONLY."
+            except:
+                return "Rs. ZERO ONLY."
+
+        data["in_words"] = in_words
+
+        env = Environment(loader=FileSystemLoader("data"))
+        source_website = lead.get("source_website", "").lower()
+        if source_website in ["psi", "press stamping industries", "press_stamping_industries"]:
+            template = env.get_template("psi_quotation.html")
+        else:
+            # Fallback to parul chemicals for others like VIBGYOR Maple for now
+            template = env.get_template("parulquote.html")
+            
+        html_content = template.render(data=data)
+        return HTMLResponse(content=html_content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating quotation HTML: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating quotation HTML: {e}")

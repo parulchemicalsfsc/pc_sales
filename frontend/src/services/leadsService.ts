@@ -68,6 +68,7 @@ export interface Quotation {
   delivery_time?: string;
   payment_terms?: string;
   notes?: string;
+  [key: string]: any;
 }
 
 export interface LeadSource {
@@ -156,6 +157,10 @@ export const leadsService = {
   /** Both roles: get quotation for a lead */
   getQuotation: (leadId: string) =>
     apiClient.get<Quotation | null>(`/api/leads/${leadId}/quotation`),
+
+  /** Both roles: get quotation HTML */
+  getQuotationHtml: (leadId: string) =>
+    apiClient.get<string>(`/api/leads/${leadId}/quotation/html`),
 
   /** Lead Owner: upsert quotation */
   upsertQuotation: (leadId: string, data: Partial<Quotation>) =>

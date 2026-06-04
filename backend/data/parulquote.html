@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Parul Chemicals – Quotation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #ccc;
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+  }
+  .page {
+    width: 794px;
+    min-height: 1123px;
+    background: #fff;
+    padding: 20px 24px 14px 24px;
+    font-size: 11px;
+    color: #000;
+    display: flex;
+    flex-direction: column;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  td, th { border: 1px solid #000; padding: 2px 4px; vertical-align: top; font-size: 11px; }
+
+  /* HEADER */
+  .co-name  { font-size: 40px; font-weight: bold; text-align: center; letter-spacing: 1px; line-height: 1.05; }
+  .co-addr  { font-size: 11px; text-align: center; margin-top: 1px; }
+  .doc-type { font-size: 12px; font-weight: bold; text-align: center; margin-top: 1px; margin-bottom: 5px; }
+
+  /* ITEMS HEADER */
+  .items-header th {
+    text-align: center; font-weight: bold;
+    font-size: 10.5px; padding: 3px 2px; vertical-align: middle;
+    border-top: none;
+  }
+
+  /* BLANK ITEM ROWS — no horizontal lines, but ALL vertical column borders visible */
+  .item-row td { border-top: none; border-bottom: none; border-left: 1px solid #000; border-right: 1px solid #000; height: 20px; padding: 0 4px; }
+  .item-row td:last-child { text-align: right; }
+
+  .words-row td  { font-size: 10.5px; padding: 2px 5px; }
+  .terms-row td  { font-size: 10.5px; padding: 2px 5px; }
+  .terms-row td:first-child { font-weight: bold; width: 22%; }
+
+  .gst-bar {
+    border: 1px solid #000; border-top: none;
+    text-align: center; font-size: 15px; font-weight: bold; padding: 4px;
+  }
+  .sig-row {
+    border: 1px solid #000; border-top: none;
+    display: flex; justify-content: space-between;
+    padding: 2px 5px; font-size: 10.5px;
+  }
+  .special-note {
+    border: 1px solid #000; border-top: none;
+    padding: 3px 5px; flex-shrink: 0;
+  }
+  .special-note .sn-title { font-weight: bold; font-size: 10.5px; }
+  .special-note .sn-body  { font-size: 10px; line-height: 1.55; margin-top: 1px; }
+  .preserve-whitespace { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="co-name">PARUL CHEMICALS</div>
+  <div class="co-addr">SURVEY NO.63, A/PART-1, VILLAGE- PANCHDEVLA, TALUKO - WAGHODIA, VADODARA-391510</div>
+  <div class="doc-type">QUOTATION</div>
+
+  <!-- TOP INFO BLOCK -->
+  <table style="flex-shrink:0; width:100%; border-collapse:collapse;">
+    <tr>
+      <!-- CONSIGNEE rowspan=3 -->
+      <td rowspan="3" style="width:34%; vertical-align:top; text-align:left; padding:5px 6px;">
+        <div style="font-size:9px;">NAME &amp; ADDRESS OF CONSIGNEE :</div>
+        <div style="font-weight:bold; font-size:11px; margin-top:3px;">{{ data.name }}</div>
+        <div>{{ data.address_line_1 if data.address_line_1 else '' }}</div>
+        <div>{{ data.address_line_2 if data.address_line_2 else '' }}</div>
+        <div>{{ data.address_line_3 if data.address_line_3 else '' }}</div>
+        <div>EMAIL: {{ data.email }}</div>
+      </td>
+      <!-- QUOTATION NO -->
+      <td style="width:39%; height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">QUOTATION NO.</div>
+        <div style="font-size:18px; font-weight:bold; letter-spacing:1px; margin-top:2px;">{{ data.quotation_no }}</div>
+      </td>
+      <!-- DATED -->
+      <td style="width:27%; height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">DATED</div>
+        <div style="font-size:15px; font-weight:bold; margin-top:2px;">{{ data.quotation_date }}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">BUYER'S ORDER NO.</div>
+        <div style="font-weight:bold; margin-top:2px;">{{ data.buyer_order_no }}</div>
+      </td>
+      <td style="height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">DATED</div>
+        <div style="font-weight:bold; margin-top:2px;">{{ data.buyer_order_date }}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">L.R. NO. / DESPATCHED THROUGH</div>
+        <div style="font-weight:bold; margin-top:2px;">{{ data.lr_despatched_through }}</div>
+      </td>
+      <td style="height:40px; text-align:center; vertical-align:top; padding:4px 5px;">
+        <div style="font-size:9px;">DESTINATION</div>
+        <div style="font-size:13px; font-weight:bold; margin-top:4px;">{{ data.destination }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- ITEMS TABLE -->
+  <table style="border-top:none; table-layout:fixed;">
+    <colgroup>
+      <col style="width:4.5%"/>
+      <col style="width:4.5%"/>
+      <col style="width:28%"/>
+      <col style="width:7%"/>
+      <col style="width:9%"/>
+      <col style="width:10%"/>
+      <col style="width:12%"/>
+      <col style="width:10%"/>
+    </colgroup>
+    <thead>
+      <tr class="items-header" style="height: 1px;">
+        <th>SR.<br/>NO.</th>
+        <th>PO<br/>SR.<br/>NO.</th>
+        <th>DESCRIPTION OF GOODS</th>
+        <th>HSN<br/>CODE</th>
+        <th>NO. OF<br/>PACKAGES</th>
+        <th>QUANTITY</th>
+        <th>RATE / UNIT<br/>Rs.</th>
+        <th>AMOUNT</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in data.quote_items %}
+      <tr class="item-row" style="height: 1px;">
+        <td style="text-align: center;">{{ loop.index }}</td>
+        <td style="text-align: center;">{{ item.po_sr_no }}</td>
+        <td>{{ item.description }}</td>
+        <td style="text-align: center;">{{ item.hsn_code }}</td>
+        <td style="text-align: center;">{{ item.packages }}</td>
+        <td style="text-align: center;">{{ item.quantity }}</td>
+        <td style="text-align: right;">{{ "{:,.2f}".format(item.rate_per_unit|float) if item.rate_per_unit else "" }}</td>
+        <td>{{ "{:,.2f}".format(item.amount|float) if item.amount else "" }}</td>
+      </tr>
+      {% endfor %}
+
+      <!-- CGST row -->
+      <tr>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 6px;">CGST <span style="float:right;">{{ data.cgst_percent if data.cgst_percent else "9" }}%</span></td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 4px; text-align:right;">{{ "{:,.2f}".format(data.cgst_amount|float) if data.cgst_amount else "0.00" }}</td>
+      </tr>
+      <!-- SGST row -->
+      <tr>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 6px;">SGST <span style="float:right;">{{ data.sgst_percent if data.sgst_percent else "9" }}%</span></td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 4px; text-align:right;">{{ "{:,.2f}".format(data.sgst_amount|float) if data.sgst_amount else "0.00" }}</td>
+      </tr>
+      <!-- Total value of GST row -->
+      <tr>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 6px;">Total value of GST</td>
+        <td style="border-top:none; border-bottom:none; font-size:10.5px; padding:3px 4px; text-align:right;">{{ "{:,.2f}".format(data.total_gst_amount|float) if data.total_gst_amount else "0.00" }}</td>
+      </tr>
+      <!-- TOTAL row — individual cells to keep column lines intact -->
+      <tr>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none;"></td>
+        <td style="border-top:none; border-bottom:none; text-align:right; font-size:10.5px; padding:2px 4px;"></td>
+        <td style="border-top:none; border-bottom:none; text-align:center; font-weight:bold; font-size:10.5px; padding:2px 4px;">LOOSE</td>
+        <td style="border-top:none; border-bottom:none; text-align:center; font-weight:bold; font-size:10.5px; padding:2px 4px;">{{ data.loose_count if data.loose_count else "0" }}</td>
+        <td style="border-top:none; border-bottom:none; text-align:right; font-weight:bold; padding:2px 4px; font-size:10.5px;">Total :</td>
+        <td style="border-top:none; border-bottom:none; text-align:right; font-weight:bold; font-size:10.5px; padding:2px 4px;">{{ "{:,.2f}".format(data.grand_total|float) if data.grand_total else "0.00" }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- WORDS + SUPPLIER CODE -->
+  <table style="border-top:none; flex-shrink:0;">
+    <tr class="words-row"><td style="border-top:1px solid #000;">GST in Words : <strong>{{ data.in_words(data.total_gst_amount|float if data.total_gst_amount else 0) }}</strong></td></tr>
+    <tr class="words-row"><td style="border-top:none;">Net Amount in Words : <strong>{{ data.in_words(data.grand_total|float if data.grand_total else 0) }}</strong></td></tr>
+    <tr><td style="border-top:none; padding:2px 5px; font-size:10.5px;">Supplier Code: {{ data.supplier_code }}</td></tr>
+  </table>
+
+  <!-- TERMS -->
+  <table style="border-top:none; flex-shrink:0;">
+    <tr class="terms-row"><td style="border-top:none;">Payment terms</td><td style="border-top:none;">{{ data.payment_terms }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">GST</td><td style="border-top:none;">{{ data.gst_note }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">Penalty for late delivery</td><td style="border-top:none;">{{ data.penalty_late_delivery }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">Delivery Requirment</td><td style="border-top:none;">{{ data.delivery_requirement }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">Packing &amp; forwarding</td><td style="border-top:none;">{{ data.packing_forwarding }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">Freight Charges</td><td style="border-top:none;">{{ data.freight_charges }}</td></tr>
+  </table>
+
+  <!-- GST BAR -->
+  <div class="gst-bar">Company GST No.:24AASFP5315P1ZM</div>
+
+  <!-- SIGNATORY -->
+  <div class="sig-row">
+    <div></div>
+    <div>FOR <strong>PARUL CHEMICALS</strong></div>
+  </div>
+
+  <!-- SPECIAL NOTE -->
+  <div class="special-note">
+    <div class="sn-title">SPECIAL NOTE :</div>
+    <div class="sn-body">
+      (1) Any discripancy regarding quality, rates etc. should be informed within 7 days, on receipt of the materials,<br/>
+      otherwise the claim will not be considered. (2) 15% Interest will be charged on overdue amount. (3) Our<br/>
+      responsibility ceases on the delivery of the goods to the carrier only. (4) This is Subject to VADODARA jurisdiction.
+      <span style="float:right; font-weight:bold; padding-right:4px;">Authorised Signatory</span>
+    </div>
+  </div>
+
+</div>
+<script>
+  window.onload = function() {
+    setTimeout(function() {
+      window.print();
+    }, 500);
+  }
+</script>
+</body>
+</html>

@@ -16,9 +16,8 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { leadsService, Lead, LeadActivity, Quotation } from "../services/leadsService";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useTranslation } from "../hooks/useTranslation";
+import QuotationForm from "../components/QuotationForm";
 
 const STATUS_COLOR: Record<string, string> = {
   Unassigned: "#9e9e9e", Assigned: "#2196f3",
@@ -271,72 +270,32 @@ export default function LeadWorkspace() {
     });
   };
 
-  const handleSaveQuotation = async (downloadPDF = false) => {
+  const handleSaveQuotation = async (quotationData: Partial<Quotation>, generatePdf = false) => {
     if (!selected) return;
     setQuotationLoading(true);
     try {
-      await leadsService.upsertQuotation(selected.lead_id, quotation);
+      await leadsService.upsertQuotation(selected.lead_id, quotationData);
       setSuccess("Quotation saved successfully");
       await loadActivities(selected.lead_id); // Refresh timeline
-      if (downloadPDF) {
-        generatePDF();
+      
+      // Update local state so it doesn't revert if switching tabs
+      setQuotation(prev => ({ ...prev, ...quotationData }));
+
+      if (generatePdf) {
+        const res = await leadsService.getQuotationHtml(selected.lead_id);
+        const newWin = window.open();
+        if (newWin) {
+          newWin.document.write(res.data);
+          newWin.document.close();
+        } else {
+          setError("Popup blocked. Please allow popups to view the PDF.");
+        }
       }
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Failed to save quotation");
     } finally {
       setQuotationLoading(false);
     }
-  };
-
-  const generatePDF = () => {
-    if (!selected) return;
-    const doc = new jsPDF();
-    
-    // Header
-    doc.setFontSize(20);
-    doc.text("QUOTATION", 14, 22);
-    
-    doc.setFontSize(10);
-    doc.text(`Date: ${new Date().toLocaleDateString("en-IN")}`, 14, 30);
-    doc.text(`Reference: ${selected.lead_id}`, 14, 35);
-    
-    // Customer Info
-    doc.setFontSize(12);
-    doc.text("To:", 14, 50);
-    doc.setFontSize(10);
-    doc.text(selected.company_name || selected.full_name, 14, 55);
-    doc.text(selected.email || "", 14, 60);
-    doc.text(selected.phone || "", 14, 65);
-    
-    // Table
-    autoTable(doc, {
-      startY: 75,
-      head: [['Description', 'Material', 'Quantity', 'Unit Price', 'Total']],
-      body: [
-        [
-          selected.product_interest || "Product", 
-          quotation.material || "-", 
-          (quotation.quantity || 0).toString(), 
-          `Rs. ${quotation.unit_price || 0}`, 
-          `Rs. ${quotation.total_value || 0}`
-        ],
-      ],
-      theme: 'grid',
-      headStyles: { fillColor: [33, 150, 243] }
-    });
-    
-    // Terms
-    const finalY = (doc as any).lastAutoTable.finalY || 100;
-    doc.setFontSize(11);
-    doc.text("Terms & Conditions", 14, finalY + 15);
-    doc.setFontSize(10);
-    doc.text(`Delivery Time: ${quotation.delivery_time || "-"}`, 14, finalY + 22);
-    doc.text(`Payment Terms: ${quotation.payment_terms || "-"}`, 14, finalY + 27);
-    if (quotation.notes) {
-      doc.text(`Notes: ${quotation.notes}`, 14, finalY + 32);
-    }
-    
-    doc.save(`Quotation_${selected.lead_id}.pdf`);
   };
 
   const handleLogActivity = async () => {
@@ -587,19 +546,17 @@ export default function LeadWorkspace() {
                 </Alert>
               )}
 
-              {/* TABS (Only if PSI) */}
-              {(selected.source_website === "psi" || selected.source_website === "press_stamping_industries" || selected.source_website === "press stamping industries") && (
-                <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-                  <Button variant={activeTab === "details" ? "contained" : "text"} disableElevation
-                    onClick={() => setActiveTab("details")} sx={{ borderRadius: "4px 4px 0 0" }}>
-                    {t("leadWorkspace.details", "Details")}
-                  </Button>
-                  <Button variant={activeTab === "quotation" ? "contained" : "text"} disableElevation
-                    onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1 }}>
-                    {t("leadWorkspace.quotationRfq", "Quotation (RFQ)")}
-                  </Button>
-                </Box>
-              )}
+              {/* TABS (For all leads) */}
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Button variant={activeTab === "details" ? "contained" : "text"} disableElevation
+                  onClick={() => setActiveTab("details")} sx={{ borderRadius: "4px 4px 0 0" }}>
+                  {t("leadWorkspace.details", "Details")}
+                </Button>
+                <Button variant={activeTab === "quotation" ? "contained" : "text"} disableElevation
+                  onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1 }}>
+                  {t("leadWorkspace.quotationRfq", "Quotation (RFQ)")}
+                </Button>
+              </Box>
 
               {activeTab === "details" ? (
                 <>
@@ -672,74 +629,13 @@ export default function LeadWorkspace() {
                   </Card>
                 </>
               ) : (
-                <Card sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="subtitle2" fontWeight={700} mb={2}>{t("leadWorkspace.quotationDetails", "Quotation Details")}</Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <TextField label={t("leadWorkspace.quantity", "Quantity")} type="number" fullWidth size="small" 
-                          value={quotation.quantity || ""} disabled={isClosed}
-                          onChange={(e) => handleQuotationChange("quantity", Number(e.target.value))} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <FormControl fullWidth size="small">
-                          <InputLabel>{t("leadWorkspace.material", "Material")}</InputLabel>
-                          <Select value={quotation.material || ""} label={t("leadWorkspace.material", "Material")} disabled={isClosed}
-                            onChange={(e) => handleQuotationChange("material", e.target.value)}>
-                            <MenuItem value="Mild Steel (MS)">Mild Steel (MS)</MenuItem>
-                            <MenuItem value="Stainless Steel (SS)">Stainless Steel (SS)</MenuItem>
-                            <MenuItem value="Aluminium">Aluminium</MenuItem>
-                            <MenuItem value="Galvanized Steel">Galvanized Steel</MenuItem>
-                            <MenuItem value="Copper / Brass">Copper / Brass</MenuItem>
-                            <MenuItem value="Custom / Other">Custom / Other</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label={t("leadWorkspace.unitPrice", "Unit Price (Rs)")} type="number" fullWidth size="small" 
-                          value={quotation.unit_price || ""} disabled={isClosed}
-                          onChange={(e) => handleQuotationChange("unit_price", Number(e.target.value))} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label={t("leadWorkspace.totalValue", "Total Value (Rs)")} type="number" fullWidth size="small" 
-                          value={quotation.total_value || ""} disabled />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <TextField label={t("leadWorkspace.deliveryTime", "Delivery Time")} fullWidth size="small" 
-                          value={quotation.delivery_time || ""} disabled={isClosed}
-                          onChange={(e) => handleQuotationChange("delivery_time", e.target.value)} />
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <FormControl fullWidth size="small">
-                          <InputLabel>{t("leadWorkspace.paymentTerms", "Payment Terms")}</InputLabel>
-                          <Select value={quotation.payment_terms || ""} label={t("leadWorkspace.paymentTerms", "Payment Terms")} disabled={isClosed}
-                            onChange={(e) => handleQuotationChange("payment_terms", e.target.value)}>
-                            <MenuItem value="50% Advance, 50% on Dispatch">50% Advance, 50% on Dispatch</MenuItem>
-                            <MenuItem value="100% Advance">100% Advance</MenuItem>
-                            <MenuItem value="30 Days Credit">30 Days Credit</MenuItem>
-                            <MenuItem value="60 Days Credit">60 Days Credit</MenuItem>
-                            <MenuItem value="LC at Sight">LC at Sight</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <TextField label={t("leadWorkspace.internalNotes", "Internal Notes")} multiline rows={3} fullWidth size="small" 
-                          value={quotation.notes || ""} disabled={isClosed}
-                          onChange={(e) => handleQuotationChange("notes", e.target.value)} />
-                      </Grid>
-                    </Grid>
-                    <Box mt={2} display="flex" justifyContent="flex-end" gap={1}>
-                      {!isClosed && (
-                        <Button variant="outlined" startIcon={<SaveIcon />} disabled={quotationLoading} onClick={() => handleSaveQuotation(false)}>
-                          {t("leadWorkspace.saveDetails", "Save Details")}
-                        </Button>
-                      )}
-                      <Button variant="contained" color={isClosed ? "primary" : "secondary"} startIcon={<DownloadIcon />} disabled={quotationLoading} onClick={() => isClosed ? generatePDF() : handleSaveQuotation(true)}>
-                        {isClosed ? t("leadWorkspace.downloadPdf", "Download PDF") : t("leadWorkspace.saveAndGeneratePdf", "Save & Generate PDF")}
-                      </Button>
-                    </Box>
-                  </CardContent>
-                </Card>
+                <QuotationForm 
+                  lead={selected} 
+                  initialQuotation={quotation} 
+                  onSave={handleSaveQuotation} 
+                  loading={quotationLoading} 
+                  isClosed={isClosed} 
+                />
               )}
             </Box>
           )}
