@@ -12,14 +12,23 @@ import {
   FormControlLabel,
   Alert,
   LinearProgress,
+  Grid,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  TextField,
+  Chip,
+  Stack,
 } from "@mui/material";
 import {
   CheckCircle as CheckIcon,
+  Map as MapIcon,
   Warning as WarningIcon,
   PhoneDisabled as PhoneDisabledIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
-import { attendanceAPI } from "../services/api";
+import { attendanceAPI, automationAPI } from "../services/api";
 import apiClient from "../services/api";
 
 // Google Fonts: IBM Plex Mono
@@ -133,6 +142,14 @@ const DutySheetPopup: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [currentTime, setCurrentTime] = useState(getISTTimeString());
+  const [step, setStep] = useState(1);
+  const [locations, setLocations] = useState<any>({});
+  const [selState, setSelState] = useState("");
+  const [selDistrict, setSelDistrict] = useState("");
+  const [selTaluka, setSelTaluka] = useState("");
+  const [selVillage, setSelVillage] = useState("");
+  const [sabhsadLimit, setSabhsadLimit] = useState(100);
+  const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
 
   // Live clock
   useEffect(() => {
@@ -163,7 +180,11 @@ const DutySheetPopup: React.FC = () => {
           headers: { "x-user-role": normalizedRole },
         });
         if (res.data.should_show_popup) {
-          const tcRes = await attendanceAPI.getAllTelecallers();
+          const [tcRes, locRes] = await Promise.all([
+             attendanceAPI.getAllTelecallers(),
+             automationAPI.getLocations().catch(() => ({})),
+          ]);
+          setLocations(locRes || {});
           const data = tcRes.data;
           const combined = [
              ...(data.sales_managers || []).map((t: any) => ({ ...t, group: "Sales Managers" })),
@@ -208,14 +229,22 @@ const DutySheetPopup: React.FC = () => {
         telecallers.map((tc) => ({ email: tc.email, is_on_duty: tc.is_on_duty }))
       );
       setSubmitSuccess(true);
-      setTimeout(() => setOpen(false), 1500);
+      setTimeout(() => {
+        setStep(2);
+        setSubmitSuccess(false);
+        setSelectedTelecallers(telecallers.filter(t => t.is_on_duty && t.group === "Telecallers").map(t => t.email));
+      }, 1500);
     } catch (err: any) {
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
 
       if (status === 409) {
         setSubmitError(t("dutySheet.alreadySubmitted", "Duty sheet was already submitted for today by another user."));
-        setTimeout(() => setOpen(false), 2500);
+        setTimeout(() => {
+          setSubmitError(null);
+          setStep(2);
+          setSelectedTelecallers(telecallers.filter(t => t.is_on_duty && t.group === "Telecallers").map(t => t.email));
+        }, 1500);
       } else if (status === 400) {
         setSubmitError(detail || t("dutySheet.windowClosed", "Submission window has closed (must be before 10:00 AM IST)."));
       } else if (status === 403) {
@@ -223,6 +252,28 @@ const DutySheetPopup: React.FC = () => {
       } else {
         setSubmitError(detail || t("dutySheet.failed", "Submission failed. Please try again."));
       }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAssignSabhsads = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const payload = {
+        telecaller_emails: selectedTelecallers,
+        state: selState,
+        district: selDistrict,
+        taluka: selTaluka,
+        village: selVillage,
+        limit: sabhsadLimit,
+      };
+      await automationAPI.adminDistributeSabhsads(payload);
+      setSubmitSuccess(true);
+      setTimeout(() => setOpen(false), 1500);
+    } catch (err: any) {
+      setSubmitError(err?.response?.data?.detail || "Distribution failed.");
     } finally {
       setSubmitting(false);
     }
@@ -405,7 +456,8 @@ const DutySheetPopup: React.FC = () => {
           </Box>
         )}
 
-        {/* ── Duty summary bar ── */}
+        {step === 1 && (<>
+{/* ── Duty summary bar ── */}
         <Box
           sx={{
             p: "14px 16px",
@@ -704,6 +756,95 @@ const DutySheetPopup: React.FC = () => {
             })}
           </Box>
         )}
+        </>)}
+
+        {/* ── Step 2: Sabhsad Distribution ── */}
+        {step === 2 && (
+          <Box sx={{ mt: 2, pb: 4 }}>
+            <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MapIcon sx={{ color: T.amber }} />
+              <Typography sx={{ fontFamily: T.sans, fontWeight: 600, fontSize: '0.9rem', color: T.textPrimary }}>
+                Assign Sabhsads to Present Telecallers
+              </Typography>
+            </Box>
+
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>State</InputLabel>
+                  <Select label="State" value={selState} onChange={(e) => { setSelState(e.target.value); setSelDistrict(""); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All States</MenuItem>
+                    {Object.keys(locations).map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selState}>
+                  <InputLabel>District</InputLabel>
+                  <Select label="District" value={selDistrict} onChange={(e) => { setSelDistrict(e.target.value); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Districts</MenuItem>
+                    {selState && Object.keys(locations[selState] || {}).map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selDistrict}>
+                  <InputLabel>Taluka</InputLabel>
+                  <Select label="Taluka" value={selTaluka} onChange={(e) => { setSelTaluka(e.target.value); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Talukas</MenuItem>
+                    {selDistrict && Object.keys(locations[selState]?.[selDistrict] || {}).map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selTaluka}>
+                  <InputLabel>Village</InputLabel>
+                  <Select label="Village" value={selVillage} onChange={(e) => setSelVillage(e.target.value)} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Villages</MenuItem>
+                    {selTaluka && (locations[selState]?.[selDistrict]?.[selTaluka] || []).map((v: string) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={8}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Assign To</InputLabel>
+                  <Select
+                    label="Assign To"
+                    multiple
+                    value={selectedTelecallers}
+                    onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
+                    sx={{ borderRadius: 1 }}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selected.map((value) => (
+                          <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
+                        ))}
+                      </Box>
+                    )}
+                  >
+                    {telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers').map((t) => (
+                      <MenuItem key={t.email} value={t.email}>
+                        {t.name || t.email.split("@")[0]}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Limit per TC"
+                  value={sabhsadLimit}
+                  onChange={(e) => setSabhsadLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                  fullWidth
+                  sx={{ borderRadius: 1 }}
+                  inputProps={{ min: 1 }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        )}
       </DialogContent>
 
       {/* ── Actions ── */}
@@ -718,7 +859,7 @@ const DutySheetPopup: React.FC = () => {
       >
         <Box
           component="button"
-          onClick={handleSubmit}
+          onClick={step === 1 ? handleSubmit : handleAssignSabhsads}
           disabled={submitting || submitSuccess}
           sx={{
             width: "100%",
@@ -754,10 +895,12 @@ const DutySheetPopup: React.FC = () => {
           ) : submitSuccess ? (
             <>
               <CheckIcon sx={{ fontSize: 16 }} />
-              {t("dutySheet.confirmed", "Duty Sheet Confirmed")}
+              {step === 1 ? t("dutySheet.confirmed", "Duty Sheet Confirmed") : "Distributed Successfully"}
             </>
+          ) : step === 1 ? (
+            "Next: Assign Villages →"
           ) : (
-            t("dutySheet.submitDutySheet", "Submit Duty Sheet — {count} on duty").replace("{count}", String(onDutyCount))
+            "Submit & Distribute"
           )}
         </Box>
       </DialogActions>
