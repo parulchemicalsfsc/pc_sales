@@ -130,8 +130,8 @@ def get_all_telecallers(
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Returns all active telecallers from app_users table.
-    'Active' means: is_active = true AND role contains 'telecaller' or matches staff-type roles.
+    Returns all active telecallers and sales managers from app_users table.
+    'Active' means: is_active = true AND role matches.
     Inactive / deactivated accounts are excluded.
     """
     today = get_today_ist()
@@ -141,16 +141,18 @@ def get_all_telecallers(
         res = db.table("app_users").select("email, name, role, is_active").execute()
         users = res.data or []
 
-        telecallers = [
-            u for u in users
-            if (
-                u.get("is_active", True) is not False  # exclude deactivated
-                and (
-                    u.get("role", "").lower().replace(" ", "_") in telecaller_roles
-                    or "telecaller" in u.get("role", "").lower()
-                )
-            )
-        ]
+        telecallers_data = []
+        sales_managers_data = []
+
+        for u in users:
+            if u.get("is_active", True) is False:
+                continue
+                
+            role = u.get("role", "").lower().replace(" ", "_")
+            if role in telecaller_roles or "telecaller" in role:
+                telecallers_data.append(u)
+            elif role == "sales_manager":
+                sales_managers_data.append(u)
 
         # Fetch today's existing duty status for pre-population
         att_res = db.table("telecaller_attendance") \
@@ -159,23 +161,23 @@ def get_all_telecallers(
             .execute()
         duty_map = {r["user_email"]: r["is_present"] for r in (att_res.data or [])}
 
-        result = []
-        for t in telecallers:
-            email = t["email"]
-            result.append({
-                "email": email,
-                "name": t.get("name") or email,
-                "role": t.get("role", ""),
-                # Default to True (on duty) if not yet set for today
-                "is_on_duty": duty_map.get(email, True),
-            })
+        def map_users(user_list):
+            return [{
+                "email": u["email"],
+                "name": u.get("name") or u["email"],
+                "role": u.get("role", ""),
+                "is_on_duty": duty_map.get(u["email"], True),
+            } for u in user_list]
 
-        logger.info(f"[DUTY] Returning {len(result)} active telecallers")
-        return {"telecallers": result}
+        result_telecallers = map_users(telecallers_data)
+        result_sms = map_users(sales_managers_data)
+
+        logger.info(f"[DUTY] Returning {len(result_telecallers)} active telecallers and {len(result_sms)} sales managers")
+        return {"telecallers": result_telecallers, "sales_managers": result_sms}
 
     except Exception as e:
-        logger.error(f"[DUTY] Error fetching telecallers: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch telecallers")
+        logger.error(f"[DUTY] Error fetching telecallers/sales managers: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch duty sheet users")
 
 
 @router.post("/submit-duty-sheet")
@@ -189,7 +191,7 @@ def submit_duty_sheet(
     Admin / Sales Manager submits the daily duty sheet.
 
     Guards:
-    1. Role must be admin / sales_manager / manager.
+    1. Role must be admin / sales_manager.
     2. Current IST time must be before 10:00 AM.
     3. Duty sheet must not have been submitted already today (idempotency via UNIQUE constraint).
 
@@ -198,7 +200,7 @@ def submit_duty_sheet(
     - Inserts a row into duty_sheet_log to lock the day.
     """
     role = (x_user_role or "").lower().replace(" ", "_")
-    if role not in DUTY_ROLES:
+    if role not in DUTY_ROLES or role == "manager":
         raise HTTPException(
             status_code=403,
             detail="Only admin or sales manager can submit the duty sheet",

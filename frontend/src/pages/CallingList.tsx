@@ -75,6 +75,11 @@ interface Assignment {
   district?: string;
   priority_label?: string;
   priority_score?: number;
+  last_call?: {
+    call_outcome: string;
+    notes: string;
+    created_at: string;
+  };
 }
 
 interface Pagination { page: number; limit: number; total: number; total_pages: number; }
@@ -444,6 +449,25 @@ export default function CallingList() {
                           <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
                             {item.notes}
                           </Typography>
+                        )}
+                        {item.last_call && (
+                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: alpha(border, 0.5), border: `1px solid ${border}` }}>
+                            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.25 }}>
+                              Last Call: {new Date(item.last_call.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </Typography>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Chip
+                                size="small"
+                                label={item.last_call.call_outcome.replace(/_/g, " ").toUpperCase()}
+                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700 }}
+                              />
+                            </Stack>
+                            {item.last_call.notes && (
+                              <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
+                                "{item.last_call.notes}"
+                              </Typography>
+                            )}
+                          </Box>
                         )}
                       </Box>
 

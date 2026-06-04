@@ -582,8 +582,23 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/admin/telecaller-profile", { params: { email } });
     return response.data;
   },
-  adminDistribute: async () => {
-    const response = await apiClient.post("/api/automation/admin/distribute");
+  adminDistributeMantris: async () => {
+    const response = await apiClient.post("/api/automation/admin/distribute-mantris");
+    return response.data;
+  },
+  adminDistributeSabhsads: async (payload: {
+    telecaller_emails: string[];
+    state: string;
+    district: string;
+    taluka: string;
+    village: string;
+    limit?: number;
+  }) => {
+    const response = await apiClient.post("/api/automation/admin/distribute-sabhsads", payload);
+    return response.data;
+  },
+  getLocations: async () => {
+    const response = await apiClient.get("/api/automation/locations");
     return response.data;
   },
   adminReassign: async (assignmentId: number, newUserEmail: string) => {
