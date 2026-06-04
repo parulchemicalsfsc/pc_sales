@@ -150,6 +150,7 @@ const DutySheetPopup: React.FC = () => {
   const [selTaluka, setSelTaluka] = useState("");
   const [selVillage, setSelVillage] = useState("");
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
+  const [assignedTelecallers, setAssignedTelecallers] = useState<string[]>([]);
 
   // Live clock
   useEffect(() => {
@@ -272,6 +273,7 @@ const DutySheetPopup: React.FC = () => {
       setSubmitSuccess(true);
       setTimeout(() => {
         setSubmitSuccess(false);
+        setAssignedTelecallers((prev) => [...prev, ...selectedTelecallers]);
         setSelVillage("");
         setSelectedTelecallers([]);
       }, 1500);
@@ -825,7 +827,7 @@ const DutySheetPopup: React.FC = () => {
                       </Box>
                     )}
                   >
-                    {telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers').map((t) => (
+                    {telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers' && !assignedTelecallers.includes(t.email)).map((t) => (
                       <MenuItem key={t.email} value={t.email}>
                         {t.name || t.email.split("@")[0]}
                       </MenuItem>
