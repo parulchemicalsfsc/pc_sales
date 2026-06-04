@@ -578,11 +578,13 @@ def get_my_assignments(
         if all_ids:
             try:
                 logs_res = db.table("call_logs") \
-                    .select("customer_id, call_outcome, notes, created_at, user_email") \
+                    .select("customer_id, call_outcome, notes, called_at, user_email") \
                     .in_("customer_id", all_ids) \
-                    .order("created_at", desc=True) \
+                    .order("called_at", desc=True) \
                     .execute()
                 for log in (logs_res.data or []):
+                    # Map called_at to created_at for frontend compatibility
+                    log["created_at"] = log.pop("called_at", None)
                     cid = log["customer_id"]
                     if cid not in last_calls_map:
                         last_calls_map[cid] = log
