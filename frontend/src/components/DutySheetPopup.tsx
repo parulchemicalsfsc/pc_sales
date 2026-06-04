@@ -269,7 +269,11 @@ const DutySheetPopup: React.FC = () => {
       };
       await automationAPI.adminDistributeSabhsads(payload);
       setSubmitSuccess(true);
-      setTimeout(() => setOpen(false), 1500);
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        setSelVillage("");
+        setSelectedTelecallers([]);
+      }, 1500);
     } catch (err: any) {
       setSubmitError(err?.response?.data?.detail || "Distribution failed.");
     } finally {
@@ -843,52 +847,123 @@ const DutySheetPopup: React.FC = () => {
           backgroundColor: T.bg,
         }}
       >
-        <Box
-          component="button"
-          onClick={step === 1 ? handleSubmit : handleAssignSabhsads}
-          disabled={submitting || submitSuccess}
-          sx={{
-            width: "100%",
-            py: "12px",
-            px: "20px",
-            backgroundColor: submitSuccess ? T.green : T.charcoal,
-            color: "#ffffff",
-            border: "none",
-            borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
-            borderRadius: "4px",
-            cursor: submitting || submitSuccess ? "not-allowed" : "pointer",
-            fontFamily: T.mono,
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            opacity: submitting ? 0.7 : 1,
-            transition: "background-color 0.15s ease, opacity 0.15s ease",
-            "&:hover:not(:disabled)": {
-              backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
-            },
-          }}
-        >
-          {submitting ? (
-            <>
-              <CircularProgress size={14} sx={{ color: "#ffffff" }} />
-              {t("dutySheet.confirming", "Submitting...")}
-            </>
-          ) : submitSuccess ? (
-            <>
-              <CheckIcon sx={{ fontSize: 16 }} />
-              {step === 1 ? t("dutySheet.confirmed", "Duty Sheet Confirmed") : "Distributed Successfully"}
-            </>
-          ) : step === 1 ? (
-            "Next: Assign Villages →"
-          ) : (
-            "Submit & Distribute"
-          )}
-        </Box>
+        {step === 1 ? (
+          <Box
+            component="button"
+            onClick={handleSubmit}
+            disabled={submitting || submitSuccess}
+            sx={{
+              width: "100%",
+              py: "12px",
+              px: "20px",
+              backgroundColor: submitSuccess ? T.green : T.charcoal,
+              color: "#ffffff",
+              border: "none",
+              borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
+              borderRadius: "4px",
+              cursor: submitting || submitSuccess ? "not-allowed" : "pointer",
+              fontFamily: T.mono,
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              opacity: submitting ? 0.7 : 1,
+              transition: "background-color 0.15s ease, opacity 0.15s ease",
+              "&:hover:not(:disabled)": {
+                backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
+              },
+            }}
+          >
+            {submitting ? (
+              <>
+                <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+                {t("dutySheet.confirming", "Submitting...")}
+              </>
+            ) : submitSuccess ? (
+              <>
+                <CheckIcon sx={{ fontSize: 16 }} />
+                {t("dutySheet.confirmed", "Duty Sheet Confirmed")}
+              </>
+            ) : (
+              "Next: Assign Villages →"
+            )}
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', gap: '12px', width: '100%' }}>
+            <Box
+              component="button"
+              onClick={() => setOpen(false)}
+              sx={{
+                flex: 1,
+                py: "12px",
+                px: "20px",
+                backgroundColor: "transparent",
+                color: T.charcoal,
+                border: `1px solid ${T.borderDark}`,
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontFamily: T.mono,
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                "&:hover": {
+                  backgroundColor: T.bgHover,
+                },
+              }}
+            >
+              Finish & Close
+            </Box>
+            <Box
+              component="button"
+              onClick={handleAssignSabhsads}
+              disabled={submitting || submitSuccess || !selVillage || selectedTelecallers.length === 0}
+              sx={{
+                flex: 2,
+                py: "12px",
+                px: "20px",
+                backgroundColor: submitSuccess ? T.green : T.charcoal,
+                color: "#ffffff",
+                border: "none",
+                borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
+                borderRadius: "4px",
+                cursor: submitting || submitSuccess || !selVillage || selectedTelecallers.length === 0 ? "not-allowed" : "pointer",
+                fontFamily: T.mono,
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                opacity: (submitting || !selVillage || selectedTelecallers.length === 0) && !submitSuccess ? 0.6 : 1,
+                transition: "background-color 0.15s ease, opacity 0.15s ease",
+                "&:hover:not(:disabled)": {
+                  backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
+                },
+              }}
+            >
+              {submitting ? (
+                <>
+                  <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+                  {t("dutySheet.confirming", "Assigning...")}
+                </>
+              ) : submitSuccess ? (
+                <>
+                  <CheckIcon sx={{ fontSize: 16 }} />
+                  Assigned Successfully
+                </>
+              ) : (
+                "Assign Village"
+              )}
+            </Box>
+          </Box>
+        )}
       </DialogActions>
     </Dialog>
   );
