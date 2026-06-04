@@ -451,7 +451,7 @@ export default function CallingList() {
                           </Typography>
                         )}
                         {item.last_call && (
-                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: alpha(border, 0.5), border: `1px solid ${border}` }}>
+                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
                             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.25 }}>
                               Last Call: {new Date(item.last_call.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </Typography>
@@ -641,7 +641,7 @@ export default function CallingList() {
                       const displayColor = outcomeIcon ? outcomeIcon.color : "#6b7280";
                       
                       return (
-                        <Box key={idx} sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(border, 0.4), border: `1px solid ${border}` }}>
+                        <Box key={idx} sx={{ p: 1.5, borderRadius: 2, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
                           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 0.5 }}>
                             <Chip
                               size="small"
