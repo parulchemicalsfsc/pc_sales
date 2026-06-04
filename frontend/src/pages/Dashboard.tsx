@@ -330,7 +330,7 @@ export default function Dashboard() {
                 <PermissionGate permission={PERMISSIONS.VIEW_DEMOS}>
                     <Grid item xs={6} sm={6} md={3}>
                         <Card sx={{ background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)", color: "white", cursor: "pointer", transition: "all 0.3s ease", "&:hover": { transform: "translateY(-4px)", boxShadow: 6 } }}
-                            onClick={() => navigate("/demos")}>
+                            onClick={() => navigate("/demo-scheduler")}>
                             <CardContent>
                                 <Science sx={{ fontSize: { xs: 28, sm: 40 }, mb: 1, opacity: 0.9 }} />
                                 <Typography variant="h6" sx={{ fontWeight: 600 }}>{t("dashboard.quickActions.scheduleDemo.title")}</Typography>
@@ -541,7 +541,7 @@ export default function Dashboard() {
                             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
                                 <Typography variant="h6" sx={{ fontWeight: 600 }}>{t("dashboard.upcomingDemos")}</Typography>
                                 <PermissionGate permission={PERMISSIONS.VIEW_DEMOS} block permissionLabel="view demos">
-                                    <Button size="small" endIcon={<ArrowForward />} onClick={() => navigate("/demos")}>View All</Button>
+                                    <Button size="small" endIcon={<ArrowForward />} onClick={() => navigate("/demo-scheduler")}>View All</Button>
                                 </PermissionGate>
                             </Box>
                             {hasPermission(PERMISSIONS.VIEW_DEMOS) ? (
@@ -552,7 +552,7 @@ export default function Dashboard() {
                                         upcomingDemos.slice(0, 5).map((demo, index) => (
                                             <Paper key={index}
                                                 sx={{ p: 2.5, mb: 1.5, display: "flex", justifyContent: "space-between", alignItems: "center", border: `1px solid ${theme.palette.divider}`, borderRadius: 2, cursor: "pointer", transition: "all 0.2s", "&:hover": { bgcolor: theme.palette.action.hover, transform: "translateX(4px)", borderColor: theme.palette.secondary.main } }}
-                                                onClick={() => navigate("/demos")}>
+                                                onClick={() => navigate("/demo-scheduler")}>
                                                 <Box sx={{ flex: 1 }}>
                                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
                                                         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{demo.customer_name}</Typography>

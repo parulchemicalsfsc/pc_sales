@@ -63,6 +63,7 @@ interface Telecaller {
   name: string;
   role: string;
   is_on_duty: boolean;
+  group?: string;
 }
 
 // ─── Custom toggle switch styles ────────────────────────────────────────────
@@ -163,7 +164,12 @@ const DutySheetPopup: React.FC = () => {
         });
         if (res.data.should_show_popup) {
           const tcRes = await attendanceAPI.getAllTelecallers();
-          setTelecallers(tcRes.data.telecallers || []);
+          const data = tcRes.data;
+          const combined = [
+             ...(data.sales_managers || []).map((t: any) => ({ ...t, group: "Sales Managers" })),
+             ...(data.telecallers || []).map((t: any) => ({ ...t, group: "Telecallers" }))
+          ];
+          setTelecallers(combined);
           setOpen(true);
         }
       } catch (err) {
@@ -581,100 +587,121 @@ const DutySheetPopup: React.FC = () => {
             </Typography>
           </Box>
         ) : (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: "6px", mb: "4px" }}>
-            {telecallers.map((tc) => (
-              <Box
-                key={tc.email}
-                sx={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  px: "14px",
-                  py: "10px",
-                  backgroundColor: tc.is_on_duty ? T.surface : "#fafafa",
-                  border: `1px solid ${tc.is_on_duty ? T.border : T.border}`,
-                  borderLeft: `3px solid ${tc.is_on_duty ? T.amber : T.border}`,
-                  borderRadius: "4px",
-                  transition: "border-color 0.15s ease, background-color 0.15s ease",
-                }}
-              >
-                <Box sx={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  {/* Flat monogram square */}
-                  <Box
-                    sx={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: "4px",
-                      backgroundColor: tc.is_on_duty ? T.amber : "#e5e7eb",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      transition: "background-color 0.15s ease",
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontFamily: T.mono,
-                        fontSize: "0.85rem",
-                        fontWeight: 700,
-                        color: tc.is_on_duty ? T.charcoal : T.textMuted,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {(tc.name || tc.email).charAt(0).toUpperCase()}
-                    </Typography>
-                  </Box>
-
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontFamily: T.sans,
-                        fontSize: "0.85rem",
-                        fontWeight: 600,
-                        color: T.textPrimary,
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {tc.name || tc.email}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontFamily: T.mono,
-                        fontSize: "0.67rem",
-                        color: T.textMuted,
-                        letterSpacing: "0.01em",
-                      }}
-                    >
-                      {tc.email}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: "16px", mb: "4px" }}>
+            {["Sales Managers", "Telecallers"].map((groupName) => {
+              const groupData = telecallers.filter((tc) => tc.group === groupName);
+              if (groupData.length === 0) return null;
+              
+              return (
+                <Box key={groupName} sx={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                   <Typography
                     sx={{
-                      fontFamily: T.mono,
-                      fontSize: "0.7rem",
-                      fontWeight: 700,
-                      color: tc.is_on_duty ? T.green : T.gray,
-                      letterSpacing: "0.1em",
-                      minWidth: "24px",
-                      textAlign: "right",
+                      fontFamily: T.sans,
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      color: T.charcoalMid,
+                      mb: "4px",
+                      px: "4px"
                     }}
                   >
-                    {tc.is_on_duty ? t("dutySheet.onDuty", "ON") : t("dutySheet.offDuty", "OFF")}
+                    {groupName}
                   </Typography>
-                  <Switch
-                    checked={tc.is_on_duty}
-                    onChange={() => handleToggle(tc.email)}
-                    disabled={submitting || submitSuccess}
-                    size="small"
-                    sx={switchSx(tc.is_on_duty)}
-                  />
+                  {groupData.map((tc) => (
+                    <Box
+                      key={tc.email}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        px: "14px",
+                        py: "10px",
+                        backgroundColor: tc.is_on_duty ? T.surface : "#fafafa",
+                        border: `1px solid ${tc.is_on_duty ? T.border : T.border}`,
+                        borderLeft: `3px solid ${tc.is_on_duty ? T.amber : T.border}`,
+                        borderRadius: "4px",
+                        transition: "border-color 0.15s ease, background-color 0.15s ease",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        {/* Flat monogram square */}
+                        <Box
+                          sx={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: "4px",
+                            backgroundColor: tc.is_on_duty ? T.amber : "#e5e7eb",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            transition: "background-color 0.15s ease",
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontFamily: T.mono,
+                              fontSize: "0.85rem",
+                              fontWeight: 700,
+                              color: tc.is_on_duty ? T.charcoal : T.textMuted,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {(tc.name || tc.email).charAt(0).toUpperCase()}
+                          </Typography>
+                        </Box>
+
+                        <Box>
+                          <Typography
+                            sx={{
+                              fontFamily: T.sans,
+                              fontSize: "0.85rem",
+                              fontWeight: 600,
+                              color: T.textPrimary,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {tc.name || tc.email}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontFamily: T.mono,
+                              fontSize: "0.67rem",
+                              color: T.textMuted,
+                              letterSpacing: "0.01em",
+                            }}
+                          >
+                            {tc.email}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Typography
+                          sx={{
+                            fontFamily: T.mono,
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            color: tc.is_on_duty ? T.green : T.gray,
+                            letterSpacing: "0.1em",
+                            minWidth: "24px",
+                            textAlign: "right",
+                          }}
+                        >
+                          {tc.is_on_duty ? t("dutySheet.onDuty", "ON") : t("dutySheet.offDuty", "OFF")}
+                        </Typography>
+                        <Switch
+                          checked={tc.is_on_duty}
+                          onChange={() => handleToggle(tc.email)}
+                          disabled={submitting || submitSuccess}
+                          size="small"
+                          sx={switchSx(tc.is_on_duty)}
+                        />
+                      </Box>
+                    </Box>
+                  ))}
                 </Box>
-              </Box>
-            ))}
+              );
+            })}
           </Box>
         )}
       </DialogContent>

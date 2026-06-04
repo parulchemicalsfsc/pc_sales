@@ -126,6 +126,16 @@ export default function CallDistribution() {
   const [profileData, setProfileData] = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
+  // Sabhsad Distribution State
+  const [locations, setLocations] = useState<any>({});
+  const [selState, setSelState] = useState("");
+  const [selDistrict, setSelDistrict] = useState("");
+  const [selTaluka, setSelTaluka] = useState("");
+  const [selVillage, setSelVillage] = useState("");
+  const [sabhsadLimit, setSabhsadLimit] = useState(100);
+  const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
+  const [sabhsadDistributing, setSabhsadDistributing] = useState(false);
+
   const handleOpenProfile = async (email: string) => {
     setProfileDialogEmail(email);
     setProfileData(null);
@@ -150,14 +160,16 @@ export default function CallDistribution() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [status, tcRes, adminRes] = await Promise.all([
+      const [status, tcRes, adminRes, locRes] = await Promise.all([
         automationAPI.getDistributionStatus().catch(() => null),
         automationAPI.getTelecallers().catch(() => ({ telecallers: [] })),
         automationAPI.getAdminAssignments({ page: 1, limit: 500 }).catch(() => null),
+        automationAPI.getLocations().catch(() => ({})),
       ]);
       setDistStatus(status);
       setTelecallers(tcRes.telecallers || []);
       setAdminData(adminRes);
+      setLocations(locRes || {});
     } catch (e) {
       console.error("Load failed:", e);
     } finally {
@@ -169,10 +181,10 @@ export default function CallDistribution() {
 
   // ── Handlers ──
   const handleDistribute = async () => {
-    if (!window.confirm("Run today's call distribution? This will assign uncalled customers to telecallers.")) return;
+    if (!window.confirm("Run today's mantri distribution? This will assign uncalled mantris to sales managers.")) return;
     try {
       setDistributing(true);
-      const res = await automationAPI.adminDistribute();
+      const res = await automationAPI.adminDistributeMantris();
       setToast({ msg: res.message || "Distributed!", sev: "success" });
       loadData();
     } catch (e: any) {
@@ -193,6 +205,32 @@ export default function CallDistribution() {
       setToast({ msg: e?.response?.data?.detail || "Refresh failed", sev: "error" });
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleSabhsadDistribute = async () => {
+    if (selectedTelecallers.length === 0) {
+      setToast({ msg: "Please select at least one telecaller", sev: "error" });
+      return;
+    }
+    if (!window.confirm("Distribute Sabhsads for the selected location to these telecallers?")) return;
+    try {
+      setSabhsadDistributing(true);
+      const payload = {
+        telecaller_emails: selectedTelecallers,
+        state: selState,
+        district: selDistrict,
+        taluka: selTaluka,
+        village: selVillage,
+        limit: sabhsadLimit,
+      };
+      const res = await automationAPI.adminDistributeSabhsads(payload);
+      setToast({ msg: res.message || "Distributed successfully", sev: "success" });
+      loadData();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Distribution failed", sev: "error" });
+    } finally {
+      setSabhsadDistributing(false);
     }
   };
 
@@ -243,9 +281,12 @@ export default function CallDistribution() {
     [adminData]
   );
 
-  const telecallerSummary = adminData?.telecaller_summary
+  const allSummary = adminData?.telecaller_summary
     ? Object.entries(adminData.telecaller_summary as Record<string, any>)
     : [];
+
+  const smSummary = allSummary.filter(([_, stats]) => stats.role === "sales_manager");
+  const tcSummary = allSummary.filter(([_, stats]) => stats.role !== "sales_manager" && stats.role !== "admin");
 
   if (!user || !canDistribute) {
     return (
@@ -356,14 +397,14 @@ export default function CallDistribution() {
             )}
           </Paper>
 
-          {/* ── Telecaller Summary Cards ── */}
-          {telecallerSummary.length > 0 && (
-            <Box sx={{ mb: 3 }}>
+          {/* ── Sales Manager Summary Cards ── */}
+          {smSummary.length > 0 && (
+            <Box sx={{ mb: 4 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 1.5, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
-                {t("callDistribution.telecallerDistribution", "Telecaller Distribution")}
+                {t("callDistribution.salesManagerDistribution", "Sales Manager Distribution Status")}
               </Typography>
               <Grid container spacing={2}>
-                {telecallerSummary.map(([email, d]: [string, any]) => {
+                {smSummary.map(([email, d]: [string, any]) => {
                   const pct = d.total > 0 ? Math.round((d.called / d.total) * 100) : 0;
                   return (
                     <Grid item xs={12} sm={6} md={4} key={email}>
@@ -380,11 +421,11 @@ export default function CallDistribution() {
                         <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
                           <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.5 }}>
                             <Avatar sx={{ width: 36, height: 36, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main", fontSize: 14, fontWeight: 700 }}>
-                              {email.charAt(0).toUpperCase()}
+                              {d.name.charAt(0).toUpperCase()}
                             </Avatar>
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {email.split("@")[0]}
+                                {d.name}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 {d.total} {t("callDistribution.totalCalls", "total calls")}
@@ -437,6 +478,195 @@ export default function CallDistribution() {
               </Grid>
             </Box>
           )}
+
+          <Divider sx={{ my: 4 }} />
+
+          {/* ── Sabhsad Distribution ── */}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 2.5,
+              mb: 3,
+              borderRadius: 3,
+              border: `1px solid ${theme.palette.divider}`,
+              bgcolor: alpha(theme.palette.success.main, 0.02),
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "success.main", mb: 2, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
+              Sabhsad Location Distribution
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>State</InputLabel>
+                  <Select label="State" value={selState} onChange={(e) => { setSelState(e.target.value); setSelDistrict(""); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 2 }}>
+                    <MenuItem value="">All States</MenuItem>
+                    {Object.keys(locations).map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl size="small" fullWidth disabled={!selState}>
+                  <InputLabel>District</InputLabel>
+                  <Select label="District" value={selDistrict} onChange={(e) => { setSelDistrict(e.target.value); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 2 }}>
+                    <MenuItem value="">All Districts</MenuItem>
+                    {selState && locations[selState] && Object.keys(locations[selState]).map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl size="small" fullWidth disabled={!selDistrict}>
+                  <InputLabel>Taluka</InputLabel>
+                  <Select label="Taluka" value={selTaluka} onChange={(e) => { setSelTaluka(e.target.value); setSelVillage(""); }} sx={{ borderRadius: 2 }}>
+                    <MenuItem value="">All Talukas</MenuItem>
+                    {selState && selDistrict && locations[selState][selDistrict] && Object.keys(locations[selState][selDistrict]).map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <FormControl size="small" fullWidth disabled={!selTaluka}>
+                  <InputLabel>Village</InputLabel>
+                  <Select label="Village" value={selVillage} onChange={(e) => setSelVillage(e.target.value)} sx={{ borderRadius: 2 }}>
+                    <MenuItem value="">All Villages</MenuItem>
+                    {selState && selDistrict && selTaluka && locations[selState][selDistrict][selTaluka] && locations[selState][selDistrict][selTaluka].map((v: string) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              <Grid item xs={12} sm={8}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Assign To Telecallers</InputLabel>
+                  <Select
+                    label="Assign To Telecallers"
+                    multiple
+                    value={selectedTelecallers}
+                    onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
+                    sx={{ borderRadius: 2 }}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selected.map((value) => (
+                          <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
+                        ))}
+                      </Box>
+                    )}
+                  >
+                    {telecallers.map((t) => (
+                      <MenuItem key={t.email} value={t.email}>
+                        {t.name || t.email.split("@")[0]}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Max per Telecaller"
+                    value={sabhsadLimit}
+                    onChange={(e) => setSabhsadLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                    sx={{ width: 120, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    inputProps={{ min: 1 }}
+                  />
+                  <Button
+                    variant="contained"
+                    color="success"
+                    disabled={selectedTelecallers.length === 0 || sabhsadDistributing}
+                    startIcon={sabhsadDistributing ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
+                    onClick={handleSabhsadDistribute}
+                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, flex: 1 }}
+                  >
+                    Assign
+                  </Button>
+                </Stack>
+              </Grid>
+            </Grid>
+          </Paper>
+
+          {/* ── Telecaller Summary Cards ── */}
+          {tcSummary.length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 1.5, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
+                {t("callDistribution.telecallerDistribution", "Telecaller Distribution Status")}
+              </Typography>
+              <Grid container spacing={2}>
+                {tcSummary.map(([email, d]: [string, any]) => {
+                  const pct = d.total > 0 ? Math.round((d.called / d.total) * 100) : 0;
+                  return (
+                    <Grid item xs={12} sm={6} md={4} key={email}>
+                      <Card
+                        variant="outlined"
+                        onClick={() => handleOpenProfile(email)}
+                        sx={{
+                          borderRadius: 3,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                          "&:hover": { boxShadow: theme.shadows[4], transform: "translateY(-2px)", borderColor: theme.palette.primary.main },
+                        }}
+                      >
+                        <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.5 }}>
+                            <Avatar sx={{ width: 36, height: 36, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main", fontSize: 14, fontWeight: 700 }}>
+                              {d.name.charAt(0).toUpperCase()}
+                            </Avatar>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {d.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {d.total} {t("callDistribution.totalCalls", "total calls")}
+                              </Typography>
+                            </Box>
+                          </Stack>
+
+                          {/* Progress */}
+                          <Box sx={{ mb: 1 }}>
+                            <LinearProgress
+                              variant="determinate"
+                              value={pct}
+                              sx={{
+                                height: 6,
+                                borderRadius: 3,
+                                bgcolor: alpha(theme.palette.success.main, 0.1),
+                                "& .MuiLinearProgress-bar": { borderRadius: 3, bgcolor: "success.main" },
+                              }}
+                            />
+                          </Box>
+
+                          <Stack direction="row" spacing={1} justifyContent="space-between" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                            <Chip
+                              size="small"
+                              label={`${d.pending} ${t("callDistribution.pending", "pending")}`}
+                              sx={{ height: 22, fontSize: "0.7rem", fontWeight: 600, bgcolor: alpha("#ea580c", 0.1), color: "#ea580c" }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`${d.called} ${t("callDistribution.done", "done")}`}
+                              sx={{ height: 22, fontSize: "0.7rem", fontWeight: 600, bgcolor: alpha("#16a34a", 0.1), color: "#16a34a" }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`Conversions: ${d.conversions || 0}`}
+                              sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main" }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`${pct}%`}
+                              variant="outlined"
+                              sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700 }}
+                            />
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            </Box>
+          )}
+
+          <Divider sx={{ my: 4 }} />
 
           {/* ── Bulk Assign ── */}
           <Paper

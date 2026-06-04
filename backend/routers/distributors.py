@@ -1,12 +1,46 @@
 from typing import Optional, List
 import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from models import Distributor
+from models import Distributor, ResolvedDistributor
+from merge_utils import resolve_distributors
 from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
 
 router = APIRouter()
+
+
+@router.get("/resolved", response_model=List[ResolvedDistributor], dependencies=[Depends(verify_permission("view_distributors"))])
+def get_resolved_distributors(db: SupabaseClient = Depends(get_supabase)):
+    """Get all distributors dynamically merged to their latest valid states."""
+    try:
+        # Paginate to bypass Supabase's 1000-row server cap
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = (
+                db.table("distributors")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
+
+        # Dynamically resolve duplicates and fill nulls
+        resolved_rows = resolve_distributors(all_rows)
+        return resolved_rows
+    except Exception as e:
+        print("❌ RESOLVED GET ERROR:", str(e))
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching resolved distributors: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[Distributor], dependencies=[Depends(verify_permission("view_distributors"))])
@@ -180,6 +214,7 @@ async def update_distributor(
             "district": distributor.district,
             "mantri_name": distributor.mantri_name,
             "mantri_mobile": distributor.mantri_mobile,
+            "sabhasad_count": distributor.sabhasad_count,
             "sabhasad_morning": int(distributor.sabhasad_morning or 0),
             "sabhasad_evening": int(distributor.sabhasad_evening or 0),
             "status": distributor.status,

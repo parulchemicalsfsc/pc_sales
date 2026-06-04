@@ -50,12 +50,42 @@ VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
 
 # ─── Distribution Logic ──────────────────────────────────
 
+def _get_present_sales_managers(db: SupabaseClient) -> list:
+    """Get sales manager users from app_users table, filtered by today's attendance."""
+    try:
+        res = db.table("app_users").select("email, name, role").execute()
+        users = res.data or []
+        
+        all_sales_managers = [
+            u for u in users
+            if u.get("role", "").lower() == "sales_manager"
+        ]
+        
+        # Filter by today's attendance (IST)
+        today_str = get_today_ist()
+        att_res = db.table("telecaller_attendance") \
+            .select("user_email, is_present") \
+            .eq("attendance_date", today_str) \
+            .eq("is_present", True) \
+            .execute()
+            
+        present_emails = {row["user_email"] for row in (att_res.data or [])}
+        
+        sales_managers = [t for t in all_sales_managers if t["email"] in present_emails]
+        
+        if not sales_managers:
+            sales_managers = all_sales_managers
+            
+        return sales_managers
+    except Exception as e:
+        logger.error(f"[DIST] Error fetching sales managers: {e}", exc_info=True)
+        return []
+
 def _get_telecaller_emails(db: SupabaseClient) -> list:
     """Get telecaller users from app_users table, filtered by today's attendance."""
     try:
         res = db.table("app_users").select("email, name, role").execute()
         users = res.data or []
-        logger.info(f"[DIST] app_users total rows: {len(users)}")
         
         telecaller_roles = {"telecaller", "staff", "telecaller1", "telecaller2"}
         all_telecallers = [
@@ -75,10 +105,8 @@ def _get_telecaller_emails(db: SupabaseClient) -> list:
         present_emails = {row["user_email"] for row in (att_res.data or [])}
         
         telecallers = [t for t in all_telecallers if t["email"] in present_emails]
-        logger.info(f"[DIST] Found {len(all_telecallers)} total telecallers, {len(telecallers)} are PRESENT today: {[t['email'] for t in telecallers]}")
         
         if not telecallers:
-            logger.warning("🚨 [DIST] ZERO TELECALLERS ARE PRESENT TODAY! Falling back to ALL active telecallers. 🚨")
             telecallers = all_telecallers
             
         return telecallers
@@ -149,8 +177,8 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     today_str = get_today_ist()
     logger.info(f"[DIST] ===== distribute_calls START (date={today_str}, triggered_by={admin_email}, force={force}) =====")
 
-    # 1. Get telecallers FIRST so we can do smart idempotency check
-    telecallers = _get_telecaller_emails(db)
+    # 1. Get sales managers FIRST so we can do smart idempotency check
+    telecallers = _get_present_sales_managers(db)
     if not telecallers:
         logger.warning("[DIST] ❌ No active telecallers found (or none marked present) — aborting distribution!")
         try:
@@ -285,6 +313,7 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
         assignments.append({
             "user_email": assigned_email,
             "customer_id": cust_id,
+            "entity_type": "distributor",
             "priority": priority,
             "reason": reason,
             "assigned_date": today_str,
@@ -435,19 +464,33 @@ def get_my_assignments(
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    target_email: Optional[str] = Query(None, description="Admin only: view assignments for specific user"),
     user_email: str = Header(..., alias="x-user-email"),
+    user_role: str = Header(None, alias="x-user-role"),
     db: SupabaseClient = Depends(get_db),
 ):
-    """Fetch paginated assignments for the logged-in telecaller."""
-    logger.info(f"[MY-ASSIGN] Request: user={user_email}, status={status}, page={page}, limit={limit}")
+    """Fetch paginated assignments for the logged-in user or admin."""
+    logger.info(f"[MY-ASSIGN] Request: user={user_email}, role={user_role}, target={target_email}, status={status}, page={page}, limit={limit}")
     try:
         offset = (page - 1) * limit
+        role = (user_role or "").lower()
 
-        # Show ALL assignments for this user (no date filter — was the primary bug)
-        query = db.table("calling_assignments") \
-            .select("*") \
-            .eq("user_email", user_email) \
-            .order("assignment_id")
+        # Determine filtering
+        query = db.table("calling_assignments").select("*")
+        count_query = db.table("calling_assignments").select("assignment_id", count="exact")
+
+        if role == "admin":
+            if target_email:
+                query = query.eq("user_email", target_email)
+                count_query = count_query.eq("user_email", target_email)
+        elif role == "sales_manager":
+            query = query.eq("user_email", user_email).eq("entity_type", "distributor")
+            count_query = count_query.eq("user_email", user_email).eq("entity_type", "distributor")
+        else: # Telecaller or others
+            query = query.eq("user_email", user_email).eq("entity_type", "customer")
+            count_query = count_query.eq("user_email", user_email).eq("entity_type", "customer")
+
+        query = query.order("assignment_id")
 
         if status:
             if status == "completed":
@@ -473,22 +516,32 @@ def get_my_assignments(
         total = len(count_res.data or [])
         logger.info(f"[MY-ASSIGN] Total count for pagination: {total}")
 
-        # Enrich with customer details
-        cust_ids = [a["customer_id"] for a in assignments if a.get("customer_id")]
-        logger.info(f"[MY-ASSIGN] Enriching {len(cust_ids)} distributor IDs: {cust_ids[:10]}")
-        # NOTE: customer_id col stores distributor_id here due to schema reuse.
-        # See: Switch Call Distribution to Distributors Table (implementation doc)
+        # Enrich with details based on entity_type
+        # We need to separate them by entity_type to fetch from correct tables
+        distributor_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
+        customer_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
+        
+        # Fallback for old records without entity_type: assume distributor if role is sales_manager, else customer
+        for a in assignments:
+            if not a.get("entity_type") and a.get("customer_id"):
+                if role == "sales_manager":
+                    distributor_ids.append(a["customer_id"])
+                    a["entity_type"] = "distributor"
+                else:
+                    customer_ids.append(a["customer_id"])
+                    a["entity_type"] = "customer"
+
+        logger.info(f"[MY-ASSIGN] Enriching {len(distributor_ids)} distributor IDs, {len(customer_ids)} customer IDs")
+        
         customers_map = {}
-        if cust_ids:
+        if distributor_ids:
             try:
                 dist_res = db.table("distributors") \
                     .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
-                    .in_("distributor_id", cust_ids) \
+                    .in_("distributor_id", distributor_ids) \
                     .execute()
-                # Map fields to what the frontend expects
                 for d in (dist_res.data or []):
-                    customers_map[d["distributor_id"]] = {
-                        "customer_id": d.get("distributor_id"),
+                    customers_map[("distributor", d["distributor_id"])] = {
                         "name": d.get("mantri_name"),
                         "mobile": d.get("mantri_mobile"),
                         "village": d.get("village"),
@@ -499,15 +552,48 @@ def get_my_assignments(
                     }
             except Exception as e:
                 logger.error(f"[MY-ASSIGN] ❌ Distributor enrichment failed: {e}", exc_info=True)
-            
-            logger.info(f"[MY-ASSIGN] Distributor lookup returned {len(customers_map)} matches out of {len(cust_ids)} IDs")
-            if len(customers_map) < len(cust_ids):
-                missing = set(cust_ids) - set(customers_map.keys())
-                logger.warning(f"[MY-ASSIGN] ⚠️ Missing distributor enrichment for IDs: {missing}")
+                
+        if customer_ids:
+            try:
+                cust_res = db.table("customers") \
+                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .in_("customer_id", customer_ids) \
+                    .execute()
+                for c in (cust_res.data or []):
+                    customers_map[("customer", c["customer_id"])] = {
+                        "name": c.get("name"),
+                        "mobile": c.get("mobile"),
+                        "village": c.get("village"),
+                        "taluka": c.get("taluka"),
+                        "district": c.get("district"),
+                        "priority_score": 0,
+                        "priority_label": "None"
+                    }
+            except Exception as e:
+                logger.error(f"[MY-ASSIGN] ❌ Customer enrichment failed: {e}", exc_info=True)
+
+        # Fetch last call details
+        last_calls_map = {}
+        all_ids = distributor_ids + customer_ids
+        if all_ids:
+            try:
+                logs_res = db.table("call_logs") \
+                    .select("customer_id, call_outcome, notes, created_at, user_email") \
+                    .in_("customer_id", all_ids) \
+                    .order("created_at", desc=True) \
+                    .execute()
+                for log in (logs_res.data or []):
+                    cid = log["customer_id"]
+                    if cid not in last_calls_map:
+                        last_calls_map[cid] = log
+            except Exception as e:
+                logger.error(f"[MY-ASSIGN] ❌ Last call log enrichment failed: {e}", exc_info=True)
 
         enhanced = []
         for a in assignments:
-            c = customers_map.get(a["customer_id"], {})
+            key = (a.get("entity_type", "customer"), a.get("customer_id"))
+            c = customers_map.get(key, {})
+            last_call = last_calls_map.get(a.get("customer_id"))
             enhanced.append({
                 **a,
                 "name": c.get("name", "Unknown"),
@@ -517,13 +603,20 @@ def get_my_assignments(
                 "district": c.get("district", ""),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
+                "last_call": last_call,
             })
 
         # Summary counts
-        all_res = db.table("calling_assignments") \
-            .select("status") \
-            .eq("user_email", user_email) \
-            .execute()
+        all_query = db.table("calling_assignments").select("status")
+        if role == "admin":
+            if target_email:
+                all_query = all_query.eq("user_email", target_email)
+        elif role == "sales_manager":
+            all_query = all_query.eq("user_email", user_email).eq("entity_type", "distributor")
+        else:
+            all_query = all_query.eq("user_email", user_email).eq("entity_type", "customer")
+            
+        all_res = all_query.execute()
         all_assignments = all_res.data or []
         pending = sum(1 for x in all_assignments if x["status"] == "Pending")
         called = sum(1 for x in all_assignments if x["status"] != "Pending")
@@ -857,6 +950,10 @@ def get_admin_assignments(
             .execute()
         total = len(count_res.data or [])
 
+        # Fetch user info
+        users_res = db.table("app_users").select("email, name, role").execute()
+        users_map = {u["email"]: u for u in (users_res.data or [])}
+
         # Per-telecaller summary
         all_res = db.table("calling_assignments") \
             .select("user_email, status") \
@@ -866,7 +963,15 @@ def get_admin_assignments(
         for row in (all_res.data or []):
             email = row["user_email"]
             if email not in telecaller_summary:
-                telecaller_summary[email] = {"total": 0, "pending": 0, "called": 0, "conversions": 0}
+                u_info = users_map.get(email, {})
+                telecaller_summary[email] = {
+                    "total": 0, 
+                    "pending": 0, 
+                    "called": 0, 
+                    "conversions": 0,
+                    "name": u_info.get("name", email.split("@")[0]),
+                    "role": u_info.get("role", "unknown")
+                }
             telecaller_summary[email]["total"] += 1
             if row["status"] == "Pending":
                 telecaller_summary[email]["pending"] += 1
@@ -941,7 +1046,7 @@ def get_admin_assignments(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/admin/distribute")
+@router.post("/admin/distribute-mantris")
 def admin_distribute(
     force: bool = Query(False, description="Set true to re-distribute even if already done today"),
     admin_email: str = Header(None, alias="x-user-email"),
@@ -957,6 +1062,148 @@ def admin_distribute(
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Distribution failed: {e}")
+
+class SabhsadDistributePayload(BaseModel):
+    telecaller_emails: list[str]
+    state: str
+    district: str
+    taluka: str
+    village: str
+    limit: Optional[int] = 100
+
+@router.post("/admin/distribute-sabhsads")
+def distribute_sabhsads(
+    payload: SabhsadDistributePayload,
+    user_role: str = Header(None, alias="x-user-role"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin/Sales Manager: Distribute Sabhsads from a specific village to selected telecallers."""
+    role = (user_role or "").lower()
+    if role not in ["admin", "sales_manager"]:
+        raise HTTPException(status_code=403, detail="Only Admins or Sales Managers can distribute Sabhsads")
+
+    if not payload.telecaller_emails:
+        raise HTTPException(status_code=400, detail="Must provide at least one telecaller email")
+
+    try:
+        # Fetch unassigned customers in this location
+        # Get all customers in location
+        query = db.table("customers").select("customer_id")
+        if payload.state: query = query.eq("state", payload.state)
+        if payload.district: query = query.eq("district", payload.district)
+        if payload.taluka: query = query.eq("taluka", payload.taluka)
+        if payload.village: query = query.eq("village", payload.village)
+        
+        cust_res = query.execute()
+        all_cust_ids = [c["customer_id"] for c in (cust_res.data or [])]
+
+        if not all_cust_ids:
+            return {"message": "No sabhsads found in this location", "assigned": 0}
+
+        # Find which of these are already assigned
+        assigned_res = db.table("calling_assignments") \
+            .select("customer_id") \
+            .eq("entity_type", "customer") \
+            .in_("customer_id", all_cust_ids) \
+            .execute()
+            
+        assigned_ids = set([a["customer_id"] for a in (assigned_res.data or [])])
+        unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
+
+        if not unassigned_ids:
+            return {"message": "All sabhsads in this location are already assigned", "assigned": 0}
+
+        # Calculate limits and remainders (soft cap math)
+        max_total_assignments = len(payload.telecaller_emails) * (payload.limit or 100)
+        ids_to_assign = unassigned_ids[:max_total_assignments]
+        
+        today_str = get_today_ist()
+        assignments = []
+        
+        telecaller_count = len(payload.telecaller_emails)
+        for i, cust_id in enumerate(ids_to_assign):
+            assigned_email = payload.telecaller_emails[i % telecaller_count]
+            assignments.append({
+                "user_email": assigned_email,
+                "customer_id": cust_id,
+                "entity_type": "customer",
+                "priority": "Medium",
+                "reason": "Location Assignment",
+                "assigned_date": today_str,
+                "status": "Pending",
+                "notes": "",
+            })
+
+        if assignments:
+            db.table("calling_assignments").insert(assignments).execute()
+
+        # Notify telecallers
+        notifications_map = {}
+        for a in assignments:
+            email = a["user_email"]
+            notifications_map[email] = notifications_map.get(email, 0) + 1
+            
+        notification_records = []
+        for email, count in notifications_map.items():
+            notification_records.append({
+                "user_email": email,
+                "title": "📞 New Sabhsads Assigned",
+                "message": f"You have {count} new Sabhsads assigned to you from {payload.village}.",
+                "notification_type": "info",
+                "entity_type": "calling_list",
+                "is_read": False,
+            })
+        if notification_records:
+            db.table("notifications").insert(notification_records).execute()
+
+        return {
+            "message": "Distribution successful",
+            "assigned": len(assignments),
+            "unassigned_remaining": len(unassigned_ids) - len(assignments),
+            "distribution": notifications_map
+        }
+    except Exception as e:
+        logger.error(f"[DIST-SABHSADS] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/locations")
+def get_locations(db: SupabaseClient = Depends(get_db)):
+    """Fetch distinct states, districts, talukas, and villages from customers table."""
+    try:
+        # Note: Supabase JS client doesn't have a simple DISTINCT query.
+        # We fetch a subset or use a view if available. Since we need it for dropdowns,
+        # we will fetch and group in memory (not ideal for huge datasets, but a simple workaround).
+        # Better: use an RPC if defined, or just fetch necessary columns.
+        res = db.table("customers").select("state, district, taluka, village").execute()
+        
+        locations = {"states": {}, "districts": {}, "talukas": {}, "villages": {}}
+        # Group to build a hierarchical map
+        hierarchy = {}
+        
+        for r in (res.data or []):
+            s = r.get("state") or "Unknown"
+            d = r.get("district") or "Unknown"
+            t = r.get("taluka") or "Unknown"
+            v = r.get("village") or "Unknown"
+            
+            if s not in hierarchy:
+                hierarchy[s] = {}
+            if d not in hierarchy[s]:
+                hierarchy[s][d] = {}
+            if t not in hierarchy[s][d]:
+                hierarchy[s][d][t] = set()
+            hierarchy[s][d][t].add(v)
+            
+        # Convert sets to lists
+        for s in hierarchy:
+            for d in hierarchy[s]:
+                for t in hierarchy[s][d]:
+                    hierarchy[s][d][t] = list(hierarchy[s][d][t])
+
+        return hierarchy
+    except Exception as e:
+        logger.error(f"[LOCATIONS] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch locations")
 
 
 @router.post("/admin/reassign")

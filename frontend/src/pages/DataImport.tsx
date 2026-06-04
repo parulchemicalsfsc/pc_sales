@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   Button,
@@ -17,7 +18,18 @@ import {
   Chip,
   InputAdornment,
   Paper,
+  Tabs,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Checkbox
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import {
   CloudUpload as CloudUploadIcon,
   People as PeopleIcon,
@@ -59,6 +71,37 @@ export default function DataImport() {
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
+  
+  // Phase 6 Preprocessing State
+  const [reviewData, setReviewData] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Phase 7 Preprocessing State
+  const queryClient = useQueryClient();
+  const [selectedReadyIndices, setSelectedReadyIndices] = useState<number[]>([]);
+  const [selectedConflictIndices, setSelectedConflictIndices] = useState<number[]>([]);
+
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
+
+  const [importHistory, setImportHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const fetchHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const data = await fileAPI.getImportHistory();
+      setImportHistory(data || []);
+    } catch (err) {
+      console.error("Failed to fetch import history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
 
   const handleDownloadDistributorTemplate = () => {
     const headers = [
@@ -133,8 +176,7 @@ export default function DataImport() {
       "VILLAGE",
       "TALUKA",
       "DISTRICT",
-      "STATE",
-      "AADHAR"
+      "STATE"
     ];
 
     const sampleRow = {
@@ -144,8 +186,7 @@ export default function DataImport() {
       "VILLAGE": "ANAND",
       "TALUKA": "ANAND",
       "DISTRICT": "ANAND",
-      "STATE": "GUJARAT",
-      "AADHAR": "123456789012"
+      "STATE": "GUJARAT"
     };
 
     const ws = XLSX.utils.json_to_sheet([sampleRow], { header: headers });
@@ -238,6 +279,10 @@ export default function DataImport() {
     setError(null);
     setSuccess(null);
     setUploadProgress(0);
+    setReviewData(null);
+    setActiveTab(0);
+    setSelectedReadyIndices([]);
+    setSelectedConflictIndices([]);
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -294,7 +339,28 @@ export default function DataImport() {
 
       const formDataToSend = new FormData();
       formDataToSend.append("file", selectedFile);
+      
+      if (openDialog === "customer") {
+        // Phase 6 Preprocessing path
+        const response = await fileAPI.preprocessDistributors(formDataToSend);
+        
+        console.log("🚀 [P6 REVIEW] Preprocess Response:", response);
+        console.log(`Ready: ${response?.summary?.ready_to_import}`);
+        console.log(`Duplicates: ${response?.summary?.exact_duplicates}`);
+        console.log(`Conflicts: ${response?.summary?.possible_conflicts}`);
+        console.log(`Invalid: ${response?.summary?.invalid_rows}`);
+        
+        setReviewData(response);
+        if (response && response.ready_to_import) {
+          setSelectedReadyIndices(response.ready_to_import.map((_: any, idx: number) => idx));
+        }
+        setSelectedConflictIndices([]);
+        setUploading(false);
+        // Let the dialog stay open to show review UI
+        return;
+      }
 
+      // Original direct upload for others
       const response = await fileAPI.upload(formDataToSend);
 
       clearInterval(progressInterval);
@@ -304,6 +370,7 @@ export default function DataImport() {
       const successMsg =
         response.message || `${currentDialog.title} completed successfully!`;
       setSuccess(successMsg);
+      fetchHistory();
 
       // Reset after 2 seconds and close dialog
       setTimeout(() => {
@@ -318,6 +385,51 @@ export default function DataImport() {
         errorMessage = err.message;
       }
 
+      setError(errorMessage);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!reviewData) return;
+    
+    try {
+      setUploading(true);
+      setError(null);
+      
+      const readyRows = (selectedReadyIndices || []).map(
+        (idx) => reviewData.ready_to_import[idx].uploaded_row
+      );
+      const conflictRows = (selectedConflictIndices || []).map(
+        (idx) => reviewData.possible_conflicts[idx].uploaded_row
+      );
+      const rowsToImport = [...readyRows, ...conflictRows];
+      
+      console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
+      
+      const response = await fileAPI.confirmImportDistributors(rowsToImport, selectedFile?.name);
+      
+      console.log("✅ [P7 CONFIRM IMPORT] Response:", response);
+      
+      setSuccess(`Import completed! Successfully imported ${response.imported_count} rows.`);
+      
+      // Refresh distributor table in query cache
+      queryClient.invalidateQueries({ queryKey: ["distributors"] });
+      queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
+      fetchHistory();
+      
+      // Reset state and close dialog after a brief delay
+      setTimeout(() => {
+        handleCloseDialog();
+      }, 2000);
+    } catch (err: any) {
+      let errorMessage = "Import failed. Please try again.";
+      if (err?.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      }
       setError(errorMessage);
     } finally {
       setUploading(false);
@@ -340,6 +452,142 @@ export default function DataImport() {
         return "primary.main";
     }
   };
+
+  const historyColumns: GridColDef[] = [
+    {
+      field: "import_batch_id",
+      headerName: "Session ID",
+      flex: 1.5,
+      minWidth: 150,
+      renderCell: (params) => (
+        <Chip
+          label={params.value}
+          size="small"
+          variant="outlined"
+          sx={{
+            fontFamily: "monospace",
+            fontWeight: 600,
+            borderColor: "divider",
+          }}
+        />
+      ),
+    },
+    {
+      field: "module_name",
+      headerName: "Module",
+      flex: 1,
+      minWidth: 120,
+      renderCell: (params) => {
+        const value = params.value || "UNKNOWN";
+        let color: "primary" | "secondary" | "success" | "error" | "info" | "warning" = "primary";
+        if (value === "DISTRIBUTORS") color = "primary";
+        else if (value === "SABHASAD" || value === "CUSTOMERS") color = "info";
+        else if (value === "SALES") color = "error";
+        else if (value === "DEMOS") color = "warning";
+        else if (value === "PAYMENTS") color = "success";
+        
+        return (
+          <Chip
+            label={value}
+            size="small"
+            color={color}
+            sx={{ fontWeight: 600 }}
+          />
+        );
+      },
+    },
+    {
+      field: "file_name",
+      headerName: "File Name",
+      flex: 2,
+      minWidth: 180,
+      renderCell: (params) => (
+        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+          {params.value || "-"}
+        </Typography>
+      ),
+    },
+    {
+      field: "imported_by_email",
+      headerName: "Imported By",
+      flex: 1.8,
+      minWidth: 160,
+      renderCell: (params) => (
+        <Box sx={{ display: "flex", flexDirection: "column" }}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            {params.value || "-"}
+          </Typography>
+          {params.row.imported_by_role && (
+            <Typography variant="caption" color="text.secondary">
+              {params.row.imported_by_role.toUpperCase()}
+            </Typography>
+          )}
+        </Box>
+      ),
+    },
+    {
+      field: "created_at",
+      headerName: "Imported At",
+      flex: 1.5,
+      minWidth: 150,
+      renderCell: (params) => {
+        if (!params.value) return "-";
+        try {
+          const date = new Date(params.value);
+          return date.toLocaleString();
+        } catch {
+          return params.value;
+        }
+      },
+    },
+    {
+      field: "import_status",
+      headerName: "Status",
+      flex: 1,
+      minWidth: 100,
+      renderCell: (params) => {
+        const isSuccess = params.value === "SUCCESS";
+        return (
+          <Chip
+            label={params.value || "SUCCESS"}
+            size="small"
+            color={isSuccess ? "success" : "error"}
+            variant="filled"
+            sx={{ fontWeight: 600 }}
+          />
+        );
+      },
+    },
+    {
+      field: "total_records",
+      headerName: "Total Records",
+      flex: 1,
+      minWidth: 110,
+      type: "number",
+      align: "center",
+      headerAlign: "center",
+    },
+    {
+      field: "imported_records",
+      headerName: "Imported Records",
+      flex: 1,
+      minWidth: 130,
+      type: "number",
+      align: "center",
+      headerAlign: "center",
+      renderCell: (params) => (
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 600,
+            color: params.value > 0 ? "success.main" : "text.primary",
+          }}
+        >
+          {params.value}
+        </Typography>
+      ),
+    },
+  ];
 
   return (
     <Box>
@@ -482,6 +730,65 @@ export default function DataImport() {
         </CardContent>
       </Card>
 
+      {/* Import History / Audit Trail Card */}
+      <Card sx={{ mt: 4, mb: 4, overflow: "hidden" }}>
+        <CardContent sx={{ pb: 0 }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 1 }}>
+              🕒 Import History & Audit Trail
+            </Typography>
+            <Button
+              size="small"
+              onClick={fetchHistory}
+              disabled={historyLoading}
+              variant="outlined"
+              sx={{ borderRadius: 2, textTransform: "none" }}
+            >
+              {historyLoading ? "Refreshing..." : "Refresh Logs"}
+            </Button>
+          </Box>
+        </CardContent>
+        <Box sx={{ height: 400, width: "100%", px: 2, pb: 2 }}>
+          <DataGrid
+            rows={importHistory}
+            columns={historyColumns}
+            getRowId={(row) => row.import_id || row.import_batch_id || Math.random()}
+            loading={historyLoading}
+            pageSizeOptions={[5, 10, 25]}
+            initialState={{
+              pagination: {
+                paginationModel: { pageSize: 5 },
+              },
+            }}
+            rowHeight={64}
+            disableRowSelectionOnClick
+            sx={{
+              border: "none",
+              "& .MuiDataGrid-row": {
+                borderRadius: "6px",
+                transition: "all 0.2s ease",
+                backgroundColor: isDarkMode ? "transparent" : "#fff",
+                color: isDarkMode ? "#E5E7EB" : "inherit",
+                "&:hover": {
+                  backgroundColor: isDarkMode ? "rgba(255,255,255,0.05) !important" : "action.hover",
+                },
+              },
+              "& .MuiDataGrid-cell": {
+                borderBottom: "1px solid",
+                borderColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+                display: "flex",
+                alignItems: "center",
+              },
+              "& .MuiDataGrid-columnHeaders": {
+                backgroundColor: isDarkMode ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                borderBottom: "2px solid",
+                borderColor: "divider",
+              },
+            }}
+          />
+        </Box>
+      </Card>
+
       {/* Import Dialog */}
       {openDialog && (
         <Dialog
@@ -536,7 +843,241 @@ export default function DataImport() {
               </Alert>
             )}
 
-            {/* Input Fields */}
+            {reviewData ? (
+              // Phase 6 Preprocessing Review UI
+              <Box>
+                <Typography variant="h6" sx={{ mb: 2 }}>Import Review Dashboard</Typography>
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid item xs={3}>
+                    <Card sx={{ bgcolor: "success.50", textAlign: "center", py: 2 }}>
+                      <Typography variant="h5" color="success.main" fontWeight="bold">{reviewData.summary.ready_to_import}</Typography>
+                      <Typography variant="body2" color="text.secondary">Ready</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={3}>
+                    <Card sx={{ bgcolor: "warning.50", textAlign: "center", py: 2 }}>
+                      <Typography variant="h5" color="warning.main" fontWeight="bold">{reviewData.summary.exact_duplicates}</Typography>
+                      <Typography variant="body2" color="text.secondary">Exact Duplicates</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={3}>
+                    <Card sx={{ bgcolor: "info.50", textAlign: "center", py: 2 }}>
+                      <Typography variant="h5" color="info.main" fontWeight="bold">{reviewData.summary.possible_conflicts}</Typography>
+                      <Typography variant="body2" color="text.secondary">Conflicts</Typography>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={3}>
+                    <Card sx={{ bgcolor: "error.50", textAlign: "center", py: 2 }}>
+                      <Typography variant="h5" color="error.main" fontWeight="bold">{reviewData.summary.invalid_rows}</Typography>
+                      <Typography variant="body2" color="text.secondary">Invalid</Typography>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                <Tabs value={activeTab} onChange={(e, nv) => setActiveTab(nv)} sx={{ mb: 2 }}>
+                  <Tab label="Ready To Import" />
+                  <Tab label="Exact Duplicates" />
+                  <Tab label="Possible Conflicts" />
+                  <Tab label="Invalid Rows" />
+                </Tabs>
+
+                {activeTab === 1 && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    Exact duplicates already exist in the database and cannot be imported directly to avoid data corruption.
+                  </Alert>
+                )}
+
+                {activeTab === 3 && (
+                  <Alert severity="error" sx={{ mb: 2 }}>
+                    Invalid rows contain validation failures and are blocked from import. Fix these rows in your spreadsheet to re-upload.
+                  </Alert>
+                )}
+
+                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
+                  <Table stickyHeader size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell padding="checkbox">
+                          {activeTab === 0 ? (
+                            <Checkbox 
+                              indeterminate={selectedReadyIndices.length > 0 && selectedReadyIndices.length < (reviewData?.ready_to_import || []).length}
+                              checked={(reviewData?.ready_to_import || []).length > 0 && selectedReadyIndices.length === (reviewData?.ready_to_import || []).length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedReadyIndices((reviewData?.ready_to_import || []).map((_: any, idx: number) => idx));
+                                } else {
+                                  setSelectedReadyIndices([]);
+                                }
+                              }}
+                            />
+                          ) : activeTab === 2 ? (
+                            <Checkbox 
+                              indeterminate={selectedConflictIndices.length > 0 && selectedConflictIndices.length < (reviewData?.possible_conflicts || []).length}
+                              checked={(reviewData?.possible_conflicts || []).length > 0 && selectedConflictIndices.length === (reviewData?.possible_conflicts || []).length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedConflictIndices((reviewData?.possible_conflicts || []).map((_: any, idx: number) => idx));
+                                } else {
+                                  setSelectedConflictIndices([]);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <Checkbox disabled />
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Uploaded Name</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
+                        {activeTab === 1 || activeTab === 2 ? (
+                          <>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Existing Match</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Reason</TableCell>
+                          </>
+                        ) : activeTab === 3 ? (
+                          <TableCell sx={{ fontWeight: 'bold' }}>Error</TableCell>
+                        ) : null}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {activeTab === 0 && (reviewData?.ready_to_import || []).map((r: any, i: number) => {
+                        const isRedemo = r.is_redemo || r.uploaded_row?.is_redemo;
+                        return (
+                          <TableRow 
+                            key={i}
+                            hover
+                            onClick={() => {
+                              setSelectedReadyIndices((prev) => {
+                                const next = prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i];
+                                console.log("[P7 SELECTED ROWS] Ready Rows Updated:", next);
+                                return next;
+                              });
+                            }}
+                            sx={{ 
+                              cursor: 'pointer',
+                              background: isRedemo 
+                                ? 'linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(251, 191, 36, 0.02) 100%)'
+                                : 'inherit'
+                            }}
+                          >
+                            <TableCell padding="checkbox">
+                              <Checkbox 
+                                checked={selectedReadyIndices.includes(i)}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => {
+                                  console.log("[P7 CHECKBOX CLICK] Ready Row Index:", i);
+                                  setSelectedReadyIndices((prev) => {
+                                    const next = prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i];
+                                    console.log("[P7 SELECTED ROWS] Ready Rows Updated:", next);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2">{r.uploaded_row.village}</Typography>
+                                {isRedemo && (
+                                  <Chip label="REDEMO" size="small" color="warning" sx={{ fontWeight: 'bold', height: 20, fontSize: '0.65rem' }} />
+                                )}
+                              </Box>
+                              {isRedemo && (
+                                <Typography variant="caption" color="warning.dark" sx={{ display: 'block', fontWeight: 500 }}>
+                                  Canonical Update (will update existing distributor's record_date to {r.uploaded_row.record_date})
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {activeTab === 1 && (reviewData?.exact_duplicates || []).map((r: any, i: number) => (
+                        <TableRow key={i}>
+                          <TableCell padding="checkbox">
+                            <Checkbox disabled />
+                          </TableCell>
+                          <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                          <TableCell>{r.uploaded_row.village}</TableCell>
+                          <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                          <TableCell>
+                            {r.existing_db_row.mantri_name} ({r.existing_db_row.village})
+                          </TableCell>
+                          <TableCell><Chip size="small" color="warning" label="Exact Match" /></TableCell>
+                        </TableRow>
+                      ))}
+                      {activeTab === 2 && (reviewData?.possible_conflicts || []).map((r: any, i: number) => {
+                        const isRedemo = r.is_redemo || r.uploaded_row?.is_redemo;
+                        return (
+                          <TableRow 
+                            key={i}
+                            hover
+                            onClick={() => {
+                              setSelectedConflictIndices((prev) => {
+                                const next = prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i];
+                                console.log("[P7 SELECTED ROWS] Conflict Rows Updated:", next);
+                                return next;
+                              });
+                            }}
+                            sx={{ 
+                              cursor: 'pointer',
+                              background: isRedemo 
+                                ? 'linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(251, 191, 36, 0.02) 100%)'
+                                : 'inherit'
+                            }}
+                          >
+                            <TableCell padding="checkbox">
+                              <Checkbox 
+                                checked={selectedConflictIndices.includes(i)}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => {
+                                  console.log("[P7 CHECKBOX CLICK] Conflict Row Index:", i);
+                                  setSelectedConflictIndices((prev) => {
+                                    const next = prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i];
+                                    console.log("[P7 SELECTED ROWS] Conflict Rows Updated:", next);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2">{r.uploaded_row.village}</Typography>
+                                {isRedemo && (
+                                  <Chip label="REDEMO" size="small" color="warning" sx={{ fontWeight: 'bold', height: 20, fontSize: '0.65rem' }} />
+                                )}
+                              </Box>
+                            </TableCell>
+                            <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                            <TableCell>
+                              {r.existing_db_row.mantri_name} ({r.existing_db_row.village})
+                            </TableCell>
+                            <TableCell>
+                              <Chip size="small" color="info" label={`Score: ${r.similarity_score}`} />
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {activeTab === 3 && (reviewData?.invalid_rows || []).map((r: any, i: number) => (
+                        <TableRow key={i}>
+                          <TableCell padding="checkbox">
+                            <Checkbox disabled />
+                          </TableCell>
+                          <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                          <TableCell>{r.uploaded_row.village}</TableCell>
+                          <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                          <TableCell>
+                            <Typography color="error" variant="caption">{r.reason}</Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            ) : (
+              <>
             {importDialogs.find((d) => d.type === openDialog)?.fields && 
               importDialogs.find((d) => d.type === openDialog)!.fields.length > 0 && (
               <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -696,19 +1237,33 @@ export default function DataImport() {
                 </Typography>
               </Box>
             )}
+            </>
+            )}
           </DialogContent>
           <DialogActions sx={{ px: 4, pb: 3 }}>
             <Button onClick={handleCloseDialog} disabled={uploading}>
               {t("common.cancel", "Cancel")}
             </Button>
-            <Button
-              onClick={handleSubmit}
-              variant="contained"
-              disabled={uploading || !selectedFile}
-              startIcon={<CloudUploadIcon />}
-            >
-              {uploading ? t("import.uploading", "Uploading...") : t("import.uploadAndImport", "Upload & Import")}
-            </Button>
+            {reviewData ? (
+              <Button
+                variant="contained"
+                disabled={uploading || (selectedReadyIndices.length + selectedConflictIndices.length) === 0}
+                onClick={handleConfirmImport}
+                startIcon={<CheckCircleIcon />}
+                color="success"
+              >
+                {uploading ? "Importing..." : `Confirm Selection (${selectedReadyIndices.length + selectedConflictIndices.length} Selected)`}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                variant="contained"
+                disabled={uploading || !selectedFile}
+                startIcon={<CloudUploadIcon />}
+              >
+                {uploading ? t("import.uploading", "Uploading...") : (openDialog === "customer" ? "Preprocess File" : t("import.uploadAndImport", "Upload & Import"))}
+              </Button>
+            )}
           </DialogActions>
         </Dialog>
       )}

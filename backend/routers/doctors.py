@@ -1,7 +1,8 @@
 from typing import Optional, List
+import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from models import Doctor
-from supabase_db import SupabaseClient, get_supabase
+from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
 
@@ -138,6 +139,7 @@ async def update_doctor(
             "district": doctor.district,
             "mantri_name": doctor.mantri_name,
             "mantri_mobile": doctor.mantri_mobile,
+            "sabhasad_count": doctor.sabhasad_count,
             "sabhasad_morning": int(doctor.sabhasad_morning or 0),
             "sabhasad_evening": int(doctor.sabhasad_evening or 0),
             "status": doctor.status,
@@ -213,3 +215,36 @@ async def update_doctor(
         raise HTTPException(
             status_code=500, detail=f"Error updating doctor: {str(e)}"
         )
+
+
+@router.delete("/{doctor_id}", dependencies=[Depends(verify_permission("edit_doctor"))])
+def delete_doctor(
+    doctor_id: int,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Delete a doctor"""
+    try:
+        doctor_id = int(doctor_id)
+        print("Deleting Doctor ID:", doctor_id)
+
+        url = f"{SUPABASE_URL}/rest/v1/doctors?doctor_id=eq.{doctor_id}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.delete(url, headers=headers)
+        print("DELETE STATUS:", response.status_code)
+        print("DELETE RESPONSE:", response.text)
+
+        if response.status_code not in [200, 204]:
+            raise HTTPException(status_code=500, detail=response.text)
+
+        return {"message": "Doctor deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("DELETE ERROR:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))

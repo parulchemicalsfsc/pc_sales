@@ -153,6 +153,7 @@ class Distributor(BaseModel):
     sabhasad_evening: Optional[int] = 0
     contact_in_group: Optional[int] = 0
     status: str = "Active"
+    is_redemo: Optional[bool] = False
 
     # New Fields
     dairy_type: Optional[str] = None
@@ -169,6 +170,11 @@ class Distributor(BaseModel):
     decision_maker_availability_evening: Optional[str] = None
     high_holder_to_low_holder_villages: Optional[str] = None
     current_status_of_business: Optional[str] = None
+
+
+class ResolvedDistributor(Distributor):
+    redemo_count: int = 0
+    latest_redemo_date: Optional[str] = None
 
 
 # ======================
@@ -293,3 +299,24 @@ class UserCreate(BaseModel):
     password: str
     role: str
     name: Optional[str] = None
+
+
+# ======================
+# Import History / Audit Trail
+# ======================
+
+class ImportHistory(BaseModel):
+    import_id: Optional[int] = None
+    import_batch_id: str
+    module_name: str
+    file_name: Optional[str] = None
+    imported_by_email: Optional[str] = None
+    imported_by_role: Optional[str] = None
+    total_records: int = 0
+    imported_records: int = 0
+    duplicate_records: int = 0
+    conflict_records: int = 0
+    invalid_records: int = 0
+    import_status: str = "SUCCESS"
+    created_at: Optional[str] = None
+

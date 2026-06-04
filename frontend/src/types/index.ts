@@ -152,6 +152,7 @@ export interface Distributor {
   current_status_of_business?: string;
   contact_in_group?: number;
   status?: string;
+  is_redemo?: boolean;
   created_date?: string;
   updated_date?: string;
 }
