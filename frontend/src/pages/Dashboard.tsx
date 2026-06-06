@@ -301,10 +301,10 @@ export default function Dashboard() {
             {/* ── Quick Action Cards ──────────────────────────────────────────────── */}
             {/* All 4 always rendered; greyed out + click-blocked if no permission   */}
             <Grid container spacing={2} sx={{ mb: 4 }}>
-                <PermissionGate permission={PERMISSIONS.VIEW_CUSTOMERS}>
+                <PermissionGate permission={PERMISSIONS.VIEW_DISTRIBUTORS}>
                     <Grid item xs={6} sm={6} md={3}>
                         <Card sx={{ background: "linear-gradient(135deg, #10b981 0%, #059669 100%)", color: "white", cursor: "pointer", transition: "all 0.3s ease", "&:hover": { transform: "translateY(-4px)", boxShadow: 6 } }}
-                            onClick={() => navigate("/customers")}>
+                            onClick={() => navigate("/distributors")}>
                             <CardContent>
                                 <PersonAdd sx={{ fontSize: { xs: 28, sm: 40 }, mb: 1, opacity: 0.9 }} />
                                 <Typography variant="h6" sx={{ fontWeight: 600 }}>{t("dashboard.quickActions.addCustomer.title")}</Typography>
