@@ -206,6 +206,13 @@ export const customerAPI = {
     const response = await apiClient.delete(`/api/customers/${id}`);
     return response.data;
   },
+  /** Probe for a duplicate mobile. Returns { duplicate_found, existing_record }. Never throws on 404/non-error. */
+  checkPhone: async (mobile: string, excludeId?: number) => {
+    const params: any = { mobile };
+    if (excludeId !== undefined) params.exclude_id = excludeId;
+    const response = await apiClient.get("/api/customers/check-phone", { params });
+    return response.data as { duplicate_found: boolean; existing_record: any | null };
+  },
 };
 
 // Product API
@@ -404,6 +411,13 @@ export const distributorAPI = {
   getForCalculator: async () => {
     const response = await apiClient.get("/api/distributors/calculator");
     return response.data;
+  },
+  /** Probe for a duplicate mantri_mobile. Returns { duplicate_found, existing_record }. Never throws on 404/non-error. */
+  checkPhone: async (mobile: string, excludeId?: number) => {
+    const params: any = { mobile };
+    if (excludeId !== undefined) params.exclude_id = excludeId;
+    const response = await apiClient.get("/api/distributors/check-phone", { params });
+    return response.data as { duplicate_found: boolean; existing_record: any | null };
   },
 };
 

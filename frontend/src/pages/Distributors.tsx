@@ -64,6 +64,19 @@ export default function Distributors() {
   const [editingDistributor, setEditingDistributor] =
     useState<Distributor | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [phoneError, setPhoneError] = useState<string>("");
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [duplicateRecord, setDuplicateRecord] = useState<any>(null);
+  const [pendingSubmitFn, setPendingSubmitFn] = useState<(() => Promise<void>) | null>(null);
+
+  // ── Phone validation helper ────────────────────────────────────────────────
+  const INDIAN_MOBILE_RE = /^[0-9]{10}$/;
+  const validatePhone = (value: string): string => {
+    if (!value || !value.trim()) return "Phone number is required";
+    if (!INDIAN_MOBILE_RE.test(value.trim())) return "Please enter a valid 10-digit mobile number";
+    return "";
+  };
+
   const [columnNames, setColumnNames] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem("distributorColumnNames");
     return saved ? JSON.parse(saved) : {};
@@ -191,12 +204,26 @@ export default function Distributors() {
         current_status_of_business: "",
       });
     }
+    setPhoneError("");
     setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
+    setPhoneError("");
     setEditingDistributor(null);
+  };
+
+  // ── Core save logic (runs after any duplicate warning is acknowledged) ──────
+  const executeSave = async (payload: Distributor) => {
+    if (editingDistributor) {
+      await distributorAPI.update(editingDistributor.distributor_id!, payload);
+    } else {
+      await distributorAPI.create(payload);
+    }
+    handleCloseDialog();
+    loadDistributors();
+    setError(null);
   };
 
   const handleSubmit = async () => {
@@ -211,43 +238,51 @@ export default function Distributors() {
         return;
       }
 
-      if (editingDistributor) {
-        console.log("🚀 PAYLOAD BEING SENT:", formData);
-        
-        // Final safety layer: Ensure all string fields are uppercase
-        const payload = {
-          ...formData,
-          mantri_name: toUpperCaseSafe(formData.mantri_name),
-          village: toUpperCaseSafe(formData.village),
-          taluka: toUpperCaseSafe(formData.taluka),
-          district: toUpperCaseSafe(formData.district),
-          state: formData.state,
-          dairy_type: toUpperCaseSafe(formData.dairy_type),
-        };
+      // ── Frontend phone validation ──────────────────────────────────────────
+      const phoneErr = validatePhone(formData.mantri_mobile || "");
+      if (phoneErr) {
+        setPhoneError(phoneErr);
+        setSubmitLoading(false);
+        setSubmitting(false);
+        return;
+      }
+      setPhoneError("");
 
-        await distributorAPI.update(
-          editingDistributor.distributor_id!,
-          payload as Distributor,
+      // Build payload with uppercase safety layer
+      const payload = {
+        ...formData,
+        mantri_name: toUpperCaseSafe(formData.mantri_name),
+        village: toUpperCaseSafe(formData.village),
+        taluka: toUpperCaseSafe(formData.taluka),
+        district: toUpperCaseSafe(formData.district),
+        state: formData.state,
+        dairy_type: toUpperCaseSafe(formData.dairy_type),
+      } as Distributor;
+
+      // ── Duplicate probe (non-blocking) ──────────────────────────────────
+      try {
+        const checkResult = await distributorAPI.checkPhone(
+          formData.mantri_mobile!,
+          editingDistributor?.distributor_id,
         );
-      } else {
-        // Final safety layer: Ensure all string fields are uppercase
-        const payload = {
-          ...formData,
-          mantri_name: toUpperCaseSafe(formData.mantri_name),
-          village: toUpperCaseSafe(formData.village),
-          taluka: toUpperCaseSafe(formData.taluka),
-          district: toUpperCaseSafe(formData.district),
-          state: formData.state,
-          dairy_type: toUpperCaseSafe(formData.dairy_type),
-        };
-        await distributorAPI.create(payload as Distributor);
+        if (checkResult.duplicate_found) {
+          setDuplicateRecord(checkResult.existing_record);
+          setPendingSubmitFn(() => () => executeSave(payload));
+          setDuplicateWarning(true);
+          setSubmitLoading(false);
+          setSubmitting(false);
+          return;
+        }
+      } catch {
+        // Probe failed (network / permissions) — silently proceed with save
       }
 
-      handleCloseDialog();
-      loadDistributors();
-      setError(null);
+      await executeSave(payload);
     } catch (err: any) {
-      if (err?.isNetworkError || err?.response?.status >= 500) {
+      const detail = err?.response?.data?.detail || err?.message || "";
+      if (err?.response?.status === 422 && detail) {
+        setPhoneError(detail);
+      } else if (err?.isNetworkError || err?.response?.status >= 500) {
         setError("Network error or server error. Please check if distributor was saved before trying again.");
       } else {
         setError(
@@ -262,6 +297,30 @@ export default function Distributors() {
       setSubmitting(false);
     }
   };
+
+  // ── Duplicate warning dialog handlers ────────────────────────────────
+  const handleDuplicateCancel = () => {
+    setDuplicateWarning(false);
+    setDuplicateRecord(null);
+    setPendingSubmitFn(null);
+  };
+
+  const handleDuplicateContinue = async () => {
+    setDuplicateWarning(false);
+    if (pendingSubmitFn) {
+      setSubmitting(true);
+      try {
+        await pendingSubmitFn();
+      } catch (err: any) {
+        setError(err instanceof Error ? err.message : "Failed to save");
+      } finally {
+        setSubmitting(false);
+        setPendingSubmitFn(null);
+        setDuplicateRecord(null);
+      }
+    }
+  };
+
 
   const getRowColor = (row: Distributor) => {
     // RED (Critical Issue): Missing core contact or identity data
@@ -1130,9 +1189,19 @@ export default function Distributors() {
                 fullWidth
                 label={t("distributors.mantriMobile", "Mantri Mobile")}
                 value={formData.mantri_mobile}
-                onChange={(e) =>
-                  setFormData({ ...formData, mantri_mobile: e.target.value })
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                  setFormData({ ...formData, mantri_mobile: val });
+                  setPhoneError(validatePhone(val));
+                }}
+                error={!!phoneError}
+                helperText={
+                  phoneError ||
+                  (formData.mantri_mobile && formData.mantri_mobile.length > 0 && formData.mantri_mobile.length < 10
+                    ? `${formData.mantri_mobile.length}/10 digits`
+                    : "")
                 }
+                inputProps={{ maxLength: 10, inputMode: "numeric" }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">+91</InputAdornment>
@@ -1588,6 +1657,49 @@ export default function Distributors() {
           {toast.message}
         </Alert>
       </Snackbar>
+
+      {/* ── Duplicate Phone Warning Dialog ─────────────────────────────── */}
+      <Dialog open={duplicateWarning} onClose={handleDuplicateCancel} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          ⚠️ Phone Number Already Exists
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            This phone number is already registered with another Mantri record:
+          </Typography>
+          {duplicateRecord && (
+            <Box
+              sx={{
+                bgcolor: "warning.light",
+                borderRadius: 1,
+                p: 1.5,
+                mb: 1,
+                border: "1px solid",
+                borderColor: "warning.main",
+              }}
+            >
+              {duplicateRecord.name && (
+                <Typography variant="body2"><strong>Name:</strong> {duplicateRecord.name}</Typography>
+              )}
+              {duplicateRecord.village && (
+                <Typography variant="body2"><strong>Village:</strong> {duplicateRecord.village}</Typography>
+              )}
+              {duplicateRecord.mobile && (
+                <Typography variant="body2"><strong>Mobile:</strong> {duplicateRecord.mobile}</Typography>
+              )}
+            </Box>
+          )}
+          <Typography variant="body2" color="text.secondary">
+            Do you want to continue and create this record anyway?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDuplicateCancel} variant="outlined">Cancel</Button>
+          <Button onClick={handleDuplicateContinue} variant="contained" color="warning">
+            Continue Anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

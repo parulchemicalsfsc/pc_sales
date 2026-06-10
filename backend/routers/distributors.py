@@ -1,3 +1,4 @@
+import re
 from typing import Optional, List
 import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -7,7 +8,57 @@ from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
 
+INDIAN_MOBILE_RE = re.compile(r'^[0-9]{10}$')
+
+
+def validate_mantri_mobile(mobile: Optional[str]) -> str:
+    """Validate Indian 10-digit mobile number. Returns cleaned value or raises HTTPException."""
+    if not mobile or not str(mobile).strip():
+        raise HTTPException(status_code=422, detail="Phone number is required")
+    cleaned = str(mobile).strip()
+    if not INDIAN_MOBILE_RE.match(cleaned):
+        raise HTTPException(
+            status_code=422,
+            detail="Please enter a valid 10-digit mobile number",
+        )
+    return cleaned
+
 router = APIRouter()
+
+
+@router.get("/check-phone", dependencies=[Depends(verify_permission("view_distributors"))])
+def check_distributor_phone(
+    mobile: str,
+    exclude_id: Optional[int] = None,
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Check if a mantri_mobile already exists in the distributors table.
+    Returns duplicate_found=True plus the first matching record if found.
+    Does NOT block creation — informational only."""
+    try:
+        cleaned = mobile.strip()
+        query = (
+            db.table("distributors")
+            .select("distributor_id, mantri_name, village, mantri_mobile")
+            .eq("mantri_mobile", cleaned)
+        )
+        if exclude_id is not None:
+            query = query.neq("distributor_id", exclude_id)
+        resp = query.limit(1).execute()
+        if resp.data and len(resp.data) > 0:
+            rec = resp.data[0]
+            return {
+                "duplicate_found": True,
+                "existing_record": {
+                    "name": rec.get("mantri_name"),
+                    "village": rec.get("village"),
+                    "mobile": rec.get("mantri_mobile"),
+                },
+            }
+        return {"duplicate_found": False, "existing_record": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking phone: {str(e)}")
+
 
 
 @router.get("/resolved", response_model=List[ResolvedDistributor], dependencies=[Depends(verify_permission("view_distributors"))])
@@ -115,13 +166,19 @@ def create_distributor(
 ):
     """Create a new distributor"""
     try:
+        # ── Phone validation (mandatory + format) ──────────────────────────────
+        mantri_mobile = validate_mantri_mobile(distributor.mantri_mobile)
+
+        # NOTE: Uniqueness is enforced only at the frontend (warning dialog).
+        # Backend does not block duplicate phone numbers.
+
         distributor_data = {
             "name": distributor.name,
             "village": distributor.village,
             "taluka": distributor.taluka,
             "district": distributor.district,
             "mantri_name": distributor.mantri_name,
-            "mantri_mobile": distributor.mantri_mobile,
+            "mantri_mobile": mantri_mobile,
             "sabhasad_count": distributor.sabhasad_count,
             "sabhasad_morning": distributor.sabhasad_morning,
             "sabhasad_evening": distributor.sabhasad_evening,
@@ -203,6 +260,12 @@ async def update_distributor(
         print("📦 PARSED DATA:", distributor.model_dump())
         print("🧠 MODEL FIELDS:", Distributor.model_fields.keys())
 
+        # ── Phone validation (mandatory + format) ──────────────────────────────
+        mantri_mobile = validate_mantri_mobile(distributor.mantri_mobile)
+
+        # NOTE: Uniqueness is enforced only at the frontend (warning dialog).
+        # Backend does not block duplicate phone numbers.
+
         # Fetch current record BEFORE updating so we can log the diff
         before_resp = db.table("distributors").select("*").eq("distributor_id", distributor_id).execute()
         before_data = before_resp.data[0] if before_resp.data else {}
@@ -213,7 +276,7 @@ async def update_distributor(
             "taluka": distributor.taluka,
             "district": distributor.district,
             "mantri_name": distributor.mantri_name,
-            "mantri_mobile": distributor.mantri_mobile,
+            "mantri_mobile": mantri_mobile,
             "sabhasad_count": distributor.sabhasad_count,
             "sabhasad_morning": int(distributor.sabhasad_morning or 0),
             "sabhasad_evening": int(distributor.sabhasad_evening or 0),
