@@ -80,8 +80,8 @@
     "subtitle": "Here's what's happening with your sales today",
     "quickActions": {
       "addCustomer": {
-        "title": "Add Sabhasad",
-        "subtitle": "Register new Sabhasad"
+        "title": "Add Mantri",
+        "subtitle": "Register new Mantri"
       },
       "newSale": {
         "title": "New Sale",
@@ -92,7 +92,7 @@
         "subtitle": "Book product demo"
       },
       "recordPayment": {
-        "title": "Record Payment",
+        "title": "Receipt Payment",
         "subtitle": "Collect payment"
       }
     },
@@ -202,7 +202,7 @@
     "addPayment": "Add Payment",
     "editPayment": "Edit Payment",
     "deletePayment": "Delete Payment",
-    "recordPayment": "Record Payment",
+    "recordPayment": "Receipt Payment",
     "customerName": "Sabhasad Name",
     "amount": "Amount",
     "date": "Payment Date",

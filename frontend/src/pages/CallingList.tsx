@@ -451,7 +451,7 @@ export default function CallingList() {
                           </Typography>
                         )}
                         {item.last_call && (
-                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: alpha(border, 0.5), border: `1px solid ${border}` }}>
+                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
                             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.25 }}>
                               Last Call: {new Date(item.last_call.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </Typography>
@@ -627,6 +627,45 @@ export default function CallingList() {
                   </Box>
                 );
               })()}
+
+              {/* ── Call History ── */}
+              {customerSummary.call_logs && customerSummary.call_logs.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 1.5, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
+                    Call History
+                  </Typography>
+                  <Stack spacing={1.5}>
+                    {customerSummary.call_logs.map((log: any, idx: number) => {
+                      const outcomeIcon = CALL_OUTCOMES.find(o => o.value === log.call_outcome);
+                      const displayLabel = outcomeIcon ? outcomeIcon.label : log.call_outcome.replace(/_/g, " ").toUpperCase();
+                      const displayColor = outcomeIcon ? outcomeIcon.color : "#6b7280";
+                      
+                      return (
+                        <Box key={idx} sx={{ p: 1.5, borderRadius: 2, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 0.5 }}>
+                            <Chip
+                              size="small"
+                              label={displayLabel}
+                              sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700, bgcolor: alpha(displayColor, 0.1), color: displayColor, border: `1px solid ${alpha(displayColor, 0.2)}` }}
+                            />
+                            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
+                              {new Date(log.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}
+                            </Typography>
+                          </Stack>
+                          {log.notes && (
+                            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
+                              "{log.notes}"
+                            </Typography>
+                          )}
+                          <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5, fontSize: "0.65rem" }}>
+                            By {log.user_email}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              )}
             </Stack>
           ) : (
             <Box sx={{ textAlign: "center", py: 4 }}>

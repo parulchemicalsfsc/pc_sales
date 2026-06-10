@@ -12,14 +12,23 @@ import {
   FormControlLabel,
   Alert,
   LinearProgress,
+  Grid,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  TextField,
+  Chip,
+  Stack,
 } from "@mui/material";
 import {
   CheckCircle as CheckIcon,
+  Map as MapIcon,
   Warning as WarningIcon,
   PhoneDisabled as PhoneDisabledIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
-import { attendanceAPI } from "../services/api";
+import { attendanceAPI, automationAPI } from "../services/api";
 import apiClient from "../services/api";
 
 // Google Fonts: IBM Plex Mono
@@ -53,6 +62,7 @@ const T = {
   redLight: "#fee2e2",
   mono: "'IBM Plex Mono', 'JetBrains Mono', monospace",
   sans: "'Inter', 'Helvetica Neue', Arial, sans-serif",
+  bgHover: "#e5e7eb",
 };
 
 // ─── Roles allowed to manage the duty sheet ─────────────────────────────────
@@ -133,6 +143,15 @@ const DutySheetPopup: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [currentTime, setCurrentTime] = useState(getISTTimeString());
+  const [step, setStep] = useState(1);
+  const [locations, setLocations] = useState<any>({});
+  const [selState, setSelState] = useState("");
+  const [selDistrict, setSelDistrict] = useState("");
+  const [selTaluka, setSelTaluka] = useState("");
+  const [selVillage, setSelVillage] = useState("");
+  const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
+  const [assignedTelecallers, setAssignedTelecallers] = useState<string[]>([]);
+  const [assignSelectOpen, setAssignSelectOpen] = useState(false);
 
   // Live clock
   useEffect(() => {
@@ -163,7 +182,11 @@ const DutySheetPopup: React.FC = () => {
           headers: { "x-user-role": normalizedRole },
         });
         if (res.data.should_show_popup) {
-          const tcRes = await attendanceAPI.getAllTelecallers();
+          const [tcRes, locRes] = await Promise.all([
+             attendanceAPI.getAllTelecallers(),
+             automationAPI.getLocations().catch(() => ({})),
+          ]);
+          setLocations(locRes || {});
           const data = tcRes.data;
           const combined = [
              ...(data.sales_managers || []).map((t: any) => ({ ...t, group: "Sales Managers" })),
@@ -208,14 +231,22 @@ const DutySheetPopup: React.FC = () => {
         telecallers.map((tc) => ({ email: tc.email, is_on_duty: tc.is_on_duty }))
       );
       setSubmitSuccess(true);
-      setTimeout(() => setOpen(false), 1500);
+      setTimeout(() => {
+        setStep(2);
+        setSubmitSuccess(false);
+        setSelectedTelecallers(telecallers.filter(t => t.is_on_duty && t.group === "Telecallers").map(t => t.email));
+      }, 1500);
     } catch (err: any) {
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
 
       if (status === 409) {
         setSubmitError(t("dutySheet.alreadySubmitted", "Duty sheet was already submitted for today by another user."));
-        setTimeout(() => setOpen(false), 2500);
+        setTimeout(() => {
+          setSubmitError(null);
+          setStep(2);
+          setSelectedTelecallers(telecallers.filter(t => t.is_on_duty && t.group === "Telecallers").map(t => t.email));
+        }, 1500);
       } else if (status === 400) {
         setSubmitError(detail || t("dutySheet.windowClosed", "Submission window has closed (must be before 10:00 AM IST)."));
       } else if (status === 403) {
@@ -223,6 +254,40 @@ const DutySheetPopup: React.FC = () => {
       } else {
         setSubmitError(detail || t("dutySheet.failed", "Submission failed. Please try again."));
       }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAssignSabhsads = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const payload = {
+        telecaller_emails: selectedTelecallers,
+        state: selState,
+        district: selDistrict,
+        taluka: selTaluka,
+        village: selVillage,
+      };
+      await automationAPI.adminDistributeSabhsads(payload);
+      setSubmitSuccess(true);
+      setTimeout(() => {
+        setSubmitSuccess(false);
+        setAssignedTelecallers((prev) => {
+          const newAssigned = [...prev, ...selectedTelecallers];
+          const availableTCs = telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers').map(t => t.email);
+          const allAssigned = availableTCs.every(email => newAssigned.includes(email));
+          if (allAssigned) {
+            setOpen(false);
+          }
+          return newAssigned;
+        });
+        setSelVillage("");
+        setSelectedTelecallers([]);
+      }, 1500);
+    } catch (err: any) {
+      setSubmitError(err?.response?.data?.detail || "Distribution failed.");
     } finally {
       setSubmitting(false);
     }
@@ -405,7 +470,8 @@ const DutySheetPopup: React.FC = () => {
           </Box>
         )}
 
-        {/* ── Duty summary bar ── */}
+        {step === 1 && (<>
+{/* ── Duty summary bar ── */}
         <Box
           sx={{
             p: "14px 16px",
@@ -704,6 +770,89 @@ const DutySheetPopup: React.FC = () => {
             })}
           </Box>
         )}
+        </>)}
+
+        {/* ── Step 2: Sabhsad Distribution ── */}
+        {step === 2 && (
+          <Box sx={{ mt: 2, pb: 4 }}>
+            <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MapIcon sx={{ color: T.amber }} />
+              <Typography sx={{ fontFamily: T.sans, fontWeight: 600, fontSize: '0.9rem', color: T.textPrimary }}>
+                Assign Sabhsads to Present Telecallers
+              </Typography>
+            </Box>
+
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>State</InputLabel>
+                  <Select label="State" value={selState} onChange={(e) => { setSelState(e.target.value); setSelDistrict(""); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All States</MenuItem>
+                    {Object.keys(locations).map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selState}>
+                  <InputLabel>District</InputLabel>
+                  <Select label="District" value={selDistrict} onChange={(e) => { setSelDistrict(e.target.value); setSelTaluka(""); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Districts</MenuItem>
+                    {selState && Object.keys(locations[selState] || {}).map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selDistrict}>
+                  <InputLabel>Taluka</InputLabel>
+                  <Select label="Taluka" value={selTaluka} onChange={(e) => { setSelTaluka(e.target.value); setSelVillage(""); }} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Talukas</MenuItem>
+                    {selDistrict && Object.keys(locations[selState]?.[selDistrict] || {}).map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl size="small" fullWidth disabled={!selTaluka}>
+                  <InputLabel>Village</InputLabel>
+                  <Select label="Village" value={selVillage} onChange={(e) => setSelVillage(e.target.value)} sx={{ borderRadius: 1 }}>
+                    <MenuItem value="">All Villages</MenuItem>
+                    {selTaluka && (locations[selState]?.[selDistrict]?.[selTaluka] || []).map((v: string) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Assign To</InputLabel>
+                  <Select
+                    label="Assign To"
+                    multiple
+                    open={assignSelectOpen}
+                    onOpen={() => setAssignSelectOpen(true)}
+                    onClose={() => setAssignSelectOpen(false)}
+                    value={selectedTelecallers}
+                    onChange={(e) => {
+                      setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value);
+                      setAssignSelectOpen(false);
+                    }}
+                    sx={{ borderRadius: 1 }}
+                    renderValue={(selected) => (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {selected.map((value) => (
+                          <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
+                        ))}
+                      </Box>
+                    )}
+                  >
+                    {telecallers.filter(t => t.is_on_duty && t.group === 'Telecallers' && !assignedTelecallers.includes(t.email)).map((t) => (
+                      <MenuItem key={t.email} value={t.email}>
+                        {t.name || t.email.split("@")[0]}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </Box>
+        )}
       </DialogContent>
 
       {/* ── Actions ── */}
@@ -716,50 +865,123 @@ const DutySheetPopup: React.FC = () => {
           backgroundColor: T.bg,
         }}
       >
-        <Box
-          component="button"
-          onClick={handleSubmit}
-          disabled={submitting || submitSuccess}
-          sx={{
-            width: "100%",
-            py: "12px",
-            px: "20px",
-            backgroundColor: submitSuccess ? T.green : T.charcoal,
-            color: "#ffffff",
-            border: "none",
-            borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
-            borderRadius: "4px",
-            cursor: submitting || submitSuccess ? "not-allowed" : "pointer",
-            fontFamily: T.mono,
-            fontSize: "0.82rem",
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            opacity: submitting ? 0.7 : 1,
-            transition: "background-color 0.15s ease, opacity 0.15s ease",
-            "&:hover:not(:disabled)": {
-              backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
-            },
-          }}
-        >
-          {submitting ? (
-            <>
-              <CircularProgress size={14} sx={{ color: "#ffffff" }} />
-              {t("dutySheet.confirming", "Submitting...")}
-            </>
-          ) : submitSuccess ? (
-            <>
-              <CheckIcon sx={{ fontSize: 16 }} />
-              {t("dutySheet.confirmed", "Duty Sheet Confirmed")}
-            </>
-          ) : (
-            t("dutySheet.submitDutySheet", "Submit Duty Sheet — {count} on duty").replace("{count}", String(onDutyCount))
-          )}
-        </Box>
+        {step === 1 ? (
+          <Box
+            component="button"
+            onClick={handleSubmit}
+            disabled={submitting || submitSuccess}
+            sx={{
+              width: "100%",
+              py: "12px",
+              px: "20px",
+              backgroundColor: submitSuccess ? T.green : T.charcoal,
+              color: "#ffffff",
+              border: "none",
+              borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
+              borderRadius: "4px",
+              cursor: submitting || submitSuccess ? "not-allowed" : "pointer",
+              fontFamily: T.mono,
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              opacity: submitting ? 0.7 : 1,
+              transition: "background-color 0.15s ease, opacity 0.15s ease",
+              "&:hover:not(:disabled)": {
+                backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
+              },
+            }}
+          >
+            {submitting ? (
+              <>
+                <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+                {t("dutySheet.confirming", "Submitting...")}
+              </>
+            ) : submitSuccess ? (
+              <>
+                <CheckIcon sx={{ fontSize: 16 }} />
+                {t("dutySheet.confirmed", "Duty Sheet Confirmed")}
+              </>
+            ) : (
+              "Next: Assign Villages →"
+            )}
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', gap: '12px', width: '100%' }}>
+            <Box
+              component="button"
+              onClick={() => setOpen(false)}
+              sx={{
+                flex: 1,
+                py: "12px",
+                px: "20px",
+                backgroundColor: "transparent",
+                color: T.charcoal,
+                border: `1px solid ${T.borderDark}`,
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontFamily: T.mono,
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                "&:hover": {
+                  backgroundColor: T.bgHover,
+                },
+              }}
+            >
+              Finish & Close
+            </Box>
+            <Box
+              component="button"
+              onClick={handleAssignSabhsads}
+              disabled={submitting || submitSuccess || !selVillage || selectedTelecallers.length === 0}
+              sx={{
+                flex: 2,
+                py: "12px",
+                px: "20px",
+                backgroundColor: submitSuccess ? T.green : T.charcoal,
+                color: "#ffffff",
+                border: "none",
+                borderBottom: `3px solid ${submitSuccess ? "#166534" : T.amber}`,
+                borderRadius: "4px",
+                cursor: submitting || submitSuccess || !selVillage || selectedTelecallers.length === 0 ? "not-allowed" : "pointer",
+                fontFamily: T.mono,
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                opacity: (submitting || !selVillage || selectedTelecallers.length === 0) && !submitSuccess ? 0.6 : 1,
+                transition: "background-color 0.15s ease, opacity 0.15s ease",
+                "&:hover:not(:disabled)": {
+                  backgroundColor: submitSuccess ? "#166534" : T.charcoalMid,
+                },
+              }}
+            >
+              {submitting ? (
+                <>
+                  <CircularProgress size={14} sx={{ color: "#ffffff" }} />
+                  {t("dutySheet.confirming", "Assigning...")}
+                </>
+              ) : submitSuccess ? (
+                <>
+                  <CheckIcon sx={{ fontSize: 16 }} />
+                  Assigned Successfully
+                </>
+              ) : (
+                "Assign Village"
+              )}
+            </Box>
+          </Box>
+        )}
       </DialogActions>
     </Dialog>
   );

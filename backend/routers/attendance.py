@@ -227,10 +227,10 @@ def submit_duty_sheet(
                 "is_present": entry.is_on_duty,
                 "submitted_by": x_user_email,
                 "submitted_at": submitted_at,
-            }).execute()
+            }, on_conflict="user_email,attendance_date").execute()
     except Exception as e:
         logger.error(f"[DUTY] Failed to upsert attendance records: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to save attendance records")
+        raise HTTPException(status_code=500, detail=f"Failed to save attendance records: {str(e)}")
 
     # ── Insert into duty_sheet_log (UNIQUE on duty_date — race-safe) ──────────
     try:

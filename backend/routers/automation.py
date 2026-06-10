@@ -578,11 +578,13 @@ def get_my_assignments(
         if all_ids:
             try:
                 logs_res = db.table("call_logs") \
-                    .select("customer_id, call_outcome, notes, created_at, user_email") \
+                    .select("customer_id, call_outcome, notes, called_at, user_email") \
                     .in_("customer_id", all_ids) \
-                    .order("created_at", desc=True) \
+                    .order("called_at", desc=True) \
                     .execute()
                 for log in (logs_res.data or []):
+                    # Map called_at to created_at for frontend compatibility
+                    log["created_at"] = log.pop("called_at", None)
                     cid = log["customer_id"]
                     if cid not in last_calls_map:
                         last_calls_map[cid] = log
@@ -1069,7 +1071,6 @@ class SabhsadDistributePayload(BaseModel):
     district: str
     taluka: str
     village: str
-    limit: Optional[int] = 100
 
 @router.post("/admin/distribute-sabhsads")
 def distribute_sabhsads(
@@ -1113,9 +1114,7 @@ def distribute_sabhsads(
         if not unassigned_ids:
             return {"message": "All sabhsads in this location are already assigned", "assigned": 0}
 
-        # Calculate limits and remainders (soft cap math)
-        max_total_assignments = len(payload.telecaller_emails) * (payload.limit or 100)
-        ids_to_assign = unassigned_ids[:max_total_assignments]
+        ids_to_assign = unassigned_ids
         
         today_str = get_today_ist()
         assignments = []
