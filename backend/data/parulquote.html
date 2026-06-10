@@ -76,6 +76,9 @@
     <tr>
       <!-- CONSIGNEE rowspan=3 -->
       <td rowspan="3" style="width:34%; vertical-align:top; text-align:left; padding:5px 6px;">
+        {% if data.quote_version_id %}
+        <div style="font-size:9px; font-weight:bold; color:#000; margin-bottom: 2px;">QUOTE VER: {{ data.quote_version_id }}</div>
+        {% endif %}
         <div style="font-size:9px;">NAME &amp; ADDRESS OF CONSIGNEE :</div>
         <div style="font-weight:bold; font-size:11px; margin-top:3px;">{{ data.name }}</div>
         <div>{{ data.address_line_1 if data.address_line_1 else '' }}</div>
@@ -211,7 +214,7 @@
   <!-- TERMS -->
   <table style="border-top:none; flex-shrink:0;">
     <tr class="terms-row"><td style="border-top:none;">Payment terms</td><td style="border-top:none;">{{ data.payment_terms }}</td></tr>
-    <tr class="terms-row"><td style="border-top:none;">GST</td><td style="border-top:none;">{{ data.gst_note }}</td></tr>
+    <tr class="terms-row"><td style="border-top:none;">Buyer's GST No.</td><td style="border-top:none;">{{ data.customer_gst_no }}</td></tr>
     <tr class="terms-row"><td style="border-top:none;">Penalty for late delivery</td><td style="border-top:none;">{{ data.penalty_late_delivery }}</td></tr>
     <tr class="terms-row"><td style="border-top:none;">Delivery Requirment</td><td style="border-top:none;">{{ data.delivery_requirement }}</td></tr>
     <tr class="terms-row"><td style="border-top:none;">Packing &amp; forwarding</td><td style="border-top:none;">{{ data.packing_forwarding }}</td></tr>
