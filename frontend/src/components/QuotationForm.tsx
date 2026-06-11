@@ -10,12 +10,15 @@ import { Quotation } from "../services/leadsService";
 export interface QuotationFormProps {
   lead: any;
   initialQuotation: Partial<Quotation>;
-  onSave: (quotation: Partial<Quotation>, generatePdf: boolean) => void;
+  onSaveDraft: (quotation: Partial<Quotation>) => void;
+  onCommit: (quotation: Partial<Quotation>) => void;
+  onDownloadLatest: () => void;
   loading: boolean;
   isClosed: boolean;
+  isHistory?: boolean;
 }
 
-export default function QuotationForm({ lead, initialQuotation, onSave, loading, isClosed }: QuotationFormProps) {
+export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onCommit, onDownloadLatest, loading, isClosed, isHistory = false }: QuotationFormProps) {
   const isParul = lead.source_website === "Parul Chemicals" || lead.source_website === "parul_chemicals";
   const isPSI = !isParul; // Default to PSI for others for now
 
@@ -35,8 +38,6 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
     items: [],
     items_total: 0,
     transportation_charge: 0,
-    gst_percent: 18,
-    gst_amount: 0,
     grand_total: 0,
     cgst_percent: 9,
     cgst_amount: 0,
@@ -49,7 +50,9 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
     penalty_late_delivery: "",
     delivery_requirement: "",
     packing_forwarding: "",
-    freight_charges: ""
+    freight_charges: "",
+    notes: "",
+    customer_gst_no: ""
   };
 
   const [details, setDetails] = useState({ ...defaultQuotation, ...initialQuotation });
@@ -63,7 +66,15 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
         email: lead.email || ""
       }));
     } else {
-      setDetails({ ...defaultQuotation, ...initialQuotation });
+      const merged = { ...defaultQuotation, ...initialQuotation };
+      // Replace nulls from DB with default values
+      Object.keys(defaultQuotation).forEach(key => {
+        if (merged[key] === null || merged[key] === undefined) {
+          merged[key] = (defaultQuotation as any)[key];
+        }
+      });
+      // Force recalculation so old quotes update to new GST rules immediately
+      setDetails(calculateTotals(merged, isParul));
     }
   }, [initialQuotation, lead]);
 
@@ -89,16 +100,11 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
     data.items_total = itemsTotal;
     data.loose_count = looseCount;
 
-    if (forParul) {
-      data.cgst_amount = (itemsTotal * (Number(data.cgst_percent) || 0)) / 100;
-      data.sgst_amount = (itemsTotal * (Number(data.sgst_percent) || 0)) / 100;
-      data.total_gst_amount = data.cgst_amount + data.sgst_amount;
-      data.grand_total = itemsTotal + data.total_gst_amount;
-    } else {
-      const base = itemsTotal + (Number(data.transportation_charge) || 0);
-      data.gst_amount = (base * (Number(data.gst_percent) || 0)) / 100;
-      data.grand_total = base + data.gst_amount;
-    }
+    const base = forParul ? itemsTotal : itemsTotal + (Number(data.transportation_charge) || 0);
+    data.cgst_amount = (base * (Number(data.cgst_percent) || 0)) / 100;
+    data.sgst_amount = (base * (Number(data.sgst_percent) || 0)) / 100;
+    data.total_gst_amount = data.cgst_amount + data.sgst_amount;
+    data.grand_total = base + data.total_gst_amount;
 
     return data;
   };
@@ -126,8 +132,12 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
     });
   };
 
-  const handleSave = (generatePdf: boolean) => {
-    onSave(details, generatePdf);
+  const handleSaveDraftClick = () => {
+    onSaveDraft(details);
+  };
+
+  const handleCommitClick = () => {
+    onCommit(details);
   };
 
   return (
@@ -185,8 +195,8 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
                       <TableCell><TextField size="small" fullWidth value={item.description} onChange={(e) => handleItemChange(index, "description", e.target.value)} disabled={isClosed} /></TableCell>
                       <TableCell><TextField size="small" value={item.hsn_code} onChange={(e) => handleItemChange(index, "hsn_code", e.target.value)} disabled={isClosed} /></TableCell>
                       <TableCell><TextField size="small" value={item.packages} onChange={(e) => handleItemChange(index, "packages", e.target.value)} disabled={isClosed} /></TableCell>
-                      <TableCell><TextField size="small" type="number" value={item.quantity} onChange={(e) => handleItemChange(index, "quantity", Number(e.target.value))} disabled={isClosed} /></TableCell>
-                      <TableCell><TextField size="small" type="number" value={item.rate_per_unit} onChange={(e) => handleItemChange(index, "rate_per_unit", Number(e.target.value))} disabled={isClosed} /></TableCell>
+                      <TableCell><TextField size="small" type="number" inputProps={{ min: 0 }} value={item.quantity} onChange={(e) => handleItemChange(index, "quantity", Number(e.target.value))} disabled={isClosed} /></TableCell>
+                      <TableCell><TextField size="small" type="number" inputProps={{ min: 0 }} value={item.rate_per_unit} onChange={(e) => handleItemChange(index, "rate_per_unit", Number(e.target.value))} disabled={isClosed} /></TableCell>
                       <TableCell>{(item.amount || 0).toFixed(2)}</TableCell>
                       {!isClosed && (
                         <TableCell align="right">
@@ -210,36 +220,24 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
             <TextField label="Items Total" fullWidth size="small" value={details.items_total.toFixed(2)} disabled />
           </Grid>
           
-          {isParul && (
-            <>
-              <Grid item xs={12} md={2}>
-                <TextField label="CGST %" type="number" fullWidth size="small" value={details.cgst_percent} onChange={(e) => handleDetailChange("cgst_percent", Number(e.target.value))} disabled={isClosed} />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <TextField label="CGST Amount" fullWidth size="small" value={details.cgst_amount.toFixed(2)} disabled />
-              </Grid>
-              
-              <Grid item xs={12} md={2}>
-                <TextField label="SGST %" type="number" fullWidth size="small" value={details.sgst_percent} onChange={(e) => handleDetailChange("sgst_percent", Number(e.target.value))} disabled={isClosed} />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <TextField label="SGST Amount" fullWidth size="small" value={details.sgst_amount.toFixed(2)} disabled />
-              </Grid>
-            </>
-          )}
+          <Grid item xs={12} md={2}>
+            <TextField label="CGST %" type="number" inputProps={{ min: 0 }} fullWidth size="small" value={details.cgst_percent} onChange={(e) => handleDetailChange("cgst_percent", Number(e.target.value))} disabled={isClosed} />
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <TextField label="CGST Amount" fullWidth size="small" value={details.cgst_amount.toFixed(2)} disabled />
+          </Grid>
           
+          <Grid item xs={12} md={2}>
+            <TextField label="SGST %" type="number" inputProps={{ min: 0 }} fullWidth size="small" value={details.sgst_percent} onChange={(e) => handleDetailChange("sgst_percent", Number(e.target.value))} disabled={isClosed} />
+          </Grid>
+          <Grid item xs={12} md={2}>
+            <TextField label="SGST Amount" fullWidth size="small" value={details.sgst_amount.toFixed(2)} disabled />
+          </Grid>
+
           {!isParul && (
-            <>
-              <Grid item xs={12} md={3}>
-                <TextField label="Transport Charge" type="number" fullWidth size="small" value={details.transportation_charge} onChange={(e) => handleDetailChange("transportation_charge", Number(e.target.value))} disabled={isClosed} />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <TextField label="GST %" type="number" fullWidth size="small" value={details.gst_percent} onChange={(e) => handleDetailChange("gst_percent", Number(e.target.value))} disabled={isClosed} />
-              </Grid>
-              <Grid item xs={12} md={2}>
-                <TextField label="GST Amount" fullWidth size="small" value={details.gst_amount.toFixed(2)} disabled />
-              </Grid>
-            </>
+            <Grid item xs={12} md={2}>
+              <TextField label="Transport Charge" type="number" inputProps={{ min: 0 }} fullWidth size="small" value={details.transportation_charge} onChange={(e) => handleDetailChange("transportation_charge", Number(e.target.value))} disabled={isClosed} />
+            </Grid>
           )}
           
           <Grid item xs={12} md={2}>
@@ -264,22 +262,28 @@ export default function QuotationForm({ lead, initialQuotation, onSave, loading,
               </Select>
             </FormControl>
           </Grid>
-          {isParul && <Grid item xs={12} md={6}><TextField label="GST Note" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.gst_note || ''} onChange={(e) => handleDetailChange("gst_note", e.target.value)} disabled={isClosed} /></Grid>}
+          <Grid item xs={12} md={6}><TextField label="Customer GST No" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.customer_gst_no || ''} onChange={(e) => handleDetailChange("customer_gst_no", e.target.value)} disabled={isClosed} /></Grid>
           {isParul && <Grid item xs={12} md={6}><TextField label="Penalty for late delivery" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.penalty_late_delivery || ''} onChange={(e) => handleDetailChange("penalty_late_delivery", e.target.value)} disabled={isClosed} /></Grid>}
           {isParul && <Grid item xs={12} md={6}><TextField label="Delivery Requirement" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.delivery_requirement || ''} onChange={(e) => handleDetailChange("delivery_requirement", e.target.value)} disabled={isClosed} /></Grid>}
           {isParul && <Grid item xs={12} md={6}><TextField label="Packing & Forwarding" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.packing_forwarding || ''} onChange={(e) => handleDetailChange("packing_forwarding", e.target.value)} disabled={isClosed} /></Grid>}
           {isParul && <Grid item xs={12} md={6}><TextField label="Freight Charges" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.freight_charges || ''} onChange={(e) => handleDetailChange("freight_charges", e.target.value)} disabled={isClosed} /></Grid>}
+          {!isParul && <Grid item xs={12}><TextField label="Notes / Instructions" multiline rows={3} fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.notes || ''} onChange={(e) => handleDetailChange("notes", e.target.value)} disabled={isClosed} /></Grid>}
         </Grid>
 
         <Box mt={3} display="flex" justifyContent="flex-end" gap={1}>
           {!isClosed && (
-            <Button variant="outlined" startIcon={<SaveIcon />} disabled={loading} onClick={() => handleSave(false)}>
-              Save Details
+            <Button variant="outlined" startIcon={<SaveIcon />} disabled={loading} onClick={handleSaveDraftClick}>
+              Save Draft
             </Button>
           )}
-          <Button variant="contained" color={isClosed ? "primary" : "secondary"} startIcon={<DownloadIcon />} disabled={loading} onClick={() => handleSave(true)}>
-            {isClosed ? "View PDF" : "Save & Generate PDF"}
+          <Button variant="contained" color="secondary" startIcon={<DownloadIcon />} disabled={loading} onClick={onDownloadLatest}>
+            Download Latest Quote
           </Button>
+          {!isClosed && (
+            <Button variant="contained" color="primary" startIcon={<SaveIcon />} disabled={loading} onClick={handleCommitClick}>
+              Save Final Quote
+            </Button>
+          )}
         </Box>
       </CardContent>
     </Card>

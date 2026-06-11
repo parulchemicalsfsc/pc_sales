@@ -89,7 +89,8 @@ export default function LeadWorkspace() {
   const today = new Date().toISOString().slice(0, 10);
 
   // Quotation (RFQ) state
-  const [activeTab, setActiveTab] = useState<"details" | "quotation">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "quotation" | "history">("details");
+  const [quotationHistory, setQuotationHistory] = useState<any[]>([]);
   const [quotation, setQuotation] = useState<Partial<Quotation>>({
     quantity: 0,
     material: "",
@@ -226,20 +227,21 @@ export default function LeadWorkspace() {
     setActiveTab("details");
     await loadActivities(lead.lead_id);
     
-    if (lead.source_website === "psi" || lead.source_website === "press_stamping_industries" || lead.source_website === "press stamping industries") {
-      try {
-        const qRes = await leadsService.getQuotation(lead.lead_id);
-        if (qRes.data) {
-          setQuotation(qRes.data);
-        } else {
-          setQuotation({
-            quantity: 0, material: "", unit_price: 0, total_value: 0,
-            delivery_time: "", payment_terms: "50% Advance, 50% on Dispatch", notes: ""
-          });
-        }
-      } catch (e) {
-        console.error(e);
+    try {
+      const qRes = await leadsService.getQuotation(lead.lead_id);
+      if (qRes.data) {
+        setQuotation(qRes.data);
+      } else {
+        setQuotation({
+          quantity: 0, material: "", unit_price: 0, total_value: 0,
+          delivery_time: "", payment_terms: "50% Advance, 50% on Dispatch", notes: ""
+        });
       }
+
+      const hRes = await leadsService.getQuotationHistory(lead.lead_id);
+      setQuotationHistory(hRes.data || []);
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -250,14 +252,14 @@ export default function LeadWorkspace() {
     await loadActivities(selected.lead_id);
     await loadLeads();
 
-    if (res.data.source_website === "psi" || res.data.source_website === "press_stamping_industries" || res.data.source_website === "press stamping industries") {
-      try {
-        const qRes = await leadsService.getQuotation(res.data.lead_id);
-        if (qRes.data) {
-          setQuotation(qRes.data);
-        }
-      } catch (e) { console.error(e); }
-    }
+    try {
+      const qRes = await leadsService.getQuotation(res.data.lead_id);
+      if (qRes.data) {
+        setQuotation(qRes.data);
+      }
+      const hRes = await leadsService.getQuotationHistory(res.data.lead_id);
+      setQuotationHistory(hRes.data || []);
+    } catch (e) { console.error(e); }
   };
 
   const handleQuotationChange = (field: keyof Quotation, value: any) => {
@@ -270,31 +272,64 @@ export default function LeadWorkspace() {
     });
   };
 
-  const handleSaveQuotation = async (quotationData: Partial<Quotation>, generatePdf = false) => {
+  const handleSaveQuotation = async (quotationData: Partial<Quotation>) => {
     if (!selected) return;
     setQuotationLoading(true);
     try {
       await leadsService.upsertQuotation(selected.lead_id, quotationData);
-      setSuccess("Quotation saved successfully");
-      await loadActivities(selected.lead_id); // Refresh timeline
-      
-      // Update local state so it doesn't revert if switching tabs
-      setQuotation(prev => ({ ...prev, ...quotationData }));
-
-      if (generatePdf) {
-        const res = await leadsService.getQuotationHtml(selected.lead_id);
-        const newWin = window.open();
-        if (newWin) {
-          newWin.document.write(res.data);
-          newWin.document.close();
-        } else {
-          setError("Popup blocked. Please allow popups to view the PDF.");
-        }
-      }
+      setSuccess("Draft saved successfully");
+      await refreshSelected();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "Failed to save quotation");
+      setError(e?.response?.data?.detail || "Failed to save draft");
     } finally {
       setQuotationLoading(false);
+    }
+  };
+
+  const handleCommitQuotation = async (quotationData: Partial<Quotation>) => {
+    if (!selected) return;
+    setQuotationLoading(true);
+    try {
+      // Always save draft first to ensure latest edits are captured
+      await leadsService.upsertQuotation(selected.lead_id, quotationData);
+      // Then commit to a locked version
+      const commitRes = await leadsService.commitQuotation(selected.lead_id);
+      setSuccess(`Version ${commitRes.data.quote_version_id} finalized successfully!`);
+      await refreshSelected();
+      // Open PDF in new tab
+      const res = await leadsService.getQuotationHtml(selected.lead_id, commitRes.data.quote_version_id);
+      const newWin = window.open();
+      if (newWin) {
+        newWin.document.write(res.data);
+        newWin.document.close();
+      } else {
+        setError("Popup blocked. Please allow popups to view the PDF.");
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to commit version");
+    } finally {
+      setQuotationLoading(false);
+    }
+  };
+
+  const handleDownloadLatestQuote = async () => {
+    if (!selected) return;
+    if (quotationHistory.length === 0) {
+      setError("No saved quotes available to download.");
+      return;
+    }
+    const latest = quotationHistory[0];
+    try {
+      const res = await leadsService.getQuotationHtml(selected.lead_id, latest.quote_version_id);
+      const newWin = window.open();
+      if (newWin) {
+        newWin.document.write(res.data);
+        newWin.document.close();
+      } else {
+        setError("Popup blocked. Please allow popups to view the PDF.");
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || "Failed to download PDF");
     }
   };
 
@@ -556,6 +591,10 @@ export default function LeadWorkspace() {
                   onClick={() => setActiveTab("quotation")} sx={{ borderRadius: "4px 4px 0 0", ml: 1 }}>
                   {t("leadWorkspace.quotationRfq", "Quotation (RFQ)")}
                 </Button>
+                <Button variant={activeTab === "history" ? "contained" : "text"} disableElevation
+                  onClick={() => setActiveTab("history")} sx={{ borderRadius: "4px 4px 0 0", ml: 1 }}>
+                  Quote History
+                </Button>
               </Box>
 
               {activeTab === "details" ? (
@@ -628,14 +667,52 @@ export default function LeadWorkspace() {
                     </CardContent>
                   </Card>
                 </>
-              ) : (
+              ) : activeTab === "quotation" ? (
                 <QuotationForm 
                   lead={selected} 
                   initialQuotation={quotation} 
-                  onSave={handleSaveQuotation} 
+                  onSaveDraft={handleSaveQuotation}
+                  onCommit={handleCommitQuotation}
+                  onDownloadLatest={handleDownloadLatestQuote}
                   loading={quotationLoading} 
                   isClosed={isClosed} 
+                  isHistory={false}
                 />
+              ) : (
+                <Box>
+                  <Typography variant="h6" mb={2}>Quote Version History</Typography>
+                  {quotationHistory.length === 0 ? (
+                    <Typography color="text.secondary">No finalized quotes found.</Typography>
+                  ) : (
+                    <Grid container spacing={2}>
+                      {quotationHistory.map((hq) => (
+                        <Grid item xs={12} key={hq.id}>
+                          <Card variant="outlined">
+                            <CardContent>
+                              <Box display="flex" justifyContent="space-between" alignItems="center">
+                                <Box>
+                                  <Typography variant="subtitle1" fontWeight={700}>Version ID: {hq.quote_version_id}</Typography>
+                                  <Typography variant="body2" color="text.secondary">Generated on: {new Date(hq.created_at).toLocaleString()}</Typography>
+                                  <Typography variant="body2" mt={0.5}>Grand Total: ₹{hq.grand_total}</Typography>
+                                </Box>
+                                <Box display="flex" gap={1}>
+                                  <Button 
+                                    variant="outlined" 
+                                    onClick={() => {
+                                      window.open(`/api/leads/${selected.lead_id}/quotation/html?quote_version_id=${encodeURIComponent(hq.quote_version_id)}`, '_blank');
+                                    }}
+                                  >
+                                    Download PDF
+                                  </Button>
+                                </Box>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  )}
+                </Box>
               )}
             </Box>
           )}

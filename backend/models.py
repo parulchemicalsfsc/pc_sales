@@ -139,7 +139,6 @@ class Demo(BaseModel):
 
 class Distributor(BaseModel):
     distributor_id: Optional[int] = None
-    serial_id: Optional[int] = None
     record_date: Optional[str] = None
     state: Optional[str] = None
     village: Optional[str] = None

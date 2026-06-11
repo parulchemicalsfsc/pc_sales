@@ -126,7 +126,6 @@ export interface Demo {
 
 export interface Distributor {
   distributor_id?: number;
-  serial_id?: number;
   record_date?: string;
   state?: string;
   village?: string;

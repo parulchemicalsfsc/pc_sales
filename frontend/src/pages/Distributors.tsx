@@ -368,12 +368,15 @@ export default function Distributors() {
 
   const baseColumns: GridColDef[] = [
     {
-      field: "serial_id",
+      field: "distributor_id",
       headerName: "ID",
       width: 80,
       headerAlign: "center",
       align: "center",
       headerClassName: "multi-line-header",
+      renderCell: (params) => (
+        <span>{params.row.distributor_id ?? "—"}</span>
+      ),
     },
     {
       field: "actions",

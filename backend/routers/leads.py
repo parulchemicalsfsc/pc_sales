@@ -11,7 +11,7 @@ import re
 from typing import Optional
 
 from activity_logger import get_activity_logger
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
@@ -963,13 +963,25 @@ def get_quotation(
     user_email: Optional[str] = Header(None, alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
-    """Get the current quotation for a lead."""
+    """Get the current draft quotation for a lead."""
     try:
-        res = db.table("quotations").select("*").eq("lead_id", lead_id).execute()
+        res = db.table("quotations").select("*").eq("lead_id", lead_id).eq("is_draft", True).execute()
         return res.data[0] if res.data else None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching quotation: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching quotation draft: {e}")
 
+@router.get("/{lead_id}/quotations/history")
+def get_quotation_history(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Get all committed versions for a lead, sorted newest to oldest."""
+    try:
+        res = db.table("quotations").select("*").eq("lead_id", lead_id).eq("is_draft", False).order("version", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quotation history: {e}")
 
 @router.put("/{lead_id}/quotation", dependencies=[Depends(verify_permission("work_leads"))])
 def upsert_quotation(
@@ -978,7 +990,7 @@ def upsert_quotation(
     user_email: Optional[str] = Header(None, alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
-    """Upsert a quotation for a lead. Logs an activity."""
+    """Upsert a draft quotation for a lead. Does not increment version."""
     try:
         # Verify lead exists
         lead_res = db.table("leads").select("lead_id").eq("lead_id", lead_id).execute()
@@ -991,25 +1003,24 @@ def upsert_quotation(
             "payment_terms", "items", "items_total", "grand_total", "cgst_percent", 
             "cgst_amount", "sgst_percent", "sgst_amount", "total_gst_amount", "loose_count", 
             "gst_note", "penalty_late_delivery", "delivery_requirement", "packing_forwarding", 
-            "freight_charges", "transportation_charge", "gst_percent", "gst_amount"
+            "freight_charges", "transportation_charge", "notes", "customer_gst_no"
         }
         update_data = {k: v for k, v in payload.items() if k in allowed}
         update_data["lead_id"] = lead_id
         update_data["updated_at"] = datetime.utcnow().isoformat()
+        update_data["is_draft"] = True
 
-        # Check if exists
-        existing = db.table("quotations").select("id").eq("lead_id", lead_id).execute()
+        # Check if draft exists
+        existing = db.table("quotations").select("id").eq("lead_id", lead_id).eq("is_draft", True).execute()
         if existing.data:
-            res = db.table("quotations").eq("lead_id", lead_id).update(update_data).execute()
+            res = db.table("quotations").eq("id", existing.data[0]["id"]).update(update_data).execute()
         else:
             res = db.table("quotations").insert(update_data).execute()
 
         # Log activity
         total = update_data.get('grand_total') or 0
-        summary = f"Updated quotation (Grand Total: ₹{total})"
-        
         _log_lead_activity(
-            db, lead_id, "Quotation", summary,
+            db, lead_id, "Quotation Draft", f"Saved quotation draft (Grand Total: ₹{total})",
             logged_by=user_email, is_auto=True,
         )
 
@@ -1017,11 +1028,72 @@ def upsert_quotation(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error upserting quotation: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving quotation draft: {e}")
+
+@router.post("/{lead_id}/quotation/commit", dependencies=[Depends(verify_permission("work_leads"))])
+def commit_quotation(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Commit the current draft into a version, and spawn a new draft."""
+    try:
+        # Get current draft
+        draft_res = db.table("quotations").select("*").eq("lead_id", lead_id).eq("is_draft", True).execute()
+        if not draft_res.data:
+            raise HTTPException(status_code=404, detail="No active draft found to commit.")
+        
+        draft = draft_res.data[0]
+        draft_id = draft["id"]
+        
+        # Calculate next version
+        history_res = db.table("quotations").select("version").eq("lead_id", lead_id).eq("is_draft", False).order("version", desc=True).limit(1).execute()
+        next_version = 1
+        if history_res.data and history_res.data[0].get("version"):
+            next_version = int(history_res.data[0]["version"]) + 1
+            
+        quote_version_id = f"{lead_id}/{next_version:03d}"
+        
+        # 1. Update draft to be locked version
+        lock_data = {
+            "is_draft": False,
+            "version": next_version,
+            "quote_version_id": quote_version_id,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        locked_res = db.table("quotations").eq("id", draft_id).update(lock_data).execute()
+        if not locked_res.data:
+            raise HTTPException(status_code=500, detail="Failed to lock version.")
+            
+        locked_quote = locked_res.data[0]
+        
+        # 2. Spawn new draft based on this locked version (so next edits start from here)
+        new_draft = {**draft}
+        for k in ["id", "version", "quote_version_id", "created_at", "updated_at"]:
+            new_draft.pop(k, None)
+            
+        new_draft["is_draft"] = True
+        db.table("quotations").insert(new_draft).execute()
+        
+        # Log activity
+        total = locked_quote.get('grand_total') or 0
+        _log_lead_activity(
+            db, lead_id, "Quotation Finalized", f"Created Version {quote_version_id} (Grand Total: ₹{total})",
+            logged_by=user_email, is_auto=True,
+        )
+        
+        return locked_quote
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error committing quotation: {e}")
+        raise HTTPException(status_code=500, detail=f"Error committing quotation: {e}")
 
 @router.get("/{lead_id}/quotation/html")
 def get_quotation_html(
     lead_id: str,
+    quote_version_id: Optional[str] = Query(None),
     db: SupabaseClient = Depends(get_db),
 ):
     """Generate HTML quotation using Jinja2 templates."""
@@ -1031,7 +1103,16 @@ def get_quotation_html(
             raise HTTPException(status_code=404, detail="Lead not found")
         lead = lead_res.data[0]
         
-        quote_res = db.table("quotations").select("*").eq("lead_id", lead_id).execute()
+        if quote_version_id:
+            quote_res = db.table("quotations").select("*").eq("quote_version_id", quote_version_id).execute()
+        else:
+            # Fallback to latest drafted or committed if no version specified
+            # Usually we wouldn't reach here if we strict generate only for committed.
+            # But let's fetch draft or max version.
+            quote_res = db.table("quotations").select("*").eq("lead_id", lead_id).eq("is_draft", False).order("version", desc=True).limit(1).execute()
+            if not quote_res.data:
+                quote_res = db.table("quotations").select("*").eq("lead_id", lead_id).eq("is_draft", True).execute()
+            
         if not quote_res.data:
             raise HTTPException(status_code=404, detail="Quotation not found")
         quote = quote_res.data[0]

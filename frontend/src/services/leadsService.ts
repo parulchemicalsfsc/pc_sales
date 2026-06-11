@@ -159,12 +159,20 @@ export const leadsService = {
     apiClient.get<Quotation | null>(`/api/leads/${leadId}/quotation`),
 
   /** Both roles: get quotation HTML */
-  getQuotationHtml: (leadId: string) =>
-    apiClient.get<string>(`/api/leads/${leadId}/quotation/html`),
+  getQuotationHtml: (leadId: string, versionId?: string) =>
+    apiClient.get<string>(`/api/leads/${leadId}/quotation/html${versionId ? `?quote_version_id=${encodeURIComponent(versionId)}` : ''}`),
 
-  /** Lead Owner: upsert quotation */
+  /** Lead Owner: upsert quotation draft */
   upsertQuotation: (leadId: string, data: Partial<Quotation>) =>
     apiClient.put<Quotation>(`/api/leads/${leadId}/quotation`, data),
+
+  /** Lead Owner: commit current draft to a locked version */
+  commitQuotation: (leadId: string) =>
+    apiClient.post<Quotation>(`/api/leads/${leadId}/quotation/commit`),
+
+  /** Both roles: get historical committed quotations */
+  getQuotationHistory: (leadId: string) =>
+    apiClient.get<Quotation[]>(`/api/leads/${leadId}/quotations/history`),
 
   /** Lead Owner: manually create a lead (submits to intake) */
   createLead: (data: Partial<Lead>) =>
