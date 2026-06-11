@@ -333,6 +333,150 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
         )
 
 
+@router.get("/refund-due", dependencies=[Depends(verify_permission("view_sales"))])
+def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
+    """
+    Get all sales where the company owes a refund to the customer.
+    These are sales where payment_status = 'Refund Due' (balance went negative
+    due to credit notes exceeding the amount owed).
+    Returns the same shape as /pending-payments for easy display in Payments page.
+    """
+    try:
+        # Fetch sales with Refund Due status
+        sales_response = (
+            db.table("sales")
+            .select("*")
+            .eq("payment_status", "Refund Due")
+            .order("sale_date", desc=True)
+            .execute()
+        )
+
+        if not sales_response.data:
+            return []
+
+        def fetch_all(table, select="*"):
+            all_rows = []
+            batch = 1000
+            offset = 0
+            while True:
+                q = db.table(table).select(select).range(offset, offset + batch - 1)
+                resp = q.execute()
+                if not resp.data: break
+                all_rows.extend(resp.data)
+                if len(resp.data) < batch: break
+                offset += batch
+            return all_rows
+
+        customers_dict = {c["customer_id"]: c for c in fetch_all("customers")}
+        distributors_dict = {d["distributor_id"]: d for d in fetch_all("distributors")}
+        try:
+            doctors_dict = {d["doctor_id"]: d for d in fetch_all("doctors")}
+        except: doctors_dict = {}
+        try:
+            shopkeepers_dict = {s["shopkeeper_id"]: s for s in fetch_all("shopkeepers")}
+        except: shopkeepers_dict = {}
+
+        # Get payments and notes for balance calculation
+        sale_ids = [s["sale_id"] for s in sales_response.data]
+
+        payments_response = db.table("payments").select("sale_id, amount").in_("sale_id", sale_ids).execute()
+        paid_by_sale: dict = {}
+        for p in (payments_response.data or []):
+            sid = p["sale_id"]
+            paid_by_sale[sid] = paid_by_sale.get(sid, 0) + float(p.get("amount", 0))
+
+        # Sum active credit and debit notes per sale
+        notes_response = (
+            db.table("credit_debit_notes")
+            .select("sale_id, note_type, amount")
+            .in_("sale_id", sale_ids)
+            .eq("status", "active")
+            .execute()
+        )
+        credit_by_sale: dict = {}
+        debit_by_sale: dict = {}
+        for n in (notes_response.data or []):
+            sid = n["sale_id"]
+            amt = float(n.get("amount", 0))
+            if n["note_type"] == "credit":
+                credit_by_sale[sid] = credit_by_sale.get(sid, 0) + amt
+            else:
+                debit_by_sale[sid] = debit_by_sale.get(sid, 0) + amt
+
+        # Products + items for summary
+        products_response = db.table("products").select("product_id, product_name").execute()
+        products_dict = {p["product_id"]: p["product_name"] for p in (products_response.data or [])}
+
+        items_response = db.table("sale_items").select("sale_id, product_id, quantity").in_("sale_id", sale_ids).execute()
+        items_by_sale: dict = {}
+        for item in (items_response.data or []):
+            sid = item["sale_id"]
+            pname = products_dict.get(item["product_id"], "Unknown")
+            items_by_sale.setdefault(sid, []).append(f"{item['quantity']}x {pname}")
+
+        result = []
+        for sale in sales_response.data:
+            sale_id = sale["sale_id"]
+            total_amount = float(sale.get("total_amount", 0) or 0)
+            paid_amount = paid_by_sale.get(sale_id, 0)
+            credit_total = credit_by_sale.get(sale_id, 0)
+            debit_total = debit_by_sale.get(sale_id, 0)
+            # effective_balance = total - paid - credits + debits (negative means refund owed)
+            effective_balance = total_amount - paid_amount - credit_total + debit_total
+            refund_amount = abs(effective_balance)  # How much company owes
+
+            buyer_type = sale.get("buyer_type") or (
+                "doctor" if sale.get("doctor_id") else
+                "shopkeeper" if sale.get("shopkeeper_id") else
+                "distributor" if sale.get("distributor_id") else "customer"
+            )
+
+            name, village, mobile = "Unknown", "", ""
+            if buyer_type in ("mantri", "distributor") and sale.get("distributor_id"):
+                entity = distributors_dict.get(sale["distributor_id"], {})
+                name = entity.get("mantri_name") or entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
+            elif buyer_type == "doctor" and sale.get("doctor_id"):
+                entity = doctors_dict.get(sale["doctor_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or ""
+            elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or ""
+            else:
+                entity = customers_dict.get(sale.get("customer_id"), {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mobile") or ""
+
+            result.append({
+                "sale_id": sale_id,
+                "invoice_no": sale.get("invoice_no"),
+                "sale_date": sale.get("sale_date"),
+                "customer_name": name,
+                "village": village,
+                "mobile": mobile,
+                "total_amount": total_amount,
+                "paid_amount": paid_amount,
+                "credit_total": credit_total,
+                "debit_total": debit_total,
+                "effective_balance": effective_balance,
+                "refund_amount": refund_amount,   # The amount company must pay back
+                "pending_amount": refund_amount,  # Alias for Payments page compatibility
+                "payment_status": "Refund Due",
+                "payment_terms": sale.get("payment_terms"),
+                "items_summary": ", ".join(items_by_sale.get(sale_id, [])),
+            })
+
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching refund-due sales: {str(e)}")
+
+
 @router.post("/", dependencies=[Depends(verify_permission("create_sale"))])
 def create_sale(
     sale: SaleCreate,

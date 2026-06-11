@@ -32,6 +32,8 @@ import {
   Menu,
   useMediaQuery,
   useTheme,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -53,7 +55,7 @@ import {
   Close as CloseIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
-import { customerAPI, salesAPI, paymentAPI } from "../services/api";
+import { customerAPI, salesAPI, paymentAPI, notesAPI } from "../services/api";
 import { useTranslation } from "../hooks/useTranslation";
 
 interface Customer {
@@ -86,6 +88,9 @@ interface Order {
   notes?: string;
   sale_code?: string;
   payment_terms?: string;
+  is_return?: boolean;
+  note_id?: number;
+  pickup_items?: string;
 }
 
 interface OrderStatusUpdate {
@@ -101,6 +106,8 @@ interface OrderStatusUpdate {
 export default function OrderManagement() {
   const { t } = useTranslation();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [returnNotes, setReturnNotes] = useState<Order[]>([]);
+  const [viewMode, setViewMode] = useState<"sales" | "returns">("sales");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -131,13 +138,15 @@ export default function OrderManagement() {
       setLoading(true);
 
       // Load each independently — a 403 on one shouldn't break the whole page
-      const [salesResult, customersResult] = await Promise.allSettled([
+      const [salesResult, customersResult, notesResult] = await Promise.allSettled([
         salesAPI.getAll(),
         customerAPI.getAll(),
+        notesAPI.getAll({ requires_pickup: true }),
       ]);
 
       let salesData: any[] = [];
       let customersData: Customer[] = [];
+      let notesData: any[] = [];
 
       if (salesResult.status === "fulfilled") {
         salesData = salesResult.value.data || salesResult.value || [];
@@ -173,7 +182,46 @@ export default function OrderManagement() {
         };
       });
 
+      if (notesResult.status === "fulfilled") {
+        notesData = notesResult.value || [];
+      } else {
+        console.error("Error fetching notes:", notesResult.reason);
+      }
+
+      const salesMap = new Map<number, any>(salesData.map(s => [s.sale_id, s]));
+      const mappedReturns = notesData.map((note: any) => {
+        const sale = salesMap.get(note.sale_id) || {};
+        const fallback = customersMap.get(sale.customer_id) || ({} as Customer);
+        
+        // Map pickup_status to order_status equivalents for the UI
+        let mappedStatus = "pending";
+        if (note.pickup_status === "out_for_pickup") mappedStatus = "dispatch";
+        if (note.pickup_status === "picked_up") mappedStatus = "delivered";
+        if (note.pickup_status === "returned_to_company") mappedStatus = "completed";
+        if (note.pickup_status === "cancelled") mappedStatus = "cancelled";
+
+        return {
+          is_return: true,
+          note_id: note.note_id,
+          sale_id: note.sale_id,
+          invoice_no: `CR-${note.note_id} (Sale ${sale.invoice_no || note.sale_id})`,
+          customer_id: sale.customer_id,
+          customer_name: sale.customer_name || fallback.name || "Unknown",
+          customer_mobile: sale.mobile || fallback.mobile || "N/A",
+          buyer_type: sale.buyer_type || "customer",
+          sale_date: note.issue_date,
+          total_amount: note.amount,
+          total_liters: 0,
+          payment_status: "Return",
+          order_status: mappedStatus,
+          shipment_status: note.pickup_status,
+          pickup_items: note.pickup_items,
+          notes: note.reason,
+        } as Order;
+      });
+
       setOrders(ordersData);
+      setReturnNotes(mappedReturns);
       setCustomers(customersData);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -267,28 +315,38 @@ export default function OrderManagement() {
   const handleImmediateUpdate = async (newStatus: string) => {
     if (!selectedOrder) return;
     try {
-      // Only send fields that exist in the sales table (whitelist approach)
-      // This prevents read-only fields from joins (customer_name, mobile, village, etc.) from being sent
-      const validSaleFields = {
-        sale_id: selectedOrder.sale_id,
-        invoice_no: selectedOrder.invoice_no,
-        customer_id: selectedOrder.customer_id,
-        sale_date: selectedOrder.sale_date,
-        total_amount: selectedOrder.total_amount,
-        total_liters: selectedOrder.total_liters,
-        payment_status: selectedOrder.payment_status,
-        notes: selectedOrder.notes,
-        sale_code: selectedOrder.sale_code,
-        payment_terms: selectedOrder.payment_terms,
-        order_status: newStatus,
-        shipment_status: orderUpdate.shipment_status,
-        shipment_date: orderUpdate.shipment_date,
-        dispatch_date: orderUpdate.dispatch_date,
-        delivery_date: orderUpdate.delivery_date,
-        tracking_number: orderUpdate.tracking_number,
-      };
-
-      await salesAPI.update(selectedOrder.sale_id, validSaleFields);
+      if (selectedOrder.is_return) {
+        // Reverse mapping order_status -> pickup_status
+        let pickupStatus = "pending_pickup";
+        if (newStatus === "dispatch") pickupStatus = "out_for_pickup";
+        if (newStatus === "delivered") pickupStatus = "picked_up";
+        if (newStatus === "completed") pickupStatus = "returned_to_company";
+        if (newStatus === "cancelled") pickupStatus = "cancelled";
+        
+        await notesAPI.updatePickupStatus(selectedOrder.note_id!, {
+          pickup_status: pickupStatus
+        });
+      } else {
+        const validSaleFields = {
+          sale_id: selectedOrder.sale_id,
+          invoice_no: selectedOrder.invoice_no,
+          customer_id: selectedOrder.customer_id,
+          sale_date: selectedOrder.sale_date,
+          total_amount: selectedOrder.total_amount,
+          total_liters: selectedOrder.total_liters,
+          payment_status: selectedOrder.payment_status,
+          notes: selectedOrder.notes,
+          sale_code: selectedOrder.sale_code,
+          payment_terms: selectedOrder.payment_terms,
+          order_status: newStatus,
+          shipment_status: orderUpdate.shipment_status,
+          shipment_date: orderUpdate.shipment_date,
+          dispatch_date: orderUpdate.dispatch_date,
+          delivery_date: orderUpdate.delivery_date,
+          tracking_number: orderUpdate.tracking_number,
+        };
+        await salesAPI.update(selectedOrder.sale_id, validSaleFields);
+      }
       setUpdateDialogOpen(false);
       fetchData();
     } catch (error) {
@@ -482,36 +540,50 @@ export default function OrderManagement() {
     if (!nextStatus) return;
 
     try {
-      // Determine which date field to update
-      const today = new Date().toISOString().split('T')[0];
-      const dateUpdates: any = {};
+      if (order.is_return) {
+        let pickupStatus = "pending_pickup";
+        if (nextStatus === "dispatch") pickupStatus = "out_for_pickup";
+        if (nextStatus === "delivered") pickupStatus = "picked_up";
+        if (nextStatus === "completed") pickupStatus = "returned_to_company";
+        if (nextStatus === "cancelled") pickupStatus = "cancelled";
 
-      if (nextStatus === "prepared_for_shipment") dateUpdates.shipment_date = today;
-      if (nextStatus === "dispatch") dateUpdates.dispatch_date = today;
-      if (nextStatus === "delivered") dateUpdates.delivery_date = today;
+        const today = new Date().toISOString().split('T')[0];
+        const dateUpdates: any = {};
+        if (nextStatus === "dispatch") dateUpdates.pickup_date = today;
+        if (nextStatus === "completed") dateUpdates.returned_date = today;
 
-      // Whitelist fields
-      // Whitelist fields - verify these exist in your Supabase 'sales' table!
-      // Removing sale_id (PK) and sale_code (not in schema) to prevent errors.
-      const validSaleFields = {
-        invoice_no: order.invoice_no,
-        customer_id: order.customer_id,
-        sale_date: order.sale_date,
-        total_amount: order.total_amount,
-        total_liters: order.total_liters,
-        payment_status: order.payment_status,
-        notes: order.notes,
-        payment_terms: order.payment_terms,
-        order_status: nextStatus,
-        shipment_status: order.shipment_status || "not_shipped",
-        shipment_date: order.shipment_date,
-        dispatch_date: order.dispatch_date,
-        delivery_date: order.delivery_date,
-        tracking_number: order.tracking_number,
-        ...dateUpdates // Overwrite with new date
-      };
+        await notesAPI.updatePickupStatus(order.note_id!, {
+          pickup_status: pickupStatus,
+          ...dateUpdates
+        });
+      } else {
+        const today = new Date().toISOString().split('T')[0];
+        const dateUpdates: any = {};
 
-      await salesAPI.update(order.sale_id, validSaleFields);
+        if (nextStatus === "prepared_for_shipment") dateUpdates.shipment_date = today;
+        if (nextStatus === "dispatch") dateUpdates.dispatch_date = today;
+        if (nextStatus === "delivered") dateUpdates.delivery_date = today;
+
+        const validSaleFields = {
+          invoice_no: order.invoice_no,
+          customer_id: order.customer_id,
+          sale_date: order.sale_date,
+          total_amount: order.total_amount,
+          total_liters: order.total_liters,
+          payment_status: order.payment_status,
+          notes: order.notes,
+          payment_terms: order.payment_terms,
+          order_status: nextStatus,
+          shipment_status: order.shipment_status || "not_shipped",
+          shipment_date: order.shipment_date,
+          dispatch_date: order.dispatch_date,
+          delivery_date: order.delivery_date,
+          tracking_number: order.tracking_number,
+          ...dateUpdates // Overwrite with new date
+        };
+
+        await salesAPI.update(order.sale_id, validSaleFields);
+      }
       fetchData();
     } catch (error) {
       console.error("Error advancing order status:", error);
@@ -536,10 +608,22 @@ export default function OrderManagement() {
     if (!selectedOrder) return;
 
     try {
-      await salesAPI.update(selectedOrder.sale_id, {
-        ...selectedOrder,
-        ...orderUpdate,
-      });
+      if (selectedOrder.is_return) {
+        let pickupStatus = "pending_pickup";
+        if (orderUpdate.order_status === "dispatch") pickupStatus = "out_for_pickup";
+        if (orderUpdate.order_status === "delivered") pickupStatus = "picked_up";
+        if (orderUpdate.order_status === "completed") pickupStatus = "returned_to_company";
+        if (orderUpdate.order_status === "cancelled") pickupStatus = "cancelled";
+
+        await notesAPI.updatePickupStatus(selectedOrder.note_id!, {
+          pickup_status: pickupStatus
+        });
+      } else {
+        await salesAPI.update(selectedOrder.sale_id, {
+          ...selectedOrder,
+          ...orderUpdate,
+        });
+      }
       setUpdateDialogOpen(false);
       fetchData();
     } catch (error) {
@@ -547,7 +631,7 @@ export default function OrderManagement() {
     }
   };
 
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = (viewMode === "sales" ? orders : returnNotes).filter((order) => {
     const matchesSearch =
       order.invoice_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -596,6 +680,22 @@ export default function OrderManagement() {
             <HelpIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+      </Box>
+
+      {/* View Mode Toggle */}
+      <Box sx={{ mb: { xs: 2, md: 3 } }}>
+        <ToggleButtonGroup
+          color="primary"
+          value={viewMode}
+          exclusive
+          onChange={(e, val) => {
+            if (val) setViewMode(val);
+          }}
+          size="small"
+        >
+          <ToggleButton value="sales">Sales Orders</ToggleButton>
+          <ToggleButton value="returns">Return Pickups</ToggleButton>
+        </ToggleButtonGroup>
       </Box>
 
       {/* Statistics Cards */}

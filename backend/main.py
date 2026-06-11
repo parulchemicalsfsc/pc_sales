@@ -36,6 +36,7 @@ from routers import (
     demos,
     distributors,
     imports,
+    notes,
     notifications,
     payments,
     products,
@@ -155,6 +156,7 @@ app.include_router(customers, prefix="/api/customers")
 app.include_router(products, prefix="/api/products")
 app.include_router(sales, prefix="/api/sales")
 app.include_router(payments, prefix="/api/payments")
+app.include_router(notes, prefix="/api/notes")
 app.include_router(demos, prefix="/api/demos")
 app.include_router(distributors, prefix="/api/distributors")
 app.include_router(shopkeepers, prefix="/api/shopkeepers")

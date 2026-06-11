@@ -8,6 +8,7 @@ from .dashboard import router as dashboard
 from .demos import router as demos
 from .distributors import router as distributors
 from .imports import router as imports
+from .notes import router as notes
 from .notifications import router as notifications
 from .payments import router as payments
 from .products import router as products

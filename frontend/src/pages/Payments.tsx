@@ -88,6 +88,7 @@ export default function Payments() {
   const pendingSectionRef = useRef<HTMLDivElement>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
+  const [refundDueSales, setRefundDueSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +132,15 @@ export default function Payments() {
       ]);
       setPayments(paymentsData);
       setPendingPayments(pendingData);
+
+      // Load sales where company owes a refund — uses dedicated endpoint
+      // (the regular pending-payments endpoint skips negative balances)
+      try {
+        const refundDueData = await salesAPI.getRefundDue();
+        setRefundDueSales(refundDueData || []);
+      } catch (e) {
+        console.warn("Could not load refund due sales:", e);
+      }
     } catch (err: any) {
       console.error("Error loading payment data:", err);
       const errorMessage =
@@ -267,27 +277,33 @@ export default function Payments() {
 
     {
       field: "payment_method",
-
       headerName: t("payments.method"),
-      width: 120,
-
-      renderCell: (params) => (
-        <Chip label={params.value} size="small" variant="outlined" />
-      ),
+      width: 140,
+      renderCell: (params) => {
+        const isRefund = (params.value || "").toLowerCase() === "refund paid";
+        return (
+          <Chip
+            label={params.value}
+            size="small"
+            variant={isRefund ? "filled" : "outlined"}
+            color={isRefund ? "secondary" : "default"}
+          />
+        );
+      },
     },
 
     {
       field: "amount",
-
       headerName: t("fields.amount", "Amount"),
-
       width: 130,
-
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight={600} color="success.main">
-          ₹{params.value?.toLocaleString()}
-        </Typography>
-      ),
+      renderCell: (params) => {
+        const isRefund = ((params.row as any).payment_method || "").toLowerCase() === "refund paid";
+        return (
+          <Typography variant="body2" fontWeight={600} color={isRefund ? "error.main" : "success.main"}>
+            {isRefund ? "-" : "+"}₹{params.value?.toLocaleString()}
+          </Typography>
+        );
+      },
     },
 
     {
@@ -304,9 +320,17 @@ export default function Payments() {
       field: "invoice_no",
       headerName: t("sales.invoiceNo", "Invoice No"),
       width: 140,
-      renderCell: (params) => (
-        <Chip label={params.value} size="small" color="warning" />
-      ),
+      renderCell: (params) => {
+        const isRefund = (params.row as any)._isRefundDue;
+        return (
+          <Chip
+            label={params.value}
+            size="small"
+            color={isRefund ? "secondary" : "warning"}
+            variant={isRefund ? "filled" : "filled"}
+          />
+        );
+      },
     },
 
     {
@@ -357,21 +381,19 @@ export default function Payments() {
 
     {
       field: "pending_amount",
-
       headerName: t("dashboard.pending"),
-
       width: 120,
-
       renderCell: (params) => {
-        const row = params.row as PendingPayment;
-        const isOverdue = isPendingOverdue(row);
+        const row = params.row as any;
+        const isRefund = row._isRefundDue;
+        const isOverdue = !isRefund && isPendingOverdue(row as PendingPayment);
         return (
           <Typography
             variant="body2"
-            fontWeight={600}
-            color={isOverdue ? "error.main" : "warning.main"}
+            fontWeight={700}
+            color={isRefund ? "secondary.main" : isOverdue ? "error.main" : "warning.main"}
           >
-            ₹{params.value?.toLocaleString()}
+            {isRefund ? "Refund: " : ""}₹{params.value?.toLocaleString()}
           </Typography>
         );
       },
@@ -379,25 +401,25 @@ export default function Payments() {
 
     {
       field: "actions",
-
       headerName: t("common.actions"),
-
-      width: 120,
-
+      width: 160,
       sortable: false,
-
-      renderCell: (params) => (
-        <PermissionGate permission={PERMISSIONS.RECORD_PAYMENT}>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => handleOpenDialog(params.row)}
-            sx={{ fontSize: '0.75rem', px: 1 }}
-          >
-            {t("payments.recordPayment")}
-          </Button>
-        </PermissionGate>
-      ),
+      renderCell: (params) => {
+        const isRefund = (params.row as any)._isRefundDue;
+        return (
+          <PermissionGate permission={PERMISSIONS.RECORD_PAYMENT}>
+            <Button
+              size="small"
+              variant="contained"
+              color={isRefund ? "secondary" : "primary"}
+              onClick={() => handleOpenDialog(params.row)}
+              sx={{ fontSize: '0.75rem', px: 1 }}
+            >
+              {isRefund ? "Record Refund" : t("payments.recordPayment")}
+            </Button>
+          </PermissionGate>
+        );
+      },
     },
   ];
 
@@ -414,6 +436,22 @@ export default function Payments() {
     p.total_amount.toString().includes(searchTerm) ||
     p.pending_amount.toString().includes(searchTerm)
   );
+
+  // Refund-due rows get tagged + pending_amount set to refund_amount so the dialog pre-fills correctly
+  const filteredRefundDue = refundDueSales
+    .filter((r) =>
+      !searchTerm ||
+      (r.customer_name && r.customer_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (r.invoice_no && r.invoice_no.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+    .map((r) => ({
+      ...r,
+      _isRefundDue: true,
+      pending_amount: r.refund_amount ?? r.pending_amount,
+    }));
+
+  // Refund-due rows appear at TOP of the combined list
+  const combinedPendingRows = [...filteredRefundDue, ...filteredPendingPayments];
 
   return (
     <PermissionGate permission={PERMISSIONS.VIEW_PAYMENTS} page permissionLabel="view payments">
@@ -548,30 +586,62 @@ export default function Payments() {
                 >
                   ₹
                   {payments
-                    .reduce((sum, p) => sum + p.amount, 0)
+                    .reduce((sum, p) => {
+                      const amt = p.amount || 0;
+                      return (p.payment_method || "").toLowerCase() === "refund paid"
+                        ? sum - amt   // money OUT — reduces net collected
+                        : sum + amt;
+                    }, 0)
                     .toLocaleString()}
                 </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card
+              sx={{
+                background: "linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)",
+                transition: 'transform 0.2s',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: 4
+                }
+              }}
+            >
+              <CardContent>
+                <Typography variant="body2" sx={{ color: "white", opacity: 0.9 }}>
+                  Refunds Due to Customers
+                </Typography>
+                <Typography
+                  variant="h4"
+                  sx={{ color: "white", fontWeight: 700, mt: 1 }}
+                >
+                  {refundDueSales.length}
+                </Typography>
+
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
 
-        {/* Pending Payments */}
+        {/* Pending Payments — includes refund-due rows highlighted in purple at top */}
         <div ref={pendingSectionRef}>
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 2,
-                }}
-              >
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  {t("dashboard.pendingPayments")}
-                </Typography>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    {t("dashboard.pendingPayments")}
+                  </Typography>
+                  {filteredRefundDue.length > 0 && (
+                    <Chip
+                      label={`${filteredRefundDue.length} Refund${filteredRefundDue.length > 1 ? 's' : ''} Due`}
+                      color="secondary"
+                      size="small"
+                    />
+                  )}
+                </Box>
                 <IconButton onClick={loadData} color="primary">
                   <RefreshIcon />
                 </IconButton>
@@ -581,7 +651,7 @@ export default function Payments() {
                   <TableSkeleton rows={10} columns={6} />
                 ) : (
                   <DataGrid
-                    rows={filteredPendingPayments}
+                    rows={combinedPendingRows}
                     columns={pendingColumns}
                     getRowId={(row) => row.sale_id}
                     pageSizeOptions={[5, 10, 25]}
@@ -589,12 +659,23 @@ export default function Payments() {
                       pagination: { paginationModel: { pageSize: 10 } },
                     }}
                     disableRowSelectionOnClick
+                    getRowClassName={(params) =>
+                      (params.row as any)._isRefundDue ? 'refund-due-row' : ''
+                    }
+                    sx={{
+                      '& .refund-due-row': {
+                        backgroundColor: 'rgba(156, 39, 176, 0.08)',
+                        '&:hover': {
+                          backgroundColor: 'rgba(156, 39, 176, 0.16)',
+                        },
+                        borderLeft: '3px solid #9c27b0',
+                      },
+                    }}
                   />
                 )}
               </Box>
             </CardContent>
           </Card>
-
         </div>
 
         {/* Payment History */}
@@ -669,6 +750,12 @@ export default function Payments() {
                   <MenuItem value={0}>
                     {t("payments.selectInvoice", "Select Invoice")}
                   </MenuItem>
+                  {/* Refund-due sales shown first with a label */}
+                  {refundDueSales.map((sale) => (
+                    <MenuItem key={`refund-${sale.sale_id}`} value={sale.sale_id}>
+                      {sale.invoice_no} - {sale.customer_name} (Refund: ₹{Number(sale.refund_amount ?? sale.pending_amount).toLocaleString()})
+                    </MenuItem>
+                  ))}
                   {pendingPayments.map((sale) => (
                     <MenuItem key={sale.sale_id} value={sale.sale_id}>
                       {sale.invoice_no} - {sale.customer_name} (₹
@@ -680,7 +767,8 @@ export default function Payments() {
 
                 {/* Purchase Summary Box */}
                 {formData.sale_id > 0 && (() => {
-                  const selectedSale = pendingPayments.find(p => p.sale_id === formData.sale_id);
+                  const selectedSale = pendingPayments.find(p => p.sale_id === formData.sale_id)
+                    || refundDueSales.find((r: any) => r.sale_id === formData.sale_id);
                   if (selectedSale) {
                     return (
                       <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: 'background.default' }}>
@@ -746,6 +834,9 @@ export default function Payments() {
                   </MenuItem>
                   <MenuItem value="Card">
                     {t("payments.methodCard", "Card")}
+                  </MenuItem>
+                  <MenuItem value="Refund Paid" sx={{ color: "info.main", fontWeight: 600 }}>
+                    Refund Paid to Customer
                   </MenuItem>
                 </TextField>
               </Grid>
