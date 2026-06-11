@@ -325,9 +325,6 @@ export default function NotesDialog({
               <CreditIcon color="warning" />
               <Typography fontWeight={600}>Credit Note</Typography>
             </Box>
-            <Typography variant="caption" color="text.secondary">
-              Select returned items, auto-calculates the refund amount and creates a reverse pickup.
-            </Typography>
           </Box>
           <Button
             variant="outlined"
@@ -345,7 +342,7 @@ export default function NotesDialog({
 
         {/* ── DEBIT NOTE: inline form ── */}
         <Typography variant="subtitle2" fontWeight={600} mb={1} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <DebitIcon color="error" fontSize="small" /> Debit Note (increases amount owed)
+          <DebitIcon color="error" fontSize="small" /> Debit Note
         </Typography>
         <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, mb: 2 }}>
           <TextField
@@ -377,7 +374,7 @@ export default function NotesDialog({
           value={form.reason}
           onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
           error={!!formErrors.reason}
-          helperText={formErrors.reason || "Briefly describe why this debit note is being issued"}
+          helperText={formErrors.reason}
           size="small"
           sx={{ mb: 2 }}
         />
