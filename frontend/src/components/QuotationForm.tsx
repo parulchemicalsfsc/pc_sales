@@ -66,7 +66,7 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
         email: lead.email || ""
       }));
     } else {
-      const merged = { ...defaultQuotation, ...initialQuotation };
+      const merged = { ...defaultQuotation, ...initialQuotation } as any;
       // Replace nulls from DB with default values
       Object.keys(defaultQuotation).forEach(key => {
         if (merged[key] === null || merged[key] === undefined) {
