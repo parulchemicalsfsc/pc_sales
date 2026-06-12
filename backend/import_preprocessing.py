@@ -1,6 +1,18 @@
 from typing import List, Dict, Any
 from similarity_utils import calculate_similarity
 from clean_excel_distributors import normalize_redemo_village, clean_phone
+import pandas as pd
+
+def sanitize_for_json(data: Any) -> Any:
+    """Recursively convert pandas/numpy NaN/NA values to None for JSON serialization."""
+    if isinstance(data, dict):
+        return {k: sanitize_for_json(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_for_json(item) for item in data]
+    else:
+        if pd.isna(data):
+            return None
+        return data
 
 def preprocess_distributor_upload(uploaded_rows: List[dict], existing_db_rows: List[dict]) -> Dict[str, Any]:
     ready_to_import = []
@@ -23,9 +35,6 @@ def preprocess_distributor_upload(uploaded_rows: List[dict], existing_db_rows: L
         exact_match_keys[key] = r
 
     for row in uploaded_rows:
-        # Step 4: Add Temporary Debug Logs
-        print("[P5 MOBILE DEBUG]", row.get("mantri_mobile"))
-
         # 1. Validation Layer
         village = str(row.get("village") or "").strip()
         taluka = str(row.get("taluka") or "").strip()
@@ -36,6 +45,7 @@ def preprocess_distributor_upload(uploaded_rows: List[dict], existing_db_rows: L
         if not village: missing.append("village")
         if not taluka: missing.append("taluka")
         if not mantri_name: missing.append("mantri_name")
+        if not mantri_mobile: missing.append("mantri_mobile")
         
         if missing:
             invalid_rows.append({
@@ -120,7 +130,7 @@ def preprocess_distributor_upload(uploaded_rows: List[dict], existing_db_rows: L
     print(f"Conflicts: {len(possible_conflicts)}")
     print(f"Invalid: {len(invalid_rows)}\n")
 
-    return {
+    result = {
         "summary": {
             "total_records": len(uploaded_rows),
             "ready_to_import": len(ready_to_import),
@@ -133,3 +143,5 @@ def preprocess_distributor_upload(uploaded_rows: List[dict], existing_db_rows: L
         "possible_conflicts": possible_conflicts,
         "invalid_rows": invalid_rows
     }
+    
+    return sanitize_for_json(result)
