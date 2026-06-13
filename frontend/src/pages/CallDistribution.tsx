@@ -941,7 +941,7 @@ export default function CallDistribution() {
                   </Typography>
 
                   {(!profileData.call_durations || profileData.call_durations.length === 0) ? (
-                    <Alert severity="info" sx={{ borderRadius: 2 }}>No recent calls with tracked durations.</Alert>
+                    <Alert severity="info" sx={{ borderRadius: 2 }}>No calls logged yet for this telecaller.</Alert>
                   ) : (
                     <TableContainer sx={{ maxHeight: 320, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
                       <Table stickyHeader size="small">
@@ -953,13 +953,16 @@ export default function CallDistribution() {
                         </TableHead>
                         <TableBody>
                           {profileData.call_durations.map((row: any, i: number) => {
-                            const mins = Math.floor(row.time_taken / 60);
-                            const secs = row.time_taken % 60;
-                            const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                            let timeStr = "—";
+                            if (row.time_taken != null) {
+                              const mins = Math.floor(row.time_taken / 60);
+                              const secs = row.time_taken % 60;
+                              timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                            }
                             return (
                               <TableRow key={i} hover sx={{ "&:last-child td": { border: 0 } }}>
                                 <TableCell sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{row.name}</TableCell>
-                                <TableCell align="right" sx={{ fontSize: "0.78rem", color: "text.secondary", fontWeight: 600 }}>{timeStr}</TableCell>
+                                <TableCell align="right" sx={{ fontSize: "0.78rem", color: row.time_taken != null ? "text.secondary" : "text.disabled", fontWeight: 600 }}>{timeStr}</TableCell>
                               </TableRow>
                             );
                           })}
