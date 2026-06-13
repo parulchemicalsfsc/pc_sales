@@ -644,6 +644,10 @@ def get_my_assignments(
         return {"assignments": [], "error": str(e), "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 1}, "summary": {"total": 0, "pending": 0, "called": 0}}
 
 
+# In-memory dictionary to store call timers without needing SQL migrations right away.
+# Key: f"{user_email}_{assignment_id}", Value: start_time (datetime)
+_CALL_TIMERS = {}
+
 class StartCallTimerRequest(BaseModel):
     assignment_id: int
 
@@ -655,11 +659,20 @@ def start_call_timer(
 ):
     """Telecaller clicked Call, start the timer."""
     try:
-        now_utc = datetime.now(pytz.utc).isoformat()
-        db.table("calling_assignments") \
-            .eq("assignment_id", body.assignment_id) \
-            .eq("user_email", user_email) \
-            .update({"call_started_at": now_utc}).execute()
+        now_utc = datetime.now(pytz.utc)
+        
+        # Store in memory
+        _CALL_TIMERS[f"{user_email}_{body.assignment_id}"] = now_utc
+
+        # Try to save to DB (will fail if migration not run, but we ignore the error)
+        try:
+            db.table("calling_assignments") \
+                .eq("assignment_id", body.assignment_id) \
+                .eq("user_email", user_email) \
+                .update({"call_started_at": now_utc.isoformat()}).execute()
+        except Exception:
+            pass
+
         return {"message": "Timer started"}
     except Exception as e:
         logger.error(f"Error starting call timer: {e}")
@@ -712,17 +725,25 @@ def update_call_status(
                 "notes": body.notes or "",
             }).execute()  # BUG FIX: was missing .execute()
 
-        # Calculate time_taken if call_started_at exists
+        # Calculate time_taken
         time_taken = None
-        if assignment.get("call_started_at"):
+        timer_key = f"{user_email}_{body.assignment_id}"
+        
+        # First check memory
+        if timer_key in _CALL_TIMERS:
+            start_dt = _CALL_TIMERS.pop(timer_key)
+            time_taken = int((datetime.now(pytz.utc) - start_dt).total_seconds())
+        # Fallback to DB
+        elif assignment.get("call_started_at"):
             try:
                 start_dt = datetime.fromisoformat(assignment["call_started_at"].replace("Z", "+00:00"))
                 now_dt = datetime.now(pytz.utc)
                 time_taken = int((now_dt - start_dt).total_seconds())
-                # Cap it just in case they left it open for days
-                if time_taken > 86400: time_taken = 86400
             except Exception as e:
                 logger.warning(f"Failed to parse call_started_at: {e}")
+        
+        if time_taken and time_taken > 86400:
+            time_taken = 86400
 
         # 4. Insert call log
         log_data = {
@@ -902,7 +923,9 @@ def get_telecaller_profile(
 
             # Fetch recent call durations
             call_durations = []
+            log_data = []
             try:
+                # Try fetching with time_taken column
                 logs_res = db.table("call_logs") \
                     .select("log_id, customer_id, time_taken, created_at") \
                     .eq("user_email", email) \
@@ -910,35 +933,50 @@ def get_telecaller_profile(
                     .order("created_at", desc=True) \
                     .limit(50) \
                     .execute()
-                
                 log_data = logs_res.data or []
-                
-                # We need customer names for these logs
-                if log_data:
-                    log_dist_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
-                    dist_map = {}
-                    if log_dist_ids:
-                        for i in range(0, len(log_dist_ids), 50):
-                            dchunk = log_dist_ids[i:i+50]
-                            dist_res = db.table("distributors") \
-                                .select("distributor_id, mantri_name") \
-                                .in_("distributor_id", dchunk) \
-                                .execute()
-                            for d in (dist_res.data or []):
-                                dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
-
-                    for log in log_data:
-                        # Fallback parsing if we appended to notes instead of actual column
-                        tt = log.get("time_taken")
-                        if tt is not None:
-                            dist_name = dist_map.get(log.get("customer_id"), "Unknown")
-                            call_durations.append({
-                                "name": dist_name,
-                                "time_taken": tt,
-                                "created_at": log.get("created_at")
-                            })
             except Exception as e:
-                logger.warning(f"Could not fetch call durations (maybe column missing): {e}")
+                # Fallback if column missing: fetch notes
+                try:
+                    logs_res = db.table("call_logs") \
+                        .select("log_id, customer_id, notes, created_at") \
+                        .eq("user_email", email) \
+                        .like("notes", "%[Time Taken:%") \
+                        .order("created_at", desc=True) \
+                        .limit(50) \
+                        .execute()
+                    log_data = logs_res.data or []
+                except Exception as inner_e:
+                    logger.warning(f"Fallback fetch failed: {inner_e}")
+
+            if log_data:
+                log_dist_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
+                dist_map = {}
+                if log_dist_ids:
+                    for i in range(0, len(log_dist_ids), 50):
+                        dchunk = log_dist_ids[i:i+50]
+                        dist_res = db.table("distributors") \
+                            .select("distributor_id, mantri_name") \
+                            .in_("distributor_id", dchunk) \
+                            .execute()
+                        for d in (dist_res.data or []):
+                            dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
+
+                import re
+                for log in log_data:
+                    tt = log.get("time_taken")
+                    if tt is None and log.get("notes"):
+                        # Parse [Time Taken: 120s] from notes
+                        match = re.search(r"\[Time Taken: (\d+)s\]", log.get("notes", ""))
+                        if match:
+                            tt = int(match.group(1))
+
+                    if tt is not None:
+                        dist_name = dist_map.get(log.get("customer_id"), "Unknown")
+                        call_durations.append({
+                            "name": dist_name,
+                            "time_taken": tt,
+                            "created_at": log.get("created_at")
+                        })
 
             # Get distributor details for all sold-to distributors
             sold_dist_ids = list(set(s["distributor_id"] for s in all_sales if s.get("distributor_id")))
