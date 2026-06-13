@@ -922,31 +922,31 @@ def get_telecaller_profile(
                 all_sales.extend(sales_res.data or [])
 
             # Fetch recent call durations
+            # NOTE: call_logs table may not have time_taken or created_at columns (migration pending).
+            # We use log_id for ordering (auto-increment) and parse [Time Taken: Xs] from notes.
             call_durations = []
             log_data = []
             try:
-                # Try fetching with time_taken column
+                # Try fetching with time_taken column first
                 logs_res = db.table("call_logs") \
-                    .select("log_id, customer_id, time_taken, created_at") \
+                    .select("log_id, customer_id, time_taken, notes") \
                     .eq("user_email", email) \
-                    .neq("time_taken", "is.null") \
-                    .order("created_at", desc=True) \
+                    .order("log_id", desc=True) \
                     .limit(50) \
                     .execute()
                 log_data = logs_res.data or []
-            except Exception as e:
-                # Fallback if column missing: fetch notes
+            except Exception:
+                # Fallback: select only guaranteed base columns
                 try:
                     logs_res = db.table("call_logs") \
-                        .select("log_id, customer_id, notes, created_at") \
+                        .select("log_id, customer_id, notes") \
                         .eq("user_email", email) \
-                        .like("notes", "%[Time Taken:%") \
-                        .order("created_at", desc=True) \
+                        .order("log_id", desc=True) \
                         .limit(50) \
                         .execute()
                     log_data = logs_res.data or []
                 except Exception as inner_e:
-                    logger.warning(f"Fallback fetch failed: {inner_e}")
+                    logger.warning(f"Fallback call_logs fetch failed: {inner_e}")
 
             if log_data:
                 log_dist_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
@@ -970,13 +970,11 @@ def get_telecaller_profile(
                         if match:
                             tt = int(match.group(1))
 
-                    if tt is not None:
-                        dist_name = dist_map.get(log.get("customer_id"), "Unknown")
-                        call_durations.append({
-                            "name": dist_name,
-                            "time_taken": tt,
-                            "created_at": log.get("created_at")
-                        })
+                    dist_name = dist_map.get(log.get("customer_id"), "Unknown")
+                    call_durations.append({
+                        "name": dist_name,
+                        "time_taken": tt,  # may be None if no timer was captured
+                    })
 
             # Get distributor details for all sold-to distributors
             sold_dist_ids = list(set(s["distributor_id"] for s in all_sales if s.get("distributor_id")))
