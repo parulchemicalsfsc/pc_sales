@@ -29,6 +29,12 @@ export interface Lead {
   conversion_notes?: string;
   created_at: string;
   updated_at: string;
+  // RFQ-specific fields
+  rfq_quantity?: number;
+  rfq_material?: string;
+  rfq_delivery?: string;
+  attachment_url?: string;
+  attachment_name?: string;
 }
 
 export interface LeadActivity {
@@ -68,6 +74,8 @@ export interface Quotation {
   delivery_time?: string;
   payment_terms?: string;
   notes?: string;
+  attachment_url?: string;
+  attachment_name?: string;
   [key: string]: any;
 }
 
@@ -193,4 +201,19 @@ export const leadsService = {
   /** Lead Manager: delete a lead source */
   deleteSource: (id: number) =>
     apiClient.delete<{ message: string }>(`/api/leads/sources/${id}`),
+
+  /** Lead Owner: upload or replace the attachment on the current draft */
+  uploadAttachment: (leadId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return apiClient.post<{ message: string; attachment_url: string; attachment_name: string }>(
+      `/api/leads/${leadId}/quotation/attachment`,
+      fd,
+      { headers: { "Content-Type": undefined } }
+    );
+  },
+
+  /** Lead Owner: delete the attachment from the current draft */
+  deleteAttachment: (leadId: string) =>
+    apiClient.delete<{ message: string }>(`/api/leads/${leadId}/quotation/attachment`),
 };

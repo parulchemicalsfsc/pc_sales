@@ -11,12 +11,13 @@ import re
 from typing import Optional
 
 from activity_logger import get_activity_logger
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
 from jinja2 import Environment, FileSystemLoader
 from num2words import num2words
+import requests as _requests
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -302,6 +303,237 @@ def intake_lead(request: Request, payload: dict, db: SupabaseClient = Depends(ge
 
     logger.info(f"[LEADS] New lead created: {lead_id} (manual: {logged_by != 'system'})")
     return {"lead_id": lead_id, "status": lead_data["status"], "message": "Lead created successfully"}
+
+
+# ─── RFQ INTAKE (with optional file attachment) ───────────────────────────────
+
+_ALLOWED_EXTENSIONS = {".pdf", ".dwg", ".dxf", ".step", ".stp", ".png", ".jpg", ".jpeg"}
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _upload_to_storage(
+    file_bytes: bytes,
+    filename: str,
+    lead_id: str,
+    supabase_url: str,
+    supabase_key: str,
+) -> str:
+    """Upload a file to the rfq-attachments Supabase Storage bucket and return the public URL."""
+    safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+    path = f"{lead_id}/{safe_filename}"
+    url = f"{supabase_url}/storage/v1/object/rfq-attachments/{path}"
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/octet-stream",
+        "x-upsert": "true",
+    }
+    resp = _requests.post(url, data=file_bytes, headers=headers)
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"File upload failed: {resp.text}")
+    public_url = f"{supabase_url}/storage/v1/object/public/rfq-attachments/{path}"
+    return public_url
+
+
+def _delete_from_storage(attachment_url: str, supabase_url: str, supabase_key: str):
+    """Delete a file from Supabase Storage by its public URL."""
+    try:
+        # Extract the path after "/public/rfq-attachments/"
+        marker = "/object/public/rfq-attachments/"
+        if marker in attachment_url:
+            path = attachment_url.split(marker, 1)[1]
+            del_url = f"{supabase_url}/storage/v1/object/rfq-attachments/{path}"
+            headers = {
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+            }
+            _requests.delete(del_url, headers=headers)
+    except Exception as e:
+        logger.warning(f"[LEADS] Failed to delete storage object: {e}")
+
+
+@router.post("/intake/rfq")
+async def intake_rfq(
+    request: Request,
+    source_website: str = Form(...),
+    full_name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(...),
+    company_name: str = Form(...),
+    product_name: str = Form(...),
+    quantity: int = Form(...),
+    material: str = Form(default=""),
+    target_delivery: str = Form(default=""),
+    message: str = Form(default=""),
+    attachment: UploadFile = File(default=None),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Public endpoint for product websites to submit detailed RFQ enquiries.
+    Accepts multipart/form-data with optional file attachment.
+    Creates a Lead and pre-fills a draft Quotation automatically.
+    """
+    logged_by = _verify_intake_key(request, db)
+
+    # Validate required fields
+    source_website = source_website.strip()
+    full_name = full_name.strip()
+    email = email.strip()
+    phone = phone.strip()
+    company_name = company_name.strip()
+    product_name = product_name.strip()
+
+    if not source_website:
+        raise HTTPException(status_code=400, detail="source_website is required")
+    if not full_name:
+        raise HTTPException(status_code=400, detail="full_name is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+    if not phone:
+        raise HTTPException(status_code=400, detail="phone is required")
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name is required")
+    if not product_name:
+        raise HTTPException(status_code=400, detail="product_name is required")
+
+    # Validate source
+    try:
+        active_sources = db.table("lead_sources").select("*").eq("is_active", True).execute().data or []
+    except Exception as e:
+        logger.error(f"Failed to fetch active sources: {e}")
+        active_sources = []
+
+    matched_source = None
+    for src in active_sources:
+        if _is_name_match(source_website, src["name"]):
+            matched_source = src
+            break
+
+    if not matched_source:
+        raise HTTPException(
+            status_code=400,
+            detail="Submissions are only accepted from registered websites. Please contact the administrator."
+        )
+
+    source_name = matched_source["name"]
+    prefix = matched_source["prefix"]
+    lead_id = _generate_lead_id(db, prefix)
+
+    # Validate and upload attachment (if provided)
+    attachment_url = None
+    attachment_name = None
+    if attachment and attachment.filename:
+        ext = os.path.splitext(attachment.filename)[1].lower()
+        if ext not in _ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{ext}' is not allowed. Allowed: {', '.join(_ALLOWED_EXTENSIONS)}"
+            )
+        file_bytes = await attachment.read()
+        if len(file_bytes) > _MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="File size exceeds the 10MB limit.")
+
+        supabase_url = os.getenv("SUPABASE_URL", "")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+        attachment_url = _upload_to_storage(file_bytes, attachment.filename, lead_id, supabase_url, supabase_key)
+        attachment_name = attachment.filename
+
+    # Build merged product description
+    material_clean = (material or "").strip()
+    merged_description = product_name
+    if material_clean:
+        merged_description = f"{product_name} (Material: {material_clean})"
+
+    # Create lead record
+    lead_data = {
+        "lead_id": lead_id,
+        "source_website": source_name,
+        "full_name": full_name,
+        "email": email,
+        "phone": phone,
+        "company_name": company_name,
+        "product_interest": merged_description,
+        "message": (message or "").strip() or None,
+        "rfq_quantity": quantity,
+        "rfq_material": material_clean or None,
+        "rfq_delivery": (target_delivery or "").strip() or None,
+        "attachment_url": attachment_url,
+        "attachment_name": attachment_name,
+        "status": "Unassigned",
+    }
+
+    if logged_by != "system":
+        lead_data["assigned_to"] = logged_by
+        lead_data["status"] = "Assigned"
+
+    try:
+        db.table("leads").insert(lead_data).execute()
+        if logged_by != "system":
+            try:
+                db.table("lead_owners").insert({"lead_id": lead_id, "user_email": logged_by}).execute()
+            except Exception as owner_err:
+                logger.error(f"Failed to insert lead owner for {lead_id}: {owner_err}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create lead: {e}")
+
+    # Pre-populate a draft Quotation
+    try:
+        is_vibgyor = source_name.lower().strip() in ["vibgyor maple", "vibgyor_maple"]
+        product_desc = "Grasshawk KLAW™ Professional Mole Trap" if is_vibgyor else merged_description
+        draft_data = {
+            "lead_id": lead_id,
+            "is_draft": True,
+            "name": full_name,
+            "email": email,
+            "address_line_1": company_name,
+            "address_line_2": "",
+            "address_line_3": "",
+            "delivery_requirement": (target_delivery or "").strip() or None,
+            "notes": (message or "").strip() or None,
+            "payment_terms": "50% Advance, 50% on Dispatch",
+            "items": [
+                {
+                    "po_sr_no": "1",
+                    "description": product_desc,
+                    "hsn_code": "",
+                    "packages": "",
+                    "quantity": quantity,
+                    "rate_per_unit": 0,
+                    "amount": 0,
+                }
+            ],
+            "items_total": 0,
+            "grand_total": 0,
+            "cgst_percent": 9,
+            "cgst_amount": 0,
+            "sgst_percent": 9,
+            "sgst_amount": 0,
+            "total_gst_amount": 0,
+            "loose_count": quantity,
+            "attachment_url": attachment_url,
+            "attachment_name": attachment_name,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        db.table("quotations").insert(draft_data).execute()
+    except Exception as e:
+        logger.warning(f"[LEADS] Failed to create draft quotation for {lead_id}: {e}")
+
+    # Logging & notifications
+    _log_lead_activity(
+        db, lead_id, "Assignment",
+        f"RFQ Lead received from {source_name}" + (f" (with attachment: {attachment_name})" if attachment_name else ""),
+        logged_by="system", is_auto=True,
+    )
+    _notify_lead_managers(
+        db,
+        title=f"New RFQ Lead: {full_name}",
+        message=f"New RFQ enquiry from {full_name} ({company_name}) via {source_name}. "
+                f"Product: {merged_description}, Qty: {quantity}.",
+        action_url="/leads",
+    )
+
+    logger.info(f"[LEADS] New RFQ lead created: {lead_id}")
+    return {"lead_id": lead_id, "status": lead_data["status"], "message": "RFQ Lead created successfully"}
 
 
 # ─── LEAD MANAGER ENDPOINTS ───────────────────────────────────────────────────
@@ -1090,6 +1322,157 @@ def commit_quotation(
         logger.error(f"Error committing quotation: {e}")
         raise HTTPException(status_code=500, detail=f"Error committing quotation: {e}")
 
+
+@router.post("/{lead_id}/quotation/attachment", dependencies=[Depends(verify_permission("work_leads"))])
+async def upload_quotation_attachment(
+    lead_id: str,
+    file: UploadFile = File(...),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Upload or replace the attachment on the current draft quotation."""
+    try:
+        # Validate file
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in _ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{ext}' is not allowed. Allowed: {', '.join(_ALLOWED_EXTENSIONS)}"
+            )
+        file_bytes = await file.read()
+        if len(file_bytes) > _MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="File size exceeds the 10MB limit.")
+
+        # Get current draft
+        existing = db.table("quotations").select("id, attachment_url").eq("lead_id", lead_id).eq("is_draft", True).execute()
+        if not existing.data:
+            # Fetch lead details to populate basic quotation draft fields
+            lead = _get_lead_or_404(db, lead_id)
+            is_vibgyor = lead.get("source_website", "").lower().strip() in ["vibgyor maple", "vibgyor_maple"]
+            product_desc = "Grasshawk KLAW™ Professional Mole Trap" if is_vibgyor else (lead.get("product_interest") or "")
+            draft_data = {
+                "lead_id": lead_id,
+                "is_draft": True,
+                "name": lead.get("full_name") or "",
+                "email": lead.get("email") or "",
+                "address_line_1": lead.get("company_name") or "",
+                "address_line_2": "",
+                "address_line_3": "",
+                "delivery_requirement": lead.get("rfq_delivery") or None,
+                "notes": lead.get("message") or None,
+                "payment_terms": "50% Advance, 50% on Dispatch",
+                "items": [
+                    {
+                        "po_sr_no": "1",
+                        "description": product_desc,
+                        "hsn_code": "",
+                        "packages": "",
+                        "quantity": lead.get("rfq_quantity") or 1,
+                        "rate_per_unit": 0,
+                        "amount": 0,
+                    }
+                ],
+                "items_total": 0,
+                "grand_total": 0,
+                "cgst_percent": 9,
+                "cgst_amount": 0,
+                "sgst_percent": 9,
+                "sgst_amount": 0,
+                "total_gst_amount": 0,
+                "loose_count": lead.get("rfq_quantity") or 1,
+                "attachment_url": None,
+                "attachment_name": None,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            insert_res = db.table("quotations").insert(draft_data).execute()
+            if not insert_res.data:
+                raise HTTPException(status_code=500, detail="Failed to create draft quotation.")
+            draft = insert_res.data[0]
+        else:
+            draft = existing.data[0]
+
+        # Delete old attachment if any
+        supabase_url = os.getenv("SUPABASE_URL", "")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+        if draft.get("attachment_url"):
+            _delete_from_storage(draft["attachment_url"], supabase_url, supabase_key)
+
+        # Upload new file
+        new_url = _upload_to_storage(file_bytes, file.filename, lead_id, supabase_url, supabase_key)
+        new_name = file.filename
+
+        # Update draft
+        updated = db.table("quotations").eq("id", draft["id"]).update({
+            "attachment_url": new_url,
+            "attachment_name": new_name,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).execute()
+
+        # Also update lead record
+        db.table("leads").eq("lead_id", lead_id).update({
+            "attachment_url": new_url,
+            "attachment_name": new_name,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).execute()
+
+        _log_lead_activity(
+            db, lead_id, "Note",
+            f"Attachment uploaded: {new_name}",
+            logged_by=user_email or "system", is_auto=True,
+        )
+
+        return {"message": "Attachment uploaded", "attachment_url": new_url, "attachment_name": new_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading attachment: {e}")
+
+
+@router.delete("/{lead_id}/quotation/attachment", dependencies=[Depends(verify_permission("work_leads"))])
+def delete_quotation_attachment(
+    lead_id: str,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Remove the attachment from the current draft quotation."""
+    try:
+        existing = db.table("quotations").select("id, attachment_url, attachment_name").eq("lead_id", lead_id).eq("is_draft", True).execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="No active draft found for this lead.")
+        draft = existing.data[0]
+
+        if not draft.get("attachment_url"):
+            return {"message": "No attachment to delete."}
+
+        supabase_url = os.getenv("SUPABASE_URL", "")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
+        _delete_from_storage(draft["attachment_url"], supabase_url, supabase_key)
+
+        db.table("quotations").eq("id", draft["id"]).update({
+            "attachment_url": None,
+            "attachment_name": None,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).execute()
+
+        # Also update lead record
+        db.table("leads").eq("lead_id", lead_id).update({
+            "attachment_url": None,
+            "attachment_name": None,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).execute()
+
+        _log_lead_activity(
+            db, lead_id, "Note",
+            f"Attachment removed: {draft.get('attachment_name', 'file')}",
+            logged_by=user_email or "system", is_auto=True,
+        )
+
+        return {"message": "Attachment deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting attachment: {e}")
+
 @router.get("/{lead_id}/quotation/html")
 def get_quotation_html(
     lead_id: str,
@@ -1136,8 +1519,9 @@ def get_quotation_html(
         source_website = lead.get("source_website", "").lower()
         if source_website in ["psi", "press stamping industries", "press_stamping_industries"]:
             template = env.get_template("psi_quotation.html")
+        elif source_website in ["vibgyor maple", "vibgyor_maple"]:
+            template = env.get_template("vibgyor_quotation.html")
         else:
-            # Fallback to parul chemicals for others like VIBGYOR Maple for now
             template = env.get_template("parulquote.html")
             
         html_content = template.render(data=data)
