@@ -897,45 +897,78 @@ export default function CallDistribution() {
 
               <Divider sx={{ mb: 2 }} />
 
-              {/* ── Converted Mantris Table ── */}
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.72rem", letterSpacing: 0.5, color: "text.secondary" }}>
-                Orders Placed ({profileData.converted_mantris?.length || 0} total)
-              </Typography>
+              <Grid container spacing={3}>
+                {/* ── Converted Mantris Table ── */}
+                <Grid item xs={12} md={7}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.72rem", letterSpacing: 0.5, color: "text.secondary" }}>
+                    Orders Placed ({profileData.converted_mantris?.length || 0} total)
+                  </Typography>
 
-              {profileData.converted_mantris?.length === 0 ? (
-                <Alert severity="info" sx={{ borderRadius: 2 }}>No orders converted yet for this telecaller.</Alert>
-              ) : (
-                <TableContainer sx={{ maxHeight: 320, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Mantri Name</TableCell>
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Village</TableCell>
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Mobile</TableCell>
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Invoice</TableCell>
-                        <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Date</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {profileData.converted_mantris.map((row: any, i: number) => (
-                        <TableRow key={row.sale_id || i} hover sx={{ "&:last-child td": { border: 0 } }}>
-                          <TableCell sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{row.mantri_name}</TableCell>
-                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.village || "—"}</TableCell>
-                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.mantri_mobile || "—"}</TableCell>
-                          <TableCell sx={{ fontSize: "0.78rem" }}>
-                            <Chip label={row.invoice_no || "—"} size="small" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600 }} />
-                          </TableCell>
-                          <TableCell sx={{ fontSize: "0.78rem", color: "text.secondary" }}>{row.sale_date || "—"}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.8rem", color: "success.main" }}>
-                            ₹{(row.total_amount || 0).toLocaleString("en-IN")}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
+                  {profileData.converted_mantris?.length === 0 ? (
+                    <Alert severity="info" sx={{ borderRadius: 2 }}>No orders converted yet for this telecaller.</Alert>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 320, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+                      <Table stickyHeader size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Mantri Name</TableCell>
+                            <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Invoice</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Amount</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {profileData.converted_mantris.map((row: any, i: number) => (
+                            <TableRow key={row.sale_id || i} hover sx={{ "&:last-child td": { border: 0 } }}>
+                              <TableCell sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{row.mantri_name}</TableCell>
+                              <TableCell sx={{ fontSize: "0.78rem" }}>
+                                <Chip label={row.invoice_no || "—"} size="small" sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600 }} />
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.8rem", color: "success.main" }}>
+                                ₹{(row.total_amount || 0).toLocaleString("en-IN")}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Grid>
+
+                {/* ── Call Durations Table ── */}
+                <Grid item xs={12} md={5}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5, textTransform: "uppercase", fontSize: "0.72rem", letterSpacing: 0.5, color: "text.secondary" }}>
+                    Recent Call Durations
+                  </Typography>
+
+                  {(!profileData.call_durations || profileData.call_durations.length === 0) ? (
+                    <Alert severity="info" sx={{ borderRadius: 2 }}>No recent calls with tracked durations.</Alert>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 320, borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>
+                      <Table stickyHeader size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Name</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.72rem", bgcolor: isDark ? "background.paper" : "#f8fafc" }}>Time Taken</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {profileData.call_durations.map((row: any, i: number) => {
+                            const mins = Math.floor(row.time_taken / 60);
+                            const secs = row.time_taken % 60;
+                            const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                            return (
+                              <TableRow key={i} hover sx={{ "&:last-child td": { border: 0 } }}>
+                                <TableCell sx={{ fontWeight: 600, fontSize: "0.8rem" }}>{row.name}</TableCell>
+                                <TableCell align="right" sx={{ fontSize: "0.78rem", color: "text.secondary", fontWeight: 600 }}>{timeStr}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Grid>
+              </Grid>
             </>
           ) : null}
         </DialogContent>

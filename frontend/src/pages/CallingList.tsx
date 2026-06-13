@@ -205,9 +205,17 @@ export default function CallingList() {
       .finally(() => setSummaryLoading(false));
   };
 
-  const handleCallButton = (e: React.MouseEvent, a: Assignment) => {
+  const handleCallButton = async (e: React.MouseEvent, a: Assignment) => {
     e.stopPropagation();
     if (a.mobile) window.open(`tel:${a.mobile}`, "_self");
+    
+    // Start backend timer
+    try {
+      await automationAPI.startCallTimer(a.assignment_id);
+    } catch (err) {
+      console.error("Failed to start timer", err);
+    }
+
     setTimeout(() => {
       setActiveItem(a);
       setOutcome("");
