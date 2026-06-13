@@ -619,6 +619,10 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
+  startCallTimer: async (assignmentId: number) => {
+    const response = await apiClient.post("/api/automation/start-call-timer", { assignment_id: assignmentId });
+    return response.data;
+  },
   updateCallStatus: async (assignmentId: number, outcome: string, notes?: string, callbackDate?: string) => {
     const payload: any = {
       assignment_id: assignmentId,
