@@ -39,10 +39,13 @@ import {
   Search as SearchIcon,
   MoreVert as MoreVertIcon,
   Edit as EditIcon,
+  Description as NoteIcon,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
+import NotesDialog from "../components/NotesDialog";
+import AddNoteDialog from "../components/AddNoteDialog";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, apiClient } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, apiClient, notesAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -108,8 +111,14 @@ export default function Sales() {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [selectedActionSale, setSelectedActionSale] = useState<Sale | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [notesDialogOpen, setNotesDialogOpen] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<{ name: string; village: string; mobile: string } | null>(null);
+  // sale_id → 'credit' | 'debit' (only the latest active note per sale stored)
+  const [saleNoteTypeMap, setSaleNoteTypeMap] = useState<Record<number, "credit" | "debit" | "both">>({});
+  const [noteFilter, setNoteFilter] = useState<"all" | "credit" | "debit" | "none">("all");
+  const [refundDueOnly, setRefundDueOnly] = useState(false);
+  const [addNoteOpen, setAddNoteOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -173,6 +182,23 @@ export default function Sales() {
       } else {
         console.error("Error loading sales:", salesResult.reason);
         setError(salesResult.reason?.response?.data?.detail || salesResult.reason?.message || t("messages.error"));
+      }
+
+      // Load notes to build the noteTypeMap for filtering
+      try {
+        const allNotes = await notesAPI.getAll({ status: "active", limit: 500 });
+        const map: Record<number, "credit" | "debit" | "both"> = {};
+        for (const n of allNotes) {
+          const sid: number = n.sale_id;
+          if (!map[sid]) {
+            map[sid] = n.note_type as "credit" | "debit";
+          } else if (map[sid] !== n.note_type) {
+            map[sid] = "both";
+          }
+        }
+        setSaleNoteTypeMap(map);
+      } catch (e) {
+        console.warn("Could not load notes map:", e);
       }
 
       if (customersResult.status === "fulfilled") {
@@ -899,7 +925,17 @@ export default function Sales() {
       (sale.notes && sale.notes.toLowerCase().includes(query))
     );
     const matchesBuyerType = buyerTypeFilter === "all" || (sale as any).buyer_type === buyerTypeFilter || (!( sale as any).buyer_type && buyerTypeFilter === "customer");
-    return matchesSearch && matchesBuyerType;
+    
+    const matchesNoteType = saleNoteTypeMap[sale.sale_id ?? 0];
+    const matchesNote =
+      noteFilter === "all" ||
+      (noteFilter === "none" && !matchesNoteType) ||
+      (noteFilter === "credit" && (matchesNoteType === "credit" || matchesNoteType === "both")) ||
+      (noteFilter === "debit" && (matchesNoteType === "debit" || matchesNoteType === "both"));
+
+    const matchesRefundDue = !refundDueOnly || sale.payment_status === "Refund Due";
+
+    return matchesSearch && matchesBuyerType && matchesNote && matchesRefundDue;
   });
 
   const columns: GridColDef[] = [
@@ -990,8 +1026,10 @@ export default function Sales() {
               color={
                 params.value === "Paid"
                   ? "success"
-                  : params.value === "Partial"
-                    ? "warning"
+                  : params.value === "Refund Due"
+                    ? "secondary"
+                    : params.value === "Partial"
+                      ? "warning"
                     : (() => {
                       // Logic for "Pending" status color
                       // Default is error (Red) for overdue/advance
@@ -1149,6 +1187,17 @@ export default function Sales() {
                   {t("sales.addSale")}
                 </Button>
               </PermissionGate>
+              <PermissionGate permission={PERMISSIONS.CREATE_SALE}>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<NoteIcon />}
+                  onClick={() => setAddNoteOpen(true)}
+                  size="large"
+                >
+                  Add Note
+                </Button>
+              </PermissionGate>
               <IconButton onClick={() => loadData()} color="primary">
                 <RefreshIcon />
               </IconButton>
@@ -1188,6 +1237,40 @@ export default function Sales() {
                     sx={{ cursor: "pointer" }}
                   />
                 ))}
+
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+                {/* Credit / Debit Note Filters */}
+                <Chip
+                  label="Credit Note"
+                  size="small"
+                  icon={<NoteIcon sx={{ fontSize: "0.9rem" }} />}
+                  onClick={() => setNoteFilter(noteFilter === "credit" ? "all" : "credit")}
+                  color={noteFilter === "credit" ? "warning" : "default"}
+                  variant={noteFilter === "credit" ? "filled" : "outlined"}
+                  sx={{ cursor: "pointer" }}
+                />
+                <Chip
+                  label="Debit Note"
+                  size="small"
+                  icon={<NoteIcon sx={{ fontSize: "0.9rem" }} />}
+                  onClick={() => setNoteFilter(noteFilter === "debit" ? "all" : "debit")}
+                  color={noteFilter === "debit" ? "error" : "default"}
+                  variant={noteFilter === "debit" ? "filled" : "outlined"}
+                  sx={{ cursor: "pointer" }}
+                />
+
+                <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+                {/* Refund Due filter */}
+                <Chip
+                  label="Refund Due"
+                  size="small"
+                  onClick={() => setRefundDueOnly(!refundDueOnly)}
+                  color={refundDueOnly ? "secondary" : "default"}
+                  variant={refundDueOnly ? "filled" : "outlined"}
+                  sx={{ cursor: "pointer", fontWeight: refundDueOnly ? 700 : 400 }}
+                />
               </Box>
 
               <Box sx={{ ml: "auto", display: "flex", gap: 2 }}>
@@ -1740,6 +1823,13 @@ export default function Sales() {
               Edit Sale
             </MenuItem>
           )}
+          <MenuItem onClick={() => {
+            handleMenuClose();
+            setNotesDialogOpen(true);
+          }}>
+            <NoteIcon sx={{ mr: 1 }} fontSize="small" color="info" />
+            Manage Notes
+          </MenuItem>
           {hasPermission(PERMISSIONS.DELETE_SALE) && (
             <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>
               <DeleteIcon sx={{ mr: 1 }} fontSize="small" color="error" />
@@ -1767,6 +1857,27 @@ export default function Sales() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Notes Dialog */}
+        {selectedActionSale && (
+          <NotesDialog
+            open={notesDialogOpen}
+            onClose={() => setNotesDialogOpen(false)}
+            saleId={selectedActionSale.sale_id!}
+            invoiceNo={selectedActionSale.invoice_no}
+            totalAmount={selectedActionSale.total_amount}
+            paymentStatus={selectedActionSale.payment_status}
+            onNoteChange={() => loadData(true)}
+          />
+        )}
+
+        {/* Add Note Dialog — pick customer/invoice then opens NotesDialog */}
+        <AddNoteDialog
+          open={addNoteOpen}
+          onClose={() => setAddNoteOpen(false)}
+          onNoteChange={() => { setAddNoteOpen(false); loadData(true); }}
+          sales={sales}
+        />
 
       </Box>
     </PermissionGate>

@@ -97,6 +97,7 @@ export interface PendingPayment {
   pending_amount: number;
   items_summary?: string;
   payment_terms?: string; // JSON string: {"type":"after_days","days":3} etc.
+  refund_amount?: number; // Added for Refund Due section
 }
 
 export interface Demo {
@@ -499,3 +500,37 @@ export type DeepPartial<T> = {
 };
 
 export type WithRequired<T, K extends keyof T> = T & { [P in K]-?: T[P] };
+
+// ======================
+// Credit / Debit Notes
+// ======================
+
+export interface CreditDebitNote {
+  note_id?: number;
+  note_type: "credit" | "debit";
+  sale_id: number;
+  invoice_no?: string;
+  amount: number | string;
+  reason: string;
+  issue_date: string;
+  status: "active" | "void";
+  adjust_inventory: boolean;
+  requires_pickup: boolean;
+  pickup_items?: string;
+  pickup_status?: "pending_pickup" | "out_for_pickup" | "picked_up" | "returned_to_company" | "cancelled";
+  pickup_date?: string;
+  returned_date?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteCreate {
+  note_type: "credit" | "debit";
+  sale_id: number;
+  amount: number | string;
+  reason: string;
+  issue_date: string;
+  adjust_inventory?: boolean;
+  requires_pickup?: boolean;
+  pickup_items?: string;
+}

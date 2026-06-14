@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, Grid, TextField, Button,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, IconButton,
-  Divider, FormControl, InputLabel, Select, MenuItem
+  Divider, FormControl, InputLabel, Select, MenuItem, CircularProgress, Chip,
 } from "@mui/material";
 import { Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon, Download as DownloadIcon } from "@mui/icons-material";
 import { Quotation } from "../services/leadsService";
+import { leadsService } from "../services/leadsService";
 
 export interface QuotationFormProps {
   lead: any;
@@ -13,14 +14,17 @@ export interface QuotationFormProps {
   onSaveDraft: (quotation: Partial<Quotation>) => void;
   onCommit: (quotation: Partial<Quotation>) => void;
   onDownloadLatest: () => void;
+  onAttachmentChange?: () => void;
   loading: boolean;
   isClosed: boolean;
   isHistory?: boolean;
 }
 
-export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onCommit, onDownloadLatest, loading, isClosed, isHistory = false }: QuotationFormProps) {
+export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onCommit, onDownloadLatest, onAttachmentChange, loading, isClosed, isHistory = false }: QuotationFormProps) {
   const isParul = lead.source_website === "Parul Chemicals" || lead.source_website === "parul_chemicals";
   const isPSI = !isParul; // Default to PSI for others for now
+  const isVibgyor = lead.source_website?.trim().toLowerCase() === "vibgyor maple" || 
+                    lead.source_website?.trim().toLowerCase() === "vibgyor_maple";
 
   const defaultQuotation = {
     name: lead.full_name || "",
@@ -57,16 +61,23 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
 
   const [details, setDetails] = useState({ ...defaultQuotation, ...initialQuotation });
 
+
   useEffect(() => {
     // If it's a new quotation and details wasn't saved yet, use lead info
     if (Object.keys(initialQuotation).length === 0 || (!initialQuotation.name && !initialQuotation.quotation_no)) {
       setDetails((prev: any) => ({
         ...prev,
         name: lead.full_name || "",
-        email: lead.email || ""
+        email: lead.email || "",
+        items: isVibgyor 
+          ? [{ po_sr_no: "1", description: "Grasshawk KLAW™ Professional Mole Trap", hsn_code: "", packages: "", quantity: 1, rate_per_unit: 0, amount: 0 }]
+          : prev.items
       }));
     } else {
-      const merged = { ...defaultQuotation, ...initialQuotation };
+      const merged = { ...defaultQuotation, ...initialQuotation } as any;
+      if (isVibgyor && (!merged.items || merged.items.length === 0)) {
+        merged.items = [{ po_sr_no: "1", description: "Grasshawk KLAW™ Professional Mole Trap", hsn_code: "", packages: "", quantity: 1, rate_per_unit: 0, amount: 0 }];
+      }
       // Replace nulls from DB with default values
       Object.keys(defaultQuotation).forEach(key => {
         if (merged[key] === null || merged[key] === undefined) {
@@ -139,6 +150,8 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
   const handleCommitClick = () => {
     onCommit(details);
   };
+
+
 
   return (
     <Card sx={{ mb: 2 }}>
@@ -268,6 +281,8 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
           {isParul && <Grid item xs={12} md={6}><TextField label="Packing & Forwarding" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.packing_forwarding || ''} onChange={(e) => handleDetailChange("packing_forwarding", e.target.value)} disabled={isClosed} /></Grid>}
           {isParul && <Grid item xs={12} md={6}><TextField label="Freight Charges" fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.freight_charges || ''} onChange={(e) => handleDetailChange("freight_charges", e.target.value)} disabled={isClosed} /></Grid>}
           {!isParul && <Grid item xs={12}><TextField label="Notes / Instructions" multiline rows={3} fullWidth size="small" InputLabelProps={{ shrink: true }} value={details.notes || ''} onChange={(e) => handleDetailChange("notes", e.target.value)} disabled={isClosed} /></Grid>}
+
+
         </Grid>
 
         <Box mt={3} display="flex" justifyContent="flex-end" gap={1}>

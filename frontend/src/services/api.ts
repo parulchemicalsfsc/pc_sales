@@ -495,6 +495,11 @@ export const salesAPI = {
     const response = await apiClient.get("/api/sales/pending-payments");
     return response.data;
   },
+  /** Fetch all sales where company owes a refund to customer (payment_status = 'Refund Due') */
+  getRefundDue: async () => {
+    const response = await apiClient.get("/api/sales/refund-due");
+    return response.data;
+  },
 };
 
 // Payment API
@@ -525,6 +530,62 @@ export const paymentAPI = {
   },
   getPending: async () => {
     const response = await apiClient.get("/api/payments/pending");
+    return response.data;
+  },
+};
+
+// Notes API (Credit / Debit Notes)
+export const notesAPI = {
+  /** List all notes (paginated). Useful for finance summaries. */
+  getAll: async (params?: { skip?: number; limit?: number; note_type?: string; status?: string; requires_pickup?: boolean }) => {
+    const response = await apiClient.get("/api/notes/", { params });
+    return response.data;
+  },
+
+  /** Get all notes attached to a specific sale. */
+  getBySale: async (saleId: number) => {
+    const response = await apiClient.get(`/api/notes/sale/${saleId}`);
+    return response.data;
+  },
+
+  /** Create a new credit or debit note. */
+  create: async (data: {
+    note_type: "credit" | "debit";
+    sale_id: number;
+    amount: number;
+    reason: string;
+    issue_date: string;
+    adjust_inventory?: boolean;
+    requires_pickup?: boolean;
+    pickup_items?: string;
+    debit_invoice_no?: string;
+    return_items?: Array<{
+      product_id: number;
+      product_name: string;
+      original_qty: number;
+      return_qty: number;
+      rate: number;
+      return_amount: number;
+    }>;
+  }) => {
+    const response = await apiClient.post("/api/notes/", data);
+    return response.data;
+  },
+
+  /** Fetch original sale items + already-returned quantities for the credit note return dialog */
+  getSaleItems: async (saleId: number): Promise<{ sale: any; items: any[] }> => {
+    const response = await apiClient.get(`/api/notes/sale/${saleId}/items`);
+    return response.data;
+  },
+
+  /** Void a note (admin/manager only). Notes are never hard-deleted. */
+  void: async (noteId: number) => {
+    const response = await apiClient.patch(`/api/notes/${noteId}/void`);
+    return response.data;
+  },
+  /** Update reverse logistics pickup status */
+  updatePickupStatus: async (noteId: number, data: { pickup_status: string, pickup_date?: string, returned_date?: string }) => {
+    const response = await apiClient.patch(`/api/notes/${noteId}/pickup_status`, data);
     return response.data;
   },
 };
@@ -570,6 +631,10 @@ export const demoAPI = {
 export const automationAPI = {
   getMyAssignments: async (params?: { status?: string; page?: number; limit?: number }) => {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
+    return response.data;
+  },
+  startCallTimer: async (assignmentId: number) => {
+    const response = await apiClient.post("/api/automation/start-call-timer", { assignment_id: assignmentId });
     return response.data;
   },
   updateCallStatus: async (assignmentId: number, outcome: string, notes?: string, callbackDate?: string) => {

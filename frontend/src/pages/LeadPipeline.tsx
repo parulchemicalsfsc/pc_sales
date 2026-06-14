@@ -15,6 +15,7 @@ import {
   Cancel as CancelIcon, Assignment as AssignmentIcon,
   Comment as CommentIcon, History as HistoryIcon, Warning as WarningIcon,
   AutoAwesome as AutoIcon, Delete as DeleteIcon,
+  AttachFile as AttachFileIcon, OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -560,6 +561,89 @@ export default function LeadPipeline() {
                     </Grid>
                   )}
                 </Grid>
+
+                {/* RFQ Details */}
+                {(selectedLead.rfq_quantity || selectedLead.rfq_material || selectedLead.rfq_delivery || selectedLead.attachment_url) && (
+                  <Box mt={2} pt={1.5} borderTop="1px solid" borderColor="divider">
+                    <Typography variant="caption" color="text.secondary" fontWeight={700} textTransform="uppercase" display="block" mb={1}>
+                      RFQ Details
+                    </Typography>
+                    <Grid container spacing={1}>
+                      {selectedLead.rfq_quantity && (
+                        <Grid item xs={6}>
+                          <Box display="flex" alignItems="center" gap={0.5}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 70 }}>Quantity:</Typography>
+                            <Typography variant="body2" fontWeight={500}>{selectedLead.rfq_quantity}</Typography>
+                          </Box>
+                        </Grid>
+                      )}
+                      {selectedLead.rfq_material && (
+                        <Grid item xs={6}>
+                          <Box display="flex" alignItems="center" gap={0.5}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 70 }}>Material:</Typography>
+                            <Typography variant="body2" fontWeight={500}>{selectedLead.rfq_material}</Typography>
+                          </Box>
+                        </Grid>
+                      )}
+                      {selectedLead.rfq_delivery && (
+                        <Grid item xs={12}>
+                          <Box display="flex" alignItems="center" gap={0.5}>
+                            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 70 }}>Delivery:</Typography>
+                            <Typography variant="body2" fontWeight={500}>{selectedLead.rfq_delivery}</Typography>
+                          </Box>
+                        </Grid>
+                      )}
+                      {selectedLead.attachment_url && (
+                        <Grid item xs={12}>
+                          <Box display="flex" flexDirection="column" gap={1} mt={0.5}>
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 70 }}>Document:</Typography>
+                              <Chip
+                                icon={<AttachFileIcon />}
+                                label={selectedLead.attachment_name || "View File"}
+                                component="a"
+                                href={selectedLead.attachment_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                clickable
+                                color="primary"
+                                variant="outlined"
+                                size="small"
+                                sx={{ cursor: "pointer", maxWidth: "80%" }}
+                              />
+                              <IconButton
+                                size="small"
+                                href={selectedLead.attachment_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open file in new tab"
+                              >
+                                <OpenInNewIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                            
+                            {/* Inline Image Preview */}
+                            {(selectedLead.attachment_url.toLowerCase().endsWith(".png") ||
+                              selectedLead.attachment_url.toLowerCase().endsWith(".jpg") ||
+                              selectedLead.attachment_url.toLowerCase().endsWith(".jpeg") ||
+                              selectedLead.attachment_url.toLowerCase().includes(".png?") ||
+                              selectedLead.attachment_url.toLowerCase().includes(".jpg?") ||
+                              selectedLead.attachment_url.toLowerCase().includes(".jpeg?")) && (
+                              <Box mt={0.5} border="1px solid" borderColor="divider" borderRadius={1} p={0.5} bgcolor="background.paper" display="inline-block" sx={{ maxWidth: "fit-content" }}>
+                                <img
+                                  src={selectedLead.attachment_url}
+                                  alt={selectedLead.attachment_name || "Attachment"}
+                                  style={{ maxWidth: "100%", maxHeight: 150, borderRadius: 4, cursor: "pointer", display: "block" }}
+                                  onClick={() => window.open(selectedLead.attachment_url, "_blank")}
+                                />
+                              </Box>
+                            )}
+                          </Box>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Box>
+                )}
               </CardContent>
             </Card>
 

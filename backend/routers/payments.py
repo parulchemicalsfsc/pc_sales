@@ -6,6 +6,7 @@ from models import Payment
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
 from activity_logger import get_activity_logger
+from routers.balance_utils import calculate_remaining_balance
 
 from routers.notifications import create_notification_helper
 
@@ -346,69 +347,26 @@ def create_payment(
         created_payment = payment_response.data[0]
         print(f"Payment created successfully: {created_payment.get('payment_id')}")
 
-        # Try to update sale status (but don't fail if it doesn't work)
-        payment_status = None
-        total_paid = None
-        total_amount = None
-
+        # Recalculate sale payment status using shared utility (accounts for notes)
+        balance_info = {}
         try:
-            # Get the sale to calculate payment status
-            sale_response = (
-                db.table("sales")
-                .select("sale_id, total_amount")
-                .eq("sale_id", payment.sale_id)
-                .execute()
-            )
-
-            if sale_response.data:
-                sale = sale_response.data[0]
-                total_amount = float(sale.get("total_amount", 0) or 0)
-
-                # Calculate total paid amount for this sale
-                all_payments = (
-                    db.table("payments")
-                    .select("amount")
-                    .eq("sale_id", payment.sale_id)
-                    .execute()
-                )
-
-                total_paid = 0.0
-                if all_payments.data:
-                    for p in all_payments.data:
-                        amount = p.get("amount")
-                        if amount:
-                            total_paid += float(amount)
-
-                # Update sale payment status
-                if total_paid >= total_amount:
-                    payment_status = "Paid"
-                elif total_paid > 0:
-                    payment_status = "Partial"
-                else:
-                    payment_status = "Pending"
-
-                print(f"Updating sale status to: {payment_status}")
-                db.table("sales").eq("sale_id", sale_id).update({"payment_status": payment_status}).execute()
+            balance_info = calculate_remaining_balance(payment.sale_id, db)
+            print(f"Sale #{payment.sale_id} status updated to: {balance_info.get('payment_status')}")
         except requests.HTTPError as sale_http_err:
             print(f"Warning: Supabase HTTP error updating sale: {sale_http_err}")
-            print(f"This may be due to RLS policies. Payment was still created.")
         except Exception as status_error:
             print(f"Warning: Could not update sale status: {str(status_error)}")
-            # Payment was created successfully, just return without status update
 
         # Return success with available data
         response_data = {
             "message": "Payment recorded successfully",
             "payment": created_payment,
         }
-
-        if payment_status:
-            response_data["payment_status"] = payment_status
-        if total_paid is not None:
-            response_data["total_paid"] = total_paid
-        if total_amount is not None:
-            response_data["total_amount"] = total_amount
-            response_data["pending_amount"] = max(0, total_amount - total_paid)
+        if balance_info:
+            response_data["payment_status"] = balance_info.get("payment_status")
+            response_data["total_paid"] = balance_info.get("total_paid")
+            response_data["total_amount"] = balance_info.get("total_amount")
+            response_data["pending_amount"] = max(0, balance_info.get("remaining_balance", 0))
 
         # Notification creation removed as per user request
 
@@ -474,37 +432,9 @@ def update_payment(
         if not response.data:
             raise HTTPException(status_code=404, detail="Payment not found")
 
-        # Recalculate sale payment status
+        # Recalculate sale payment status using shared utility (accounts for notes)
         if sale_id:
-            sale_response = (
-                db.table("sales").select("*").eq("sale_id", sale_id).execute()
-            )
-
-            if sale_response.data:
-                sale = sale_response.data[0]
-                total_amount = sale.get("total_amount", 0) or 0
-
-                # Calculate total paid
-                all_payments = (
-                    db.table("payments")
-                    .select("amount")
-                    .eq("sale_id", sale_id)
-                    .execute()
-                )
-
-                total_paid = sum(
-                    p.get("amount", 0) or 0 for p in (all_payments.data or [])
-                )
-
-                # Update payment status
-                if total_paid >= total_amount:
-                    payment_status = "Paid"
-                elif total_paid > 0:
-                    payment_status = "Partial"
-                else:
-                    payment_status = "Pending"
-
-                db.table("sales").eq("sale_id", sale_id).update({"payment_status": payment_status}).execute()
+            calculate_remaining_balance(sale_id, db)
 
         if user_email and current_payment:
             try:
@@ -551,37 +481,9 @@ def delete_payment(payment_id: int, db: SupabaseClient = Depends(get_supabase),
         if not delete_response.data:
             raise HTTPException(status_code=404, detail="Payment not found")
 
-        # Recalculate sale payment status
+        # Recalculate sale payment status using shared utility (accounts for notes)
         if sale_id:
-            sale_response = (
-                db.table("sales").select("*").eq("sale_id", sale_id).execute()
-            )
-
-            if sale_response.data:
-                sale = sale_response.data[0]
-                total_amount = sale.get("total_amount", 0) or 0
-
-                # Calculate remaining paid amount
-                all_payments = (
-                    db.table("payments")
-                    .select("amount")
-                    .eq("sale_id", sale_id)
-                    .execute()
-                )
-
-                total_paid = sum(
-                    p.get("amount", 0) or 0 for p in (all_payments.data or [])
-                )
-
-                # Update payment status
-                if total_paid >= total_amount:
-                    payment_status = "Paid"
-                elif total_paid > 0:
-                    payment_status = "Partial"
-                else:
-                    payment_status = "Pending"
-
-                db.table("sales").eq("sale_id", sale_id).update({"payment_status": payment_status}).execute()
+            calculate_remaining_balance(sale_id, db)
 
         if user_email:
             try:

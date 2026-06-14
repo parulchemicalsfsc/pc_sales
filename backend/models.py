@@ -301,6 +301,43 @@ class UserCreate(BaseModel):
 
 
 # ======================
+# Credit / Debit Notes
+# ======================
+
+class NoteCreate(BaseModel):
+    note_type: str                      # 'credit' or 'debit'
+    sale_id: int
+    amount: float                       # Stored as NUMERIC(10,2) in DB
+    reason: str                         # Required for audit trail
+    issue_date: str                     # ISO date string, e.g. "2026-06-10"
+    adjust_inventory: bool = False      # Reserved for future inventory integration
+    requires_pickup: bool = False       # Flag for physical return
+    pickup_items: Optional[str] = None  # Text description of items to pick up
+    debit_invoice_no: Optional[str] = None  # Custom invoice no for auto-created debit sale; auto-generated if blank
+    return_items: Optional[List] = None  # List of returned items for credit notes: [{product_id, product_name, original_qty, return_qty, rate, return_amount}]
+
+
+class Note(BaseModel):
+    note_id: Optional[int] = None
+    note_type: str
+    sale_id: int
+    invoice_no: Optional[str] = None
+    amount: float
+    reason: str
+    issue_date: str
+    status: str = "active"             # 'active' | 'void'
+    adjust_inventory: bool = False
+    requires_pickup: bool = False
+    pickup_items: Optional[str] = None
+    pickup_status: str = "pending_pickup"
+    pickup_date: Optional[str] = None
+    returned_date: Optional[str] = None
+    return_items: Optional[List] = None  # Item-level return breakdown
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+# ======================
 # Import History / Audit Trail
 # ======================
 

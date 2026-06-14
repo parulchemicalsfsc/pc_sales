@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Box, Card, CardContent, Typography, Grid, Chip, CircularProgress,
   Alert, Divider, Button, TextField, MenuItem, Select, FormControl,
@@ -13,6 +13,7 @@ import {
   Assignment as AssignmentIcon, Comment as CommentIcon, History as HistoryIcon,
   Warning as WarningIcon, Save as SaveIcon, Close as CloseIcon,
   Refresh as RefreshIcon, Download as DownloadIcon,
+  AttachFile as AttachFileIcon, OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { leadsService, Lead, LeadActivity, Quotation } from "../services/leadsService";
@@ -138,6 +139,11 @@ export default function LeadWorkspace() {
   // Add lead modal state
   const [addLeadOpen, setAddLeadOpen] = useState(false);
   const [addLeadLoading, setAddLeadLoading] = useState(false);
+
+  // Attachment states
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachUploading, setAttachUploading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const [existingSources, setExistingSources] = useState<string[]>(["Parul Chemicals", "Press Stamping Industries", "VIBGYOR Maple"]);
   const [addLeadForm, setAddLeadForm] = useState({
     full_name: "",
@@ -260,6 +266,50 @@ export default function LeadWorkspace() {
       const hRes = await leadsService.getQuotationHistory(res.data.lead_id);
       setQuotationHistory(hRes.data || []);
     } catch (e) { console.error(e); }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selected) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setAttachError("File is too large. Maximum size is 10MB.");
+      return;
+    }
+    const allowedExts = [".pdf", ".dwg", ".dxf", ".step", ".stp", ".png", ".jpg", ".jpeg"];
+    const ext = "." + file.name.split(".").pop()?.toLowerCase();
+    if (!allowedExts.includes(ext)) {
+      setAttachError(`File type not allowed. Allowed: ${allowedExts.join(", ")}`);
+      return;
+    }
+    setAttachError(null);
+    setAttachUploading(true);
+    try {
+      await leadsService.uploadAttachment(selected.lead_id, file);
+      setSuccess("Attachment uploaded successfully");
+      await refreshSelected();
+    } catch (err: any) {
+      setAttachError(err?.response?.data?.detail || "Upload failed.");
+    } finally {
+      setAttachUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteAttachment = async () => {
+    if (!selected) return;
+    setAttachUploading(true);
+    setAttachError(null);
+    try {
+      await leadsService.deleteAttachment(selected.lead_id);
+      setSuccess("Attachment removed successfully");
+      await refreshSelected();
+    } catch (err: any) {
+      setAttachError(err?.response?.data?.detail || "Delete failed.");
+    } finally {
+      setAttachUploading(false);
+    }
   };
 
   const handleQuotationChange = (field: keyof Quotation, value: any) => {
@@ -623,6 +673,32 @@ export default function LeadWorkspace() {
                                 <Typography variant="body2" sx={{ fontStyle: "italic" }}>{t("leadWorkspace.originalMessageQuote", '"{message}"').replace("{message}", selected.message)}</Typography>
                               </Box>
                             )}
+                            {/* RFQ specifics */}
+                            {(selected.rfq_quantity || selected.rfq_material || selected.rfq_delivery) && (
+                              <Box mt={1} pt={1} borderTop="1px solid" borderColor="divider">
+                                <Typography variant="caption" color="text.secondary" fontWeight={700}>RFQ Details</Typography>
+                                {selected.rfq_quantity && (
+                                  <Box display="flex" alignItems="center" gap={1} mt={0.5}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Quantity:</Typography>
+                                    <Typography variant="body2">{selected.rfq_quantity}</Typography>
+                                  </Box>
+                                )}
+                                {selected.rfq_material && (
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Material:</Typography>
+                                    <Typography variant="body2">{selected.rfq_material}</Typography>
+                                  </Box>
+                                )}
+                                {selected.rfq_delivery && (
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 80 }}>Delivery:</Typography>
+                                    <Typography variant="body2">{selected.rfq_delivery}</Typography>
+                                  </Box>
+                                )}
+                              </Box>
+                            )}
+
+
                           </Box>
                         </CardContent>
                       </Card>
@@ -656,6 +732,153 @@ export default function LeadWorkspace() {
                     </Grid>
                   </Grid>
 
+                  {/* Attachment Section */}
+                  <Card variant="outlined" sx={{ mb: 2 }}>
+                    <CardContent>
+                      <Typography variant="caption" fontWeight={700} textTransform="uppercase" color="text.secondary" display="block" mb={2}>
+                        Attachment / Drawing
+                      </Typography>
+                      
+                      <Grid container spacing={4} alignItems="center">
+                        {/* Column 1: Buttons and details */}
+                        <Grid item xs={12} md={selected.attachment_url ? 6 : 12}>
+                          {attachError && (
+                            <Typography color="error" variant="caption" display="block" mb={2}>{attachError}</Typography>
+                          )}
+                          {selected.attachment_url ? (
+                            <Box display="flex" flexDirection="column" gap={2}>
+                              <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
+                                <Chip
+                                  icon={<AttachFileIcon />}
+                                  label={selected.attachment_name || "Attached File"}
+                                  component="a"
+                                  href={selected.attachment_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  clickable
+                                  color="primary"
+                                  variant="outlined"
+                                  sx={{ maxWidth: 280, cursor: "pointer", py: 2.2, px: 1 }}
+                                />
+                                <IconButton
+                                  color="primary"
+                                  href={selected.attachment_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Open file in new tab"
+                                >
+                                  <OpenInNewIcon />
+                                </IconButton>
+                              </Box>
+                              
+                              {!isClosed && (
+                                <Box display="flex" gap={1.5}>
+                                  <Button
+                                    variant="outlined"
+                                    startIcon={attachUploading ? <CircularProgress size={16} /> : <AttachFileIcon />}
+                                    disabled={attachUploading}
+                                    onClick={() => fileInputRef.current?.click()}
+                                  >
+                                    Replace File
+                                  </Button>
+                                  <Button
+                                    variant="outlined"
+                                    color="error"
+                                    disabled={attachUploading}
+                                    onClick={handleDeleteAttachment}
+                                  >
+                                    Remove File
+                                  </Button>
+                                </Box>
+                              )}
+                            </Box>
+                          ) : (
+                            !isClosed && (
+                              <Box>
+                                <Button
+                                  variant="outlined"
+                                  size="large"
+                                  startIcon={attachUploading ? <CircularProgress size={18} /> : <AttachFileIcon />}
+                                  disabled={attachUploading}
+                                  onClick={() => fileInputRef.current?.click()}
+                                >
+                                  {attachUploading ? "Uploading..." : "Upload Drawing / Document"}
+                                </Button>
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+                                  Allowed formats: PDF, DWG, DXF, STEP, STP, PNG, JPG, JPEG (Max 10MB)
+                                </Typography>
+                              </Box>
+                            )
+                          )}
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            hidden
+                            accept=".pdf,.dwg,.dxf,.step,.stp,.png,.jpg,.jpeg"
+                            onChange={handleFileSelect}
+                          />
+                        </Grid>
+                        
+                        {/* Column 2: Document/Image Preview */}
+                        {selected.attachment_url && (
+                          <Grid item xs={12} md={6}>
+                            {(selected.attachment_url.toLowerCase().endsWith(".png") ||
+                              selected.attachment_url.toLowerCase().endsWith(".jpg") ||
+                              selected.attachment_url.toLowerCase().endsWith(".jpeg") ||
+                              selected.attachment_url.toLowerCase().includes(".png?") ||
+                              selected.attachment_url.toLowerCase().includes(".jpg?") ||
+                              selected.attachment_url.toLowerCase().includes(".jpeg?")) ? (
+                              <Box 
+                                border="1px solid" 
+                                borderColor="divider" 
+                                borderRadius={1} 
+                                p={1} 
+                                bgcolor="background.paper" 
+                                display="flex"
+                                justifyContent="center"
+                                alignItems="center"
+                                sx={{ 
+                                  maxHeight: 260, 
+                                  overflow: "hidden",
+                                  cursor: "pointer",
+                                  transition: "transform 0.2s",
+                                  "&:hover": { transform: "scale(1.01)" }
+                                }}
+                                onClick={() => window.open(selected.attachment_url, "_blank")}
+                              >
+                                <img
+                                  src={selected.attachment_url}
+                                  alt={selected.attachment_name || "Attachment Preview"}
+                                  style={{ maxWidth: "100%", maxHeight: 240, objectFit: "contain", borderRadius: 4 }}
+                                />
+                              </Box>
+                            ) : (
+                              /* Non-image document placeholder preview card */
+                              <Paper variant="outlined" sx={{ p: 2, textAlign: "center", bgcolor: "action.hover" }}>
+                                <AttachFileIcon sx={{ fontSize: 36, color: "text.secondary", mb: 0.5, opacity: 0.6 }} />
+                                <Typography variant="body2" fontWeight={600} mb={0.5}>
+                                  {selected.attachment_name || "Document attached"}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+                                  This file format cannot be previewed inline.
+                                </Typography>
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  href={selected.attachment_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  Open File
+                                </Button>
+                              </Paper>
+                            )}
+                          </Grid>
+                        )}
+                      </Grid>
+                    </CardContent>
+                  </Card>
+
                   {/* Activity Timeline */}
                   <Card>
                     <CardContent>
@@ -674,6 +897,7 @@ export default function LeadWorkspace() {
                   onSaveDraft={handleSaveQuotation}
                   onCommit={handleCommitQuotation}
                   onDownloadLatest={handleDownloadLatestQuote}
+                  onAttachmentChange={refreshSelected}
                   loading={quotationLoading} 
                   isClosed={isClosed} 
                   isHistory={false}
@@ -704,6 +928,17 @@ export default function LeadWorkspace() {
                                   >
                                     Download PDF
                                   </Button>
+                                  {hq.attachment_url && (
+                                    <Button
+                                      variant="outlined"
+                                      color="secondary"
+                                      href={hq.attachment_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      {hq.attachment_name || "Attachment"}
+                                    </Button>
+                                  )}
                                 </Box>
                               </Box>
                             </CardContent>

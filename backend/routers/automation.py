@@ -644,6 +644,42 @@ def get_my_assignments(
         return {"assignments": [], "error": str(e), "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 1}, "summary": {"total": 0, "pending": 0, "called": 0}}
 
 
+# In-memory dictionary to store call timers without needing SQL migrations right away.
+# Key: f"{user_email}_{assignment_id}", Value: start_time (datetime)
+_CALL_TIMERS = {}
+
+class StartCallTimerRequest(BaseModel):
+    assignment_id: int
+
+@router.post("/start-call-timer")
+def start_call_timer(
+    body: StartCallTimerRequest,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Telecaller clicked Call, start the timer."""
+    try:
+        now_utc = datetime.now(pytz.utc)
+        
+        # Store in memory
+        _CALL_TIMERS[f"{user_email}_{body.assignment_id}"] = now_utc
+
+        # Try to save to DB (will fail if migration not run, but we ignore the error)
+        try:
+            db.table("calling_assignments") \
+                .eq("assignment_id", body.assignment_id) \
+                .eq("user_email", user_email) \
+                .update({"call_started_at": now_utc.isoformat()}).execute()
+        except Exception:
+            pass
+
+        return {"message": "Timer started"}
+    except Exception as e:
+        logger.error(f"Error starting call timer: {e}")
+        raise HTTPException(status_code=500, detail="Failed to start call timer")
+
+
+
 @router.post("/update-call-status")
 def update_call_status(
     body: CallStatusUpdate,
@@ -689,14 +725,49 @@ def update_call_status(
                 "notes": body.notes or "",
             }).execute()  # BUG FIX: was missing .execute()
 
+        # Calculate time_taken
+        time_taken = None
+        timer_key = f"{user_email}_{body.assignment_id}"
+        
+        # First check memory
+        if timer_key in _CALL_TIMERS:
+            start_dt = _CALL_TIMERS.pop(timer_key)
+            time_taken = int((datetime.now(pytz.utc) - start_dt).total_seconds())
+        # Fallback to DB
+        elif assignment.get("call_started_at"):
+            try:
+                start_dt = datetime.fromisoformat(assignment["call_started_at"].replace("Z", "+00:00"))
+                now_dt = datetime.now(pytz.utc)
+                time_taken = int((now_dt - start_dt).total_seconds())
+            except Exception as e:
+                logger.warning(f"Failed to parse call_started_at: {e}")
+        
+        if time_taken and time_taken > 86400:
+            time_taken = 86400
+
         # 4. Insert call log
-        db.table("call_logs").insert({
+        log_data = {
             "assignment_id": body.assignment_id,
             "user_email": user_email,
             "customer_id": assignment["customer_id"],
             "call_outcome": body.call_outcome,
             "notes": body.notes or "",
-        }).execute()
+        }
+        # Try inserting with time_taken. If it fails due to missing column, we fallback to without it.
+        # But we assume the DB migration was run.
+        if time_taken is not None:
+            log_data["time_taken"] = time_taken
+
+        try:
+            db.table("call_logs").insert(log_data).execute()
+        except Exception as e:
+            # Fallback if time_taken column doesn't exist yet
+            if "time_taken" in log_data:
+                del log_data["time_taken"]
+                log_data["notes"] = f"[Time Taken: {time_taken}s] " + log_data["notes"]
+                db.table("call_logs").insert(log_data).execute()
+            else:
+                raise e
 
         # 5. If callback is selected with a date, schedule new assignment
         if body.call_outcome == "callback" and body.callback_date:
@@ -850,6 +921,61 @@ def get_telecaller_profile(
                     .execute()
                 all_sales.extend(sales_res.data or [])
 
+            # Fetch recent call durations
+            # NOTE: call_logs table may not have time_taken or created_at columns (migration pending).
+            # We use log_id for ordering (auto-increment) and parse [Time Taken: Xs] from notes.
+            call_durations = []
+            log_data = []
+            try:
+                # Try fetching with time_taken column first
+                logs_res = db.table("call_logs") \
+                    .select("log_id, customer_id, time_taken, notes") \
+                    .eq("user_email", email) \
+                    .order("log_id", desc=True) \
+                    .limit(50) \
+                    .execute()
+                log_data = logs_res.data or []
+            except Exception:
+                # Fallback: select only guaranteed base columns
+                try:
+                    logs_res = db.table("call_logs") \
+                        .select("log_id, customer_id, notes") \
+                        .eq("user_email", email) \
+                        .order("log_id", desc=True) \
+                        .limit(50) \
+                        .execute()
+                    log_data = logs_res.data or []
+                except Exception as inner_e:
+                    logger.warning(f"Fallback call_logs fetch failed: {inner_e}")
+
+            if log_data:
+                log_dist_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
+                dist_map = {}
+                if log_dist_ids:
+                    for i in range(0, len(log_dist_ids), 50):
+                        dchunk = log_dist_ids[i:i+50]
+                        dist_res = db.table("distributors") \
+                            .select("distributor_id, mantri_name") \
+                            .in_("distributor_id", dchunk) \
+                            .execute()
+                        for d in (dist_res.data or []):
+                            dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
+
+                import re
+                for log in log_data:
+                    tt = log.get("time_taken")
+                    if tt is None and log.get("notes"):
+                        # Parse [Time Taken: 120s] from notes
+                        match = re.search(r"\[Time Taken: (\d+)s\]", log.get("notes", ""))
+                        if match:
+                            tt = int(match.group(1))
+
+                    dist_name = dist_map.get(log.get("customer_id"), "Unknown")
+                    call_durations.append({
+                        "name": dist_name,
+                        "time_taken": tt,  # may be None if no timer was captured
+                    })
+
             # Get distributor details for all sold-to distributors
             sold_dist_ids = list(set(s["distributor_id"] for s in all_sales if s.get("distributor_id")))
             distributors_map = {}
@@ -896,6 +1022,7 @@ def get_telecaller_profile(
                 "conversion_rate": round((total_conversions / total_called * 100) if total_called > 0 else 0, 1),
             },
             "converted_mantris": converted_mantris,
+            "call_durations": call_durations if "call_durations" in locals() else [],
         }
 
     except Exception as e:
