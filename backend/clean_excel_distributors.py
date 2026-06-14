@@ -285,6 +285,7 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
         df.columns = resolved
 
     # ── Step 5: Normalise column names ────────────────────────────────────────
+    original_cols = list(df.columns)
     df.columns = [_norm(c) for c in df.columns]
     norm_cols: list[str] = list(df.columns)
     print(f"[DEBUG] Normalised column names: {norm_cols}")
@@ -294,7 +295,20 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
     col_taluka   = _match_col(norm_cols, TALUKA_ALIASES)
     col_district = _match_col(norm_cols, DISTRICT_ALIASES)
     col_mantri_name   = _match_col(norm_cols, MANTRI_NAME_ALIASES)
-    col_mantri_mobile = _match_col(norm_cols, MANTRI_MOBILE_ALIASES)
+    
+    # Robust Mobile Column Matching
+    col_mantri_mobile = None
+    for c in norm_cols:
+        clean_c = re.sub(r"[_\.\-]", " ", c)
+        clean_c = re.sub(r"\s+", " ", clean_c).strip()
+        if clean_c in {
+            "mobile", "mobile no", "mobile number", "phone", "phone no",
+            "phone number", "contact", "contact no", "contact number",
+            "mob no", "mob number", "mantri mobile", "mantri mobile no"
+        }:
+            col_mantri_mobile = c
+            break
+
     col_morning  = _match_col(norm_cols, SABHASAD_MORNING_ALIASES)
     col_evening  = _match_col(norm_cols, SABHASAD_EVENING_ALIASES)
 
@@ -380,10 +394,6 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
         raw_mobile_value = row[col_mantri_mobile] if col_mantri_mobile else None
         mantri_mobile = clean_phone(raw_mobile_value)
 
-        # 📞 DEBUG LOGS
-        print(f"📞 RAW PHONE: {raw_mobile_value}")
-        print(f"📞 CLEANED PHONE: {mantri_mobile}")
-
         sabhasad_morning = _safe_int(row[col_morning]) if col_morning else None
         sabhasad_evening = _safe_int(row[col_evening]) if col_evening else None
 
@@ -405,6 +415,7 @@ def extract_distributors(filepath: str, sheet_name: int | str = 0) -> list[dict]
             "district":         to_upper_safe(district),
             "mantri_name":      to_upper_safe(mantri_name),
             "mantri_mobile":    mantri_mobile,
+            "raw_mobile_value": raw_mobile_value,
             "sabhasad_morning": sabhasad_morning,
             "sabhasad_evening": sabhasad_evening,
             
