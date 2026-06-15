@@ -483,6 +483,9 @@ def get_my_assignments(
             if target_email:
                 query = query.eq("user_email", target_email)
                 count_query = count_query.eq("user_email", target_email)
+            else:
+                query = query.eq("user_email", user_email)
+                count_query = count_query.eq("user_email", user_email)
         elif role == "sales_manager":
             query = query.eq("user_email", user_email).eq("entity_type", "distributor")
             count_query = count_query.eq("user_email", user_email).eq("entity_type", "distributor")
@@ -613,6 +616,8 @@ def get_my_assignments(
         if role == "admin":
             if target_email:
                 all_query = all_query.eq("user_email", target_email)
+            else:
+                all_query = all_query.eq("user_email", user_email)
         elif role == "sales_manager":
             all_query = all_query.eq("user_email", user_email).eq("entity_type", "distributor")
         else:
