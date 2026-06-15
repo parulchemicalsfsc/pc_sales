@@ -2013,7 +2013,7 @@ export default function Sales() {
                               <Typography variant="subtitle2">Products Requested:</Typography>
                               <ul>
                                 {orderProducts.map((p: any, idx: number) => {
-                                  const prodName = products.find(prod => prod.product_id === p.product_id)?.name || `Product ID ${p.product_id}`;
+                                  const prodName = products.find(prod => prod.product_id === p.product_id)?.product_name || `Product ID ${p.product_id}`;
                                   return (
                                     <li key={idx}>
                                       <Typography variant="body2">
