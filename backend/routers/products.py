@@ -32,7 +32,7 @@ def get_all_products(db: SupabaseClient = Depends(get_db)):
         )
 
 
-@router.get("/config/regions", dependencies=[Depends(verify_permission("view_products"))])
+@router.get("/config/regions")  # No permission guard — regions are dropdown config needed by all roles
 def get_product_regions(db: SupabaseClient = Depends(get_db)):
     """Get dynamic product regions from DB; seeds defaults if table is empty"""
     DEFAULT_REGIONS = [
@@ -66,7 +66,7 @@ def create_product_region(region: ProductRegion, db: SupabaseClient = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/config/categories", dependencies=[Depends(verify_permission("view_products"))])
+@router.get("/config/categories")  # No permission guard — categories are dropdown config needed by all roles
 def get_product_categories(db: SupabaseClient = Depends(get_db)):
     """Get dynamic product categories from DB; seeds defaults if table is empty"""
     DEFAULT_CATEGORIES = [
