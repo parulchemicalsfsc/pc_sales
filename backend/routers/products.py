@@ -8,7 +8,7 @@ from activity_logger import get_activity_logger
 router = APIRouter()
 
 
-@router.get("/", dependencies=[Depends(verify_permission("view_products"))])
+@router.get("/")  # No permission guard — product list needed by all roles (telecallers need it to take orders)
 def get_products(db: SupabaseClient = Depends(get_db)):
     """Get all active products"""
     try:
