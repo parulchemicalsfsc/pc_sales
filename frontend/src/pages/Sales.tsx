@@ -124,6 +124,8 @@ export default function Sales() {
   const [telecallerOrdersDialogOpen, setTelecallerOrdersDialogOpen] = useState(false);
   const [telecallerOrders, setTelecallerOrders] = useState<TelecallerOrder[]>([]);
   const [telecallerOrdersLoading, setTelecallerOrdersLoading] = useState(false);
+  const [tcOrderDateFilter, setTcOrderDateFilter] = useState<string>("");
+  const [tcOrderTelecallerFilter, setTcOrderTelecallerFilter] = useState<string>("");
 
   // Toast
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
@@ -1979,82 +1981,151 @@ export default function Sales() {
         >
           <DialogTitle>Pending Telecaller Orders</DialogTitle>
           <DialogContent>
+            {/* Filters */}
+            <Box sx={{ display: "flex", gap: 2, mt: 1, mb: 2, flexWrap: "wrap" }}>
+              <TextField
+                label="Filter by Date"
+                type="date"
+                size="small"
+                value={tcOrderDateFilter}
+                onChange={(e) => setTcOrderDateFilter(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ minWidth: 180 }}
+              />
+              <TextField
+                label="Filter by Telecaller"
+                size="small"
+                placeholder="Name or email…"
+                value={tcOrderTelecallerFilter}
+                onChange={(e) => setTcOrderTelecallerFilter(e.target.value)}
+                sx={{ minWidth: 200 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              {(tcOrderDateFilter || tcOrderTelecallerFilter) && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => { setTcOrderDateFilter(""); setTcOrderTelecallerFilter(""); }}
+                >
+                  Clear Filters
+                </Button>
+              )}
+            </Box>
+
             {telecallerOrdersLoading ? (
               <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
                 <CircularProgress />
               </Box>
-            ) : telecallerOrders.length === 0 ? (
-              <Alert severity="info" sx={{ mt: 2 }}>
-                No pending orders from telecallers.
-              </Alert>
-            ) : (
-              <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-                {telecallerOrders.map((order) => {
-                  let orderProducts = [];
-                  try {
-                    orderProducts = typeof order.products_json === "string" ? JSON.parse(order.products_json) : order.products_json;
-                  } catch (e) {}
+            ) : (() => {
+              // Apply filters
+              const filtered = telecallerOrders.filter((order) => {
+                const orderDate = order.created_at ? order.created_at.split("T")[0] : "";
+                const telecallerLabel = (order.telecaller_name || order.telecaller_email || "").toLowerCase();
+                const dateMatch = !tcOrderDateFilter || orderDate === tcOrderDateFilter;
+                const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
+                return dateMatch && telecallerMatch;
+              });
 
-                  return (
-                    <Card key={order.order_id} variant="outlined">
-                      <CardContent>
-                        <Grid container spacing={2}>
-                          <Grid item xs={12} sm={8}>
-                            <Typography variant="h6" color="primary">
-                              {order.customer_name} <Chip size="small" label={order.customer_type} />
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              <strong>Telecaller:</strong> {order.telecaller_name || order.telecaller_email}
-                            </Typography>
-                            <Typography variant="body2">
-                              <strong>Mobile:</strong> {order.customer_mobile || "N/A"} | <strong>Village:</strong> {order.customer_village || "N/A"}
-                            </Typography>
-                            <Box sx={{ mt: 1 }}>
-                              <Typography variant="subtitle2">Products Requested:</Typography>
-                              <ul>
-                                {orderProducts.map((p: any, idx: number) => {
-                                  const prodName = products.find(prod => prod.product_id === p.product_id)?.product_name || `Product ID ${p.product_id}`;
-                                  return (
-                                    <li key={idx}>
-                                      <Typography variant="body2">
-                                        {prodName} - Qty: {p.quantity} | Rate: ₹{p.rate} | Total: ₹{p.amount}
-                                      </Typography>
-                                    </li>
-                                  )
-                                })}
-                              </ul>
-                            </Box>
-                            {order.notes && (
-                              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic" }}>
-                                <strong>Notes:</strong> {order.notes}
+              if (filtered.length === 0) {
+                return (
+                  <Alert severity="info" sx={{ mt: 1 }}>
+                    {telecallerOrders.length === 0
+                      ? "No pending orders from telecallers."
+                      : "No orders match the selected filters."}
+                  </Alert>
+                );
+              }
+
+              return (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {filtered.map((order) => {
+                    let orderProducts: any[] = [];
+                    try {
+                      orderProducts = typeof order.products_json === "string" ? JSON.parse(order.products_json) : (order.products_json || []);
+                    } catch (e) {}
+
+                    const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+
+                    return (
+                      <Card key={order.order_id} variant="outlined">
+                        <CardContent>
+                          <Grid container spacing={2}>
+                            <Grid item xs={12} sm={8}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                                <Typography variant="h6" color="primary">
+                                  {order.customer_name}
+                                </Typography>
+                                <Chip size="small" label={order.customer_type} />
+                              </Box>
+                              <Typography variant="body2" color="text.secondary">
+                                <strong>Telecaller:</strong> {order.telecaller_name || order.telecaller_email}
                               </Typography>
-                            )}
+                              <Typography variant="body2" color="text.secondary">
+                                <strong>Date:</strong> {orderDate}
+                              </Typography>
+                              <Typography variant="body2">
+                                <strong>Mobile:</strong> {order.customer_mobile || "N/A"} | <strong>Village:</strong> {order.customer_village || "N/A"}
+                              </Typography>
+                              <Box sx={{ mt: 1 }}>
+                                <Typography variant="subtitle2">Products Requested:</Typography>
+                                <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
+                                  {orderProducts.map((p: any, idx: number) => {
+                                    const prodName = products.find(prod => prod.product_id === p.product_id)?.product_name || `Product ID ${p.product_id}`;
+                                    return (
+                                      <li key={idx}>
+                                        <Typography variant="body2">
+                                          {prodName} — Qty: {p.quantity} | Rate: ₹{p.rate} | Total: ₹{p.amount}
+                                        </Typography>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </Box>
+                              {order.notes && (
+                                <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic" }}>
+                                  <strong>Notes:</strong> {order.notes}
+                                </Typography>
+                              )}
+                            </Grid>
+                            <Grid item xs={12} sm={4} sx={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                onClick={() => handleTelecallerApprove(order.order_id!)}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={() => handleTelecallerReject(order.order_id!)}
+                              >
+                                Reject
+                              </Button>
+                            </Grid>
                           </Grid>
-                          <Grid item xs={12} sm={4} sx={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
-                            <Button 
-                              variant="contained" 
-                              color="success" 
-                              onClick={() => handleTelecallerApprove(order.order_id!)}
-                            >
-                              Approve
-                            </Button>
-                            <Button 
-                              variant="outlined" 
-                              color="error" 
-                              onClick={() => handleTelecallerReject(order.order_id!)}
-                            >
-                              Reject
-                            </Button>
-                          </Grid>
-                        </Grid>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Box>
-            )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              );
+            })()}
           </DialogContent>
           <DialogActions>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pl: 1 }}>
+              Showing {telecallerOrders.filter((o) => {
+                const d = o.created_at ? o.created_at.split("T")[0] : "";
+                const tl = (o.telecaller_name || o.telecaller_email || "").toLowerCase();
+                return (!tcOrderDateFilter || d === tcOrderDateFilter) && (!tcOrderTelecallerFilter || tl.includes(tcOrderTelecallerFilter.toLowerCase()));
+              }).length} of {telecallerOrders.length} orders
+            </Typography>
             <Button onClick={() => setTelecallerOrdersDialogOpen(false)}>Close</Button>
           </DialogActions>
         </Dialog>
