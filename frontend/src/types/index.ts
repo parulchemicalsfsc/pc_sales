@@ -534,3 +534,45 @@ export interface NoteCreate {
   requires_pickup?: boolean;
   pickup_items?: string;
 }
+
+// ======================
+// Telecaller Orders
+// ======================
+
+export interface TelecallerOrderItem {
+  product_id: number;
+  product_name?: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+export interface TelecallerOrder {
+  order_id?: number;
+  telecaller_email?: string;
+  telecaller_name?: string;
+  customer_type: string;
+  customer_id?: number;
+  customer_name: string;
+  customer_mobile?: string;
+  customer_village?: string;
+  products_json?: string;
+  products?: TelecallerOrderItem[];
+  status?: "pending" | "approved" | "rejected";
+  notes?: string;
+  sale_id?: number;
+  approved_by?: string;
+  rejected_reason?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TelecallerOrderCreate {
+  customer_type: string;
+  customer_id?: number;
+  customer_name: string;
+  customer_mobile?: string;
+  customer_village?: string;
+  products: TelecallerOrderItem[];
+  notes?: string;
+}

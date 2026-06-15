@@ -337,6 +337,32 @@ class Note(BaseModel):
     updated_at: Optional[str] = None
 
 
+class TelecallerOrderItem(BaseModel):
+    product_id: int
+    product_name: Optional[str] = None
+    quantity: int
+    rate: float
+    amount: float
+
+
+class TelecallerOrderCreate(BaseModel):
+    customer_type: str = "mantri"
+    customer_id: Optional[int] = None
+    customer_name: str
+    customer_mobile: Optional[str] = None
+    customer_village: Optional[str] = None
+    products: List[TelecallerOrderItem]
+    notes: Optional[str] = None
+
+
+class TelecallerOrderApprove(BaseModel):
+    notes: Optional[str] = None
+
+
+class TelecallerOrderReject(BaseModel):
+    reason: str
+
+
 # ======================
 # Import History / Audit Trail
 # ======================

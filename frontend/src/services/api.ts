@@ -1024,6 +1024,34 @@ export const chatAPI = {
   },
 };
 
+// Telecaller Orders API
+export const telecallerOrderAPI = {
+  create: async (data: any) => {
+    const response = await apiClient.post("/api/telecaller-orders", data);
+    return response.data;
+  },
+  getAll: async (params?: any) => {
+    const response = await apiClient.get("/api/telecaller-orders", { params });
+    return response.data;
+  },
+  getPending: async () => {
+    const response = await apiClient.get("/api/telecaller-orders/pending");
+    return response.data;
+  },
+  approve: async (orderId: number, notes?: string) => {
+    const response = await apiClient.post(`/api/telecaller-orders/${orderId}/approve`, { notes });
+    return response.data;
+  },
+  reject: async (orderId: number, reason: string) => {
+    const response = await apiClient.post(`/api/telecaller-orders/${orderId}/reject`, { reason });
+    return response.data;
+  },
+  getById: async (orderId: number) => {
+    const response = await apiClient.get(`/api/telecaller-orders/${orderId}`);
+    return response.data;
+  },
+};
+
 /**
  * Safe error parser to extract user-friendly error strings from server responses,
  * especially handling FastAPI validation errors (422) which are returned as arrays of objects.
