@@ -37,7 +37,7 @@ def _fetch_all(db, table, select="*", order_col=None, order_desc=False):
     return all_rows
 
 
-@router.post("/", dependencies=[Depends(verify_permission("create_sale"))])
+@router.post("/", dependencies=[Depends(verify_permission("view_calling_list"))])
 def create_telecaller_order(
     order: TelecallerOrderCreate,
     db: SupabaseClient = Depends(get_supabase),
