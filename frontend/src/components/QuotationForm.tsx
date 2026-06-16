@@ -98,18 +98,15 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
 
   const calculateTotals = (data: any, forParul: boolean) => {
     let itemsTotal = 0;
-    let looseCount = 0;
 
     const newItems = data.items.map((item: any) => {
       const amount = (Number(item.quantity) || 0) * (Number(item.rate_per_unit) || 0);
       itemsTotal += amount;
-      looseCount += (Number(item.quantity) || 0);
       return { ...item, amount };
     });
 
     data.items = newItems;
     data.items_total = itemsTotal;
-    data.loose_count = looseCount;
 
     const base = forParul ? itemsTotal : itemsTotal + (Number(data.transportation_charge) || 0);
     data.cgst_amount = (base * (Number(data.cgst_percent) || 0)) / 100;
@@ -231,6 +228,10 @@ export default function QuotationForm({ lead, initialQuotation, onSaveDraft, onC
           
           <Grid item xs={12} md={2}>
             <TextField label="Items Total" fullWidth size="small" value={details.items_total.toFixed(2)} disabled />
+          </Grid>
+          
+          <Grid item xs={12} md={2}>
+            <TextField label="Loose Count" type="number" inputProps={{ min: 0 }} fullWidth size="small" value={details.loose_count} onChange={(e) => handleDetailChange("loose_count", Number(e.target.value))} disabled={isClosed} />
           </Grid>
           
           <Grid item xs={12} md={2}>
