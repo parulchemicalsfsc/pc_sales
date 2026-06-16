@@ -351,7 +351,7 @@ export default function Layout({
     }
   }, [language, googleTranslatePage]);
 
-  const { user, signOut, hasPermission } = useAuth();
+  const { user, signOut, hasPermission, role } = useAuth();
 
   // Run session tracking globally from Layout so it continues across all pages
   useSessionTracker({ userEmail: user?.email });

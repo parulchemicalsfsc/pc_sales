@@ -54,7 +54,7 @@ import {
   Calculate as CalculateIcon,
   HelpOutline as HelpIcon,
 } from "@mui/icons-material";
-import { automationAPI, customerAPI, distributorAPI } from "../services/api";
+import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
 
@@ -245,29 +245,74 @@ export default function CallingList() {
     } finally { setSubmitting(false); }
   };
 
+  // Take Order Dialog
+  const [orderDialogOpen, setOrderDialogOpen] = useState(false);
+  const [orderProducts, setOrderProducts] = useState<any[]>([]);
+  const [orderItems, setOrderItems] = useState<{ product_id: number; product_name: string; quantity: number; rate: number; amount: number }[]>([]);
+  const [orderNotes, setOrderNotes] = useState("");
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [productsList, setProductsList] = useState<any[]>([]);
+
   const handleTakeOrder = async () => {
     if (!activeItem) return;
     try {
       setSubmitting(true);
-      // Auto-log as connected first
-      await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiated Take Order");
+      await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiating Order");
       setDialogOpen(false);
 
-      // Navigate to Sales passing distributor (mantri) details
-      navigate("/sales", {
-        state: {
-          openNewSale: true,
-          buyerType: "Mantri",
-          distributorId: activeItem.customer_id,  // customer_id stores distributor_id in calling_assignments
-          entityName: activeItem.name,
-          entityMobile: activeItem.mobile,
-          entityVillage: activeItem.village,
+      if (productsList.length === 0) {
+        try {
+          const prods = await productAPI.getAll();
+          setProductsList(Array.isArray(prods) ? prods : (prods?.data || []));
+        } catch (e) {
+          setToast({ msg: "Failed to load products", sev: "error" });
+          setSubmitting(false);
+          return;
         }
-      });
+      }
+
+      setOrderItems([{ product_id: 0, product_name: "", quantity: 1, rate: 0, amount: 0 }]);
+      setOrderNotes("");
+      setOrderDialogOpen(true);
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed to log call before taking order.", sev: "error" });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const submitTelecallerOrder = async () => {
+    if (!activeItem) return;
+    const validItems = orderItems.filter(i => i.product_id && i.quantity > 0 && i.rate > 0);
+    if (validItems.length === 0) {
+      setToast({ msg: "Please add at least one valid product", sev: "error" });
+      return;
+    }
+    try {
+      setOrderLoading(true);
+      const orderData = {
+        customer_type: "Mantri",
+        customer_id: activeItem.customer_id,
+        customer_name: activeItem.name || "Unknown",
+        customer_mobile: activeItem.mobile || "",
+        customer_village: activeItem.village || "",
+        products: validItems.map(i => ({
+          product_id: i.product_id,
+          product_name: i.product_name,
+          quantity: i.quantity,
+          rate: i.rate,
+          amount: i.amount,
+        })),
+        notes: orderNotes || undefined,
+      };
+      await telecallerOrderAPI.create(orderData);
+      setToast({ msg: "Order submitted for approval!", sev: "success" });
+      setOrderDialogOpen(false);
+      load(pagination.page);
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to submit order", sev: "error" });
+    } finally {
+      setOrderLoading(false);
     }
   };
 
@@ -833,6 +878,126 @@ export default function CallingList() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
           <Button onClick={() => setCalcOpen(false)} sx={{ borderRadius: 2, textTransform: "none" }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Take Order Dialog ── */}
+      <Dialog open={orderDialogOpen} onClose={() => !orderLoading && setOrderDialogOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
+          Take Order
+          {activeItem && (
+            <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
+              {activeItem.name} · {activeItem.mobile} · {activeItem.village}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <Stack spacing={2}>
+            {orderItems.map((item, idx) => (
+              <Paper key={idx} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
+                <Grid container spacing={1.5} alignItems="center">
+                  <Grid item xs={12} sm={5}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Product</InputLabel>
+                      <Select
+                        value={item.product_id}
+                        label="Product"
+                        onChange={(e) => {
+                          const pid = Number(e.target.value);
+                          const prod = productsList.find((p: any) => p.product_id === pid);
+                          const rate = prod?.standard_rate || prod?.rate_gujarat || 0;
+                          const newItems = [...orderItems];
+                          newItems[idx] = { ...newItems[idx], product_id: pid, product_name: prod?.product_name || "", rate, amount: newItems[idx].quantity * rate };
+                          setOrderItems(newItems);
+                        }}
+                      >
+                        {productsList.map((p: any) => (
+                          <MenuItem key={p.product_id} value={p.product_id}>
+                            {p.product_name} {p.capacity_ltr ? `(${p.capacity_ltr}L)` : ""}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={4} sm={2}>
+                    <TextField
+                      label="Qty"
+                      type="number"
+                      size="small"
+                      fullWidth
+                      value={item.quantity}
+                      onChange={(e) => {
+                        const qty = Number(e.target.value) || 0;
+                        const newItems = [...orderItems];
+                        newItems[idx] = { ...newItems[idx], quantity: qty, amount: qty * newItems[idx].rate };
+                        setOrderItems(newItems);
+                      }}
+                      inputProps={{ min: 1 }}
+                    />
+                  </Grid>
+                  <Grid item xs={3} sm={2}>
+                    <TextField
+                      label="Rate"
+                      type="number"
+                      size="small"
+                      fullWidth
+                      value={item.rate}
+                      onChange={(e) => {
+                        const rate = Number(e.target.value) || 0;
+                        const newItems = [...orderItems];
+                        newItems[idx] = { ...newItems[idx], rate, amount: newItems[idx].quantity * rate };
+                        setOrderItems(newItems);
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={3} sm={2}>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                      ₹{item.amount.toLocaleString("en-IN")}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={1} sm={1}>
+                    {orderItems.length > 1 && (
+                      <IconButton size="small" onClick={() => setOrderItems(orderItems.filter((_, i) => i !== idx))}>
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
+            <Button
+              variant="outlined"
+              onClick={() => setOrderItems([...orderItems, { product_id: 0, product_name: "", quantity: 1, rate: 0, amount: 0 }])}
+              size="small"
+              sx={{ borderRadius: 2, textTransform: "none" }}
+            >
+              + Add Product
+            </Button>
+            <Box sx={{ textAlign: "right", fontWeight: 700, fontSize: 16, mt: 1 }}>
+              Total: ₹{orderItems.reduce((s, i) => s + i.amount, 0).toLocaleString("en-IN")}
+            </Box>
+            <TextField
+              label="Notes (optional)"
+              multiline
+              rows={2}
+              fullWidth
+              value={orderNotes}
+              onChange={(e) => setOrderNotes(e.target.value)}
+              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
+          <Button onClick={() => setOrderDialogOpen(false)} disabled={orderLoading} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={submitTelecallerOrder}
+            disabled={orderLoading}
+            startIcon={orderLoading ? <CircularProgress size={14} color="inherit" /> : <ShoppingCartIcon />}
+            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none", bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d" } }}
+          >
+            {orderLoading ? "Submitting…" : "Submit Order"}
+          </Button>
         </DialogActions>
       </Dialog>
 

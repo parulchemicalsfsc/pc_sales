@@ -272,7 +272,7 @@ def get_dimension_breakdown(
         # FIX-11: Only fetch sales in the date window
         sales_resp = (
             db.table("sales")
-            .select("sale_id, total_amount, total_liters, customer_id")
+            .select("sale_id, total_amount, total_liters, customer_id, buyer_type, doctor_id, shopkeeper_id, distributor_id")
             .gte("sale_date", start_date)
             .lte("sale_date", end_date)
             .execute()
@@ -325,9 +325,46 @@ def get_dimension_breakdown(
         rows = []
 
         if dimension == "district":
+            # Fetch districts for non-customer buyers
+            districts_map = {}
+            
+            doctor_ids = list({s["doctor_id"] for s in filtered_sales if s.get("doctor_id")})
+            if doctor_ids:
+                docs = db.table("doctors").select("doctor_id, district").in_("doctor_id", doctor_ids).execute().data or []
+                for d in docs: districts_map[f"doctor_{d['doctor_id']}"] = d.get("district")
+                
+            shopkeeper_ids = list({s["shopkeeper_id"] for s in filtered_sales if s.get("shopkeeper_id")})
+            if shopkeeper_ids:
+                sks = db.table("shopkeepers").select("shopkeeper_id, district").in_("shopkeeper_id", shopkeeper_ids).execute().data or []
+                for sk in sks: districts_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("district")
+                
+            distributor_ids = list({s["distributor_id"] for s in filtered_sales if s.get("distributor_id")})
+            if distributor_ids:
+                dists = db.table("distributors").select("distributor_id, district").in_("distributor_id", distributor_ids).execute().data or []
+                for d in dists: districts_map[f"distributor_{d['distributor_id']}"] = d.get("district")
+
             groups: dict = {}
             for s in filtered_sales:
-                key = s["customer"].get("district") or "Unknown"
+                key = s["customer"].get("district")
+                
+                # Resolve for other buyer types
+                buyer_type = s.get("buyer_type")
+                if not key and buyer_type:
+                    if buyer_type == "doctor":
+                        key = districts_map.get(f"doctor_{s.get('doctor_id')}")
+                    elif buyer_type == "shopkeeper":
+                        key = districts_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                    elif buyer_type in ("distributor", "mantri"):
+                        key = districts_map.get(f"distributor_{s.get('distributor_id')}")
+                        
+                key = key or "Unknown"
+
+                print("[REPORT DISTRICT DEBUG]")
+                print(f"sale_id: {s.get('sale_id')}")
+                print(f"buyer_type: {buyer_type}")
+                print(f"customer_id: {s.get('customer_id')}")
+                print(f"resolved_district: {key}\n")
+
                 if key not in groups:
                     groups[key] = {"orders": 0, "revenue": 0, "liters": 0}
                 groups[key]["orders"] += 1
@@ -345,10 +382,50 @@ def get_dimension_breakdown(
                 })
 
         elif dimension == "village":
+            villages_map = {}
+            districts_map = {}
+            
+            doctor_ids = list({s["doctor_id"] for s in filtered_sales if s.get("doctor_id")})
+            if doctor_ids:
+                docs = db.table("doctors").select("doctor_id, village, district").in_("doctor_id", doctor_ids).execute().data or []
+                for d in docs: 
+                    villages_map[f"doctor_{d['doctor_id']}"] = d.get("village")
+                    districts_map[f"doctor_{d['doctor_id']}"] = d.get("district")
+                
+            shopkeeper_ids = list({s["shopkeeper_id"] for s in filtered_sales if s.get("shopkeeper_id")})
+            if shopkeeper_ids:
+                sks = db.table("shopkeepers").select("shopkeeper_id, village, district").in_("shopkeeper_id", shopkeeper_ids).execute().data or []
+                for sk in sks: 
+                    villages_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("village")
+                    districts_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("district")
+                
+            distributor_ids = list({s["distributor_id"] for s in filtered_sales if s.get("distributor_id")})
+            if distributor_ids:
+                dists = db.table("distributors").select("distributor_id, village, district").in_("distributor_id", distributor_ids).execute().data or []
+                for d in dists: 
+                    villages_map[f"distributor_{d['distributor_id']}"] = d.get("village")
+                    districts_map[f"distributor_{d['distributor_id']}"] = d.get("district")
+
             groups: dict = {}
             for s in filtered_sales:
-                key = s["customer"].get("village") or "Unknown"
-                dist = s["customer"].get("district") or ""
+                key = s["customer"].get("village")
+                dist = s["customer"].get("district")
+                
+                buyer_type = s.get("buyer_type")
+                if not key and buyer_type:
+                    if buyer_type == "doctor":
+                        key = villages_map.get(f"doctor_{s.get('doctor_id')}")
+                        dist = districts_map.get(f"doctor_{s.get('doctor_id')}")
+                    elif buyer_type == "shopkeeper":
+                        key = villages_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                        dist = districts_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                    elif buyer_type in ("distributor", "mantri"):
+                        key = villages_map.get(f"distributor_{s.get('distributor_id')}")
+                        dist = districts_map.get(f"distributor_{s.get('distributor_id')}")
+                
+                key = key or "Unknown"
+                dist = dist or ""
+
                 if key not in groups:
                     groups[key] = {"orders": 0, "revenue": 0, "liters": 0, "district": dist}
                 groups[key]["orders"] += 1
@@ -404,18 +481,78 @@ def get_dimension_breakdown(
                 })
 
         elif dimension == "customer":
+            names_map = {}
+            villages_map = {}
+            districts_map = {}
+            
+            doctor_ids = list({s["doctor_id"] for s in filtered_sales if s.get("doctor_id")})
+            if doctor_ids:
+                docs = db.table("doctors").select("doctor_id, name, village, district").in_("doctor_id", doctor_ids).execute().data or []
+                for d in docs: 
+                    names_map[f"doctor_{d['doctor_id']}"] = d.get("name")
+                    villages_map[f"doctor_{d['doctor_id']}"] = d.get("village")
+                    districts_map[f"doctor_{d['doctor_id']}"] = d.get("district")
+                
+            shopkeeper_ids = list({s["shopkeeper_id"] for s in filtered_sales if s.get("shopkeeper_id")})
+            if shopkeeper_ids:
+                sks = db.table("shopkeepers").select("shopkeeper_id, name, village, district").in_("shopkeeper_id", shopkeeper_ids).execute().data or []
+                for sk in sks: 
+                    names_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("name")
+                    villages_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("village")
+                    districts_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("district")
+                
+            distributor_ids = list({s["distributor_id"] for s in filtered_sales if s.get("distributor_id")})
+            if distributor_ids:
+                dists = db.table("distributors").select("distributor_id, mantri_name, village, district").in_("distributor_id", distributor_ids).execute().data or []
+                for d in dists: 
+                    names_map[f"distributor_{d['distributor_id']}"] = d.get("mantri_name")
+                    villages_map[f"distributor_{d['distributor_id']}"] = d.get("village")
+                    districts_map[f"distributor_{d['distributor_id']}"] = d.get("district")
+
             customer_groups: dict = {}
             for s in filtered_sales:
                 cid = s.get("customer_id")
                 customer = s["customer"]
-                name = customer.get("name") or f"ID:{cid}"
-                vill = customer.get("village") or ""
-                dist = customer.get("district") or ""
-                if cid not in customer_groups:
-                    customer_groups[cid] = {"label": name, "village": vill, "district": dist, "orders": 0, "revenue": 0, "liters": 0}
-                customer_groups[cid]["orders"] += 1
-                customer_groups[cid]["revenue"] += s.get("total_amount") or 0
-                customer_groups[cid]["liters"] += s.get("total_liters") or 0
+                name = customer.get("name")
+                vill = customer.get("village")
+                dist = customer.get("district")
+                
+                buyer_type = s.get("buyer_type")
+                resolved_id = cid
+                
+                if not name and buyer_type:
+                    if buyer_type == "doctor":
+                        name = names_map.get(f"doctor_{s.get('doctor_id')}")
+                        vill = villages_map.get(f"doctor_{s.get('doctor_id')}")
+                        dist = districts_map.get(f"doctor_{s.get('doctor_id')}")
+                        resolved_id = s.get('doctor_id')
+                    elif buyer_type == "shopkeeper":
+                        name = names_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                        vill = villages_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                        dist = districts_map.get(f"shopkeeper_{s.get('shopkeeper_id')}")
+                        resolved_id = s.get('shopkeeper_id')
+                    elif buyer_type in ("distributor", "mantri"):
+                        name = names_map.get(f"distributor_{s.get('distributor_id')}")
+                        vill = villages_map.get(f"distributor_{s.get('distributor_id')}")
+                        dist = districts_map.get(f"distributor_{s.get('distributor_id')}")
+                        resolved_id = s.get('distributor_id')
+                        
+                if not name:
+                    if resolved_id is not None:
+                        name = f"ID:{resolved_id}"
+                    else:
+                        name = "Unknown"
+                        
+                vill = vill or ""
+                dist = dist or ""
+                
+                group_key = f"{buyer_type}_{resolved_id}" if resolved_id else "unknown_buyer"
+                
+                if group_key not in customer_groups:
+                    customer_groups[group_key] = {"label": name, "village": vill, "district": dist, "orders": 0, "revenue": 0, "liters": 0}
+                customer_groups[group_key]["orders"] += 1
+                customer_groups[group_key]["revenue"] += s.get("total_amount") or 0
+                customer_groups[group_key]["liters"] += s.get("total_liters") or 0
 
             for vals in customer_groups.values():
                 rows.append({
@@ -461,7 +598,15 @@ def get_filter_options(
         customers_resp = db.table("customers").select("village, district").execute()
         customers_data = customers_resp.data or []
 
-        districts = sorted(list({c["district"] for c in customers_data if c.get("district")}))
+        invalid_districts = {"GUJRAT", "GUJARAT", "STATE"}
+        districts_set = set()
+        for c in customers_data:
+            d = c.get("district")
+            if d and isinstance(d, str):
+                d_clean = d.strip().upper()
+                if d_clean and d_clean not in invalid_districts:
+                    districts_set.add(d_clean)
+        districts = sorted(list(districts_set))
         villages = sorted(list({c["village"] for c in customers_data if c.get("village")}))
 
         products_resp = db.table("products").select("product_id, product_name, packing_type").eq("is_active", 1).execute()

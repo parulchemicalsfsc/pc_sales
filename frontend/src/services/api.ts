@@ -206,6 +206,13 @@ export const customerAPI = {
     const response = await apiClient.delete(`/api/customers/${id}`);
     return response.data;
   },
+  /** Probe for a duplicate mobile. Returns { duplicate_found, existing_record }. Never throws on 404/non-error. */
+  checkPhone: async (mobile: string, excludeId?: number) => {
+    const params: any = { mobile };
+    if (excludeId !== undefined) params.exclude_id = excludeId;
+    const response = await apiClient.get("/api/customers/check-phone", { params });
+    return response.data as { duplicate_found: boolean; existing_record: any | null };
+  },
 };
 
 // Product API
@@ -404,6 +411,13 @@ export const distributorAPI = {
   getForCalculator: async () => {
     const response = await apiClient.get("/api/distributors/calculator");
     return response.data;
+  },
+  /** Probe for a duplicate mantri_mobile. Returns { duplicate_found, existing_record }. Never throws on 404/non-error. */
+  checkPhone: async (mobile: string, excludeId?: number) => {
+    const params: any = { mobile };
+    if (excludeId !== undefined) params.exclude_id = excludeId;
+    const response = await apiClient.get("/api/distributors/check-phone", { params });
+    return response.data as { duplicate_found: boolean; existing_record: any | null };
   },
 };
 
@@ -1006,6 +1020,34 @@ export const chatAPI = {
   /** Soft-delete a message (owner OR delete_message perm, ≤24 h old). */
   deleteMessage: async (messageId: number) => {
     const response = await apiClient.delete(`/api/chat/messages/${messageId}`);
+    return response.data;
+  },
+};
+
+// Telecaller Orders API
+export const telecallerOrderAPI = {
+  create: async (data: any) => {
+    const response = await apiClient.post("/api/telecaller-orders", data);
+    return response.data;
+  },
+  getAll: async (params?: any) => {
+    const response = await apiClient.get("/api/telecaller-orders", { params });
+    return response.data;
+  },
+  getPending: async () => {
+    const response = await apiClient.get("/api/telecaller-orders/pending");
+    return response.data;
+  },
+  approve: async (orderId: number, notes?: string) => {
+    const response = await apiClient.post(`/api/telecaller-orders/${orderId}/approve`, { notes });
+    return response.data;
+  },
+  reject: async (orderId: number, reason: string) => {
+    const response = await apiClient.post(`/api/telecaller-orders/${orderId}/reject`, { reason });
+    return response.data;
+  },
+  getById: async (orderId: number) => {
+    const response = await apiClient.get(`/api/telecaller-orders/${orderId}`);
     return response.data;
   },
 };

@@ -55,6 +55,19 @@ export default function Customers() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [phoneError, setPhoneError] = useState<string>("");
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const [duplicateRecord, setDuplicateRecord] = useState<any>(null);
+  const [pendingSubmitFn, setPendingSubmitFn] = useState<(() => Promise<void>) | null>(null);
+
+  // ── Phone validation helper ────────────────────────────────────────────────
+  const INDIAN_MOBILE_RE = /^[0-9]{10}$/;
+  const validatePhone = (value: string): string => {
+    if (!value || !value.trim()) return "Phone number is required";
+    if (!INDIAN_MOBILE_RE.test(value.trim())) return "Please enter a valid 10-digit mobile number";
+    return "";
+  };
+
   const [formData, setFormData] = useState<Partial<Customer>>({
     customer_code: "",
     name: "",
@@ -77,16 +90,25 @@ export default function Customers() {
     try {
       setLoading(true);
       setError(null);
-      const [custRes, regionsRes] = await Promise.all([
+      const [custResult, regionsResult] = await Promise.allSettled([
         customerAPI.getAll({ limit: 1000 }),
         apiClient.get("/api/products/config/regions"),
       ]);
-      setCustomers(custRes.data || []);
-      const rNames = (regionsRes.data || []).map((r: any) => r.name);
-      setRegions(rNames);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.loadError", "Failed to load Sabhasad"));
-      console.error("Error loading Sabhasad:", err);
+
+      if (custResult.status === "fulfilled") {
+        setCustomers(custResult.value.data || []);
+      } else {
+        setError(custResult.reason instanceof Error ? custResult.reason.message : t("customers.loadError", "Failed to load Sabhasad"));
+        console.error("Error loading Sabhasad:", custResult.reason);
+      }
+
+      if (regionsResult.status === "fulfilled") {
+        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
+        setRegions(rNames);
+      } else {
+        console.warn("Could not load regions (using fallback):", regionsResult.reason?.message);
+        // Regions dropdown will fall back to Gujarat via the existing regions.length === 0 guard
+      }
     } finally {
       setLoading(false);
     }
@@ -110,12 +132,14 @@ export default function Customers() {
         status: "Active",
       });
     }
+    setPhoneError("");
     setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setEditingCustomer(null);
+    setPhoneError("");
     setFormData({
       customer_code: "",
       name: "",
@@ -129,6 +153,18 @@ export default function Customers() {
     });
   };
 
+  // ── Core save logic (runs after any duplicate warning is acknowledged) ──────
+  const executeSave = async (payload: Customer) => {
+    if (editingCustomer && editingCustomer.customer_id) {
+      await customerAPI.update(editingCustomer.customer_id, payload);
+    } else {
+      await customerAPI.create(payload);
+    }
+    handleCloseDialog();
+    loadCustomers();
+    setError(null);
+  };
+
   const handleSubmit = async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -139,6 +175,15 @@ export default function Customers() {
         return;
       }
 
+      // ── Frontend phone validation ──────────────────────────────────────────
+      const phoneErr = validatePhone(formData.mobile || "");
+      if (phoneErr) {
+        setPhoneError(phoneErr);
+        setSubmitting(false);
+        return;
+      }
+      setPhoneError("");
+
       const payload = {
         ...formData,
         name: toUpperCaseSafe(formData.name),
@@ -147,23 +192,32 @@ export default function Customers() {
         district: toUpperCaseSafe(formData.district),
         state: formData.state,
         customer_code: toUpperCaseSafe(formData.customer_code),
-      };
+      } as Customer;
 
-      if (editingCustomer && editingCustomer.customer_id) {
-        await customerAPI.update(
-          editingCustomer.customer_id,
-          payload as Customer,
+      // ── Duplicate probe (non-blocking) ──────────────────────────────────
+      try {
+        const checkResult = await customerAPI.checkPhone(
+          formData.mobile!,
+          editingCustomer?.customer_id,
         );
-      } else {
-        await customerAPI.create(payload as Customer);
+        if (checkResult.duplicate_found) {
+          // Show warning dialog — let user decide
+          setDuplicateRecord(checkResult.existing_record);
+          setPendingSubmitFn(() => () => executeSave(payload));
+          setDuplicateWarning(true);
+          setSubmitting(false);
+          return;
+        }
+      } catch {
+        // Probe failed (network / permissions) — silently proceed with save
       }
 
-      // Close dialog immediately to prevent duplicate clicks while API completes
-      handleCloseDialog();
-      loadCustomers();
-      setError(null);
+      await executeSave(payload);
     } catch (err: any) {
-      if (err?.isNetworkError || err?.response?.status >= 500) {
+      const detail = err?.response?.data?.detail || err?.message || "";
+      if (err?.response?.status === 422 && detail) {
+        setPhoneError(detail);
+      } else if (err?.isNetworkError || err?.response?.status >= 500) {
         setError("Network error or server error. Please check if customer was saved before trying again.");
       } else {
         setError(err instanceof Error ? err.message : t("customers.saveError", "Failed to save Sabhasad"));
@@ -173,6 +227,30 @@ export default function Customers() {
       setSubmitting(false);
     }
   };
+
+  // ── Duplicate warning dialog handlers ────────────────────────────────
+  const handleDuplicateCancel = () => {
+    setDuplicateWarning(false);
+    setDuplicateRecord(null);
+    setPendingSubmitFn(null);
+  };
+
+  const handleDuplicateContinue = async () => {
+    setDuplicateWarning(false);
+    if (pendingSubmitFn) {
+      setSubmitting(true);
+      try {
+        await pendingSubmitFn();
+      } catch (err: any) {
+        setError(err instanceof Error ? err.message : "Failed to save");
+      } finally {
+        setSubmitting(false);
+        setPendingSubmitFn(null);
+        setDuplicateRecord(null);
+      }
+    }
+  };
+
 
   const handleDelete = async (id: number) => {
     if (!window.confirm(t("customers.confirmDelete", "Are you sure you want to delete this Sabhasad?"))) {
@@ -450,9 +528,19 @@ export default function Customers() {
                   fullWidth
                   label={`${tf("mobile")} *`}
                   value={formData.mobile}
-                  onChange={(e) =>
-                    setFormData({ ...formData, mobile: e.target.value })
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                    setFormData({ ...formData, mobile: val });
+                    setPhoneError(validatePhone(val));
+                  }}
+                  error={!!phoneError}
+                  helperText={
+                    phoneError ||
+                    (formData.mobile && formData.mobile.length > 0 && formData.mobile.length < 10
+                      ? `${formData.mobile.length}/10 digits`
+                      : "")
                   }
+                  inputProps={{ maxLength: 10, inputMode: "numeric" }}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">+91</InputAdornment>
@@ -547,6 +635,49 @@ export default function Customers() {
               startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
             >
               {submitting ? "Saving..." : t("common.save")}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Duplicate Phone Warning Dialog ─────────────────────────────── */}
+        <Dialog open={duplicateWarning} onClose={handleDuplicateCancel} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            ⚠️ Phone Number Already Exists
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              This phone number is already registered with another Sabhasad record:
+            </Typography>
+            {duplicateRecord && (
+              <Box
+                sx={{
+                  bgcolor: "warning.light",
+                  borderRadius: 1,
+                  p: 1.5,
+                  mb: 1,
+                  border: "1px solid",
+                  borderColor: "warning.main",
+                }}
+              >
+                {duplicateRecord.name && (
+                  <Typography variant="body2"><strong>Name:</strong> {duplicateRecord.name}</Typography>
+                )}
+                {duplicateRecord.village && (
+                  <Typography variant="body2"><strong>Village:</strong> {duplicateRecord.village}</Typography>
+                )}
+                {(duplicateRecord.mobile || duplicateRecord.mantri_mobile) && (
+                  <Typography variant="body2"><strong>Mobile:</strong> {duplicateRecord.mobile || duplicateRecord.mantri_mobile}</Typography>
+                )}
+              </Box>
+            )}
+            <Typography variant="body2" color="text.secondary">
+              Do you want to continue and create this record anyway?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleDuplicateCancel} variant="outlined">Cancel</Button>
+            <Button onClick={handleDuplicateContinue} variant="contained" color="warning">
+              Continue Anyway
             </Button>
           </DialogActions>
         </Dialog>

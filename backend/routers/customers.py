@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 import requests
@@ -7,7 +8,44 @@ from models import Customer
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
 
+INDIAN_MOBILE_RE = re.compile(r'^[0-9]{10}$')
+
+
+def validate_mobile(mobile: Optional[str]) -> str:
+    """Validate Indian 10-digit mobile number. Returns cleaned value or raises HTTPException."""
+    if not mobile or not mobile.strip():
+        raise HTTPException(status_code=422, detail="Phone number is required")
+    cleaned = mobile.strip()
+    if not INDIAN_MOBILE_RE.match(cleaned):
+        raise HTTPException(
+            status_code=422,
+            detail="Please enter a valid 10-digit mobile number",
+        )
+    return cleaned
+
 router = APIRouter()
+
+
+@router.get("/check-phone", dependencies=[Depends(verify_permission("view_customers"))])
+def check_customer_phone(
+    mobile: str,
+    exclude_id: Optional[int] = None,
+    db: SupabaseClient = Depends(get_db),
+):
+    """Check if a mobile number already exists in the customers table.
+    Returns duplicate_found=True plus the first matching record if found.
+    Does NOT block creation — informational only."""
+    try:
+        cleaned = mobile.strip()
+        query = db.table("customers").select("customer_id, name, village, mobile").eq("mobile", cleaned)
+        if exclude_id is not None:
+            query = query.neq("customer_id", exclude_id)
+        resp = query.limit(1).execute()
+        if resp.data and len(resp.data) > 0:
+            return {"duplicate_found": True, "existing_record": resp.data[0]}
+        return {"duplicate_found": False, "existing_record": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking phone: {str(e)}")
 
 
 @router.get("/", dependencies=[Depends(verify_permission("view_customers"))])
@@ -102,9 +140,15 @@ def create_customer(
 ):
     """Create a new customer"""
     try:
+        # ── Phone validation (mandatory + format) ──────────────────────────────
+        mobile = validate_mobile(customer.mobile)
+
+        # NOTE: Uniqueness is enforced only at the frontend (warning dialog).
+        # Backend does not block duplicate phone numbers.
+
         customer_data = {
             "name": customer.name,
-            "mobile": customer.mobile,
+            "mobile": mobile,
             "village": customer.village,
             "taluka": customer.taluka,
             "district": customer.district,
@@ -155,13 +199,19 @@ def update_customer(
 ):
     """Update an existing customer"""
     try:
+        # ── Phone validation (mandatory + format) ──────────────────────────────
+        mobile = validate_mobile(customer.mobile)
+
+        # NOTE: Uniqueness is enforced only at the frontend (warning dialog).
+        # Backend does not block duplicate phone numbers.
+
         # Fetch current record BEFORE updating so we can log the diff
         before_resp = db.table("customers").select("*").eq("customer_id", customer_id).execute()
         before_data = before_resp.data[0] if before_resp.data else {}
 
         customer_data = {
             "name": customer.name,
-            "mobile": customer.mobile,
+            "mobile": mobile,
             "village": customer.village,
             "taluka": customer.taluka,
             "district": customer.district,
