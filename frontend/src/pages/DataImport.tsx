@@ -26,7 +26,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Checkbox
+  Checkbox,
+  Select,
+  MenuItem
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -80,6 +82,9 @@ export default function DataImport() {
   const queryClient = useQueryClient();
   const [selectedReadyIndices, setSelectedReadyIndices] = useState<number[]>([]);
   const [selectedConflictIndices, setSelectedConflictIndices] = useState<number[]>([]);
+  
+  // Sabhasad Conflict Resolutions: mapping from index to action (e.g. "UPDATE_EXISTING", "IMPORT_NEW", "SKIP")
+  const [sabhasadResolutions, setSabhasadResolutions] = useState<Record<number, string>>({});
 
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
@@ -283,6 +288,7 @@ export default function DataImport() {
     setActiveTab(0);
     setSelectedReadyIndices([]);
     setSelectedConflictIndices([]);
+    setSabhasadResolutions({});
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -340,21 +346,34 @@ export default function DataImport() {
       const formDataToSend = new FormData();
       formDataToSend.append("file", selectedFile);
       
-      if (openDialog === "customer") {
-        // Phase 6 Preprocessing path
-        const response = await fileAPI.preprocessDistributors(formDataToSend);
+      if (openDialog === "customer" || openDialog === "sabhasad") {
+        let response;
+        if (openDialog === "customer") {
+          response = await fileAPI.preprocessDistributors(formDataToSend);
+        } else {
+          response = await fileAPI.preprocessSabhasads(formDataToSend);
+        }
         
-        console.log("🚀 [P6 REVIEW] Preprocess Response:", response);
-        console.log(`Ready: ${response?.summary?.ready_to_import}`);
-        console.log(`Duplicates: ${response?.summary?.exact_duplicates}`);
-        console.log(`Conflicts: ${response?.summary?.possible_conflicts}`);
-        console.log(`Invalid: ${response?.summary?.invalid_rows}`);
+        console.log(`🚀 [REVIEW] Preprocess Response:`, response);
         
         setReviewData(response);
         if (response && response.ready_to_import) {
           setSelectedReadyIndices(response.ready_to_import.map((_: any, idx: number) => idx));
         }
         setSelectedConflictIndices([]);
+        
+        if (openDialog === "sabhasad" && response && response.possible_conflicts) {
+          const initialResolutions: Record<number, string> = {};
+          response.possible_conflicts.forEach((c: any, idx: number) => {
+            if (c.conflict_type === "PHONE_UPDATE_REQUIRED") {
+              initialResolutions[idx] = "UPDATE_EXISTING";
+            } else {
+              initialResolutions[idx] = "UNRESOLVED";
+            }
+          });
+          setSabhasadResolutions(initialResolutions);
+        }
+        
         setUploading(false);
         // Let the dialog stay open to show review UI
         return;
@@ -398,21 +417,52 @@ export default function DataImport() {
       setUploading(true);
       setError(null);
       
-      const readyRows = (selectedReadyIndices || []).map(
-        (idx) => reviewData.ready_to_import[idx].uploaded_row
-      );
-      const conflictRows = (selectedConflictIndices || []).map(
-        (idx) => reviewData.possible_conflicts[idx].uploaded_row
-      );
-      const rowsToImport = [...readyRows, ...conflictRows];
+      let importResponse;
       
-      console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
+      if (openDialog === "sabhasad") {
+        const readyRows = (selectedReadyIndices || []).map(
+          (idx) => ({
+            row: reviewData.ready_to_import[idx].uploaded_row,
+            action: "IMPORT"
+          })
+        );
+        const conflictRows = Object.entries(sabhasadResolutions)
+          .filter(([_, action]) => action !== "SKIP")
+          .map(([idxStr, action]) => {
+             const idx = parseInt(idxStr, 10);
+             return {
+               row: reviewData.possible_conflicts[idx].uploaded_row,
+               action: action,
+               existing_id: reviewData.possible_conflicts[idx].existing_db_row?.customer_id
+             };
+          });
+        const rowsToImport = [...readyRows, ...conflictRows];
+        
+        importResponse = await fileAPI.confirmImportSabhasads(rowsToImport, selectedFile?.name);
+        queryClient.invalidateQueries({ queryKey: ["sabhasad"] });
+        queryClient.invalidateQueries({ queryKey: ["customers"] });
+        
+      } else {
+        const readyRows = (selectedReadyIndices || []).map(
+          (idx) => reviewData.ready_to_import[idx].uploaded_row
+        );
+        const conflictRows = (selectedConflictIndices || []).map(
+          (idx) => reviewData.possible_conflicts[idx].uploaded_row
+        );
+        const rowsToImport = [...readyRows, ...conflictRows];
+        
+        console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
+        
+        importResponse = await fileAPI.confirmImportDistributors(rowsToImport, selectedFile?.name);
+        
+        // Refresh distributor table in query cache
+        queryClient.invalidateQueries({ queryKey: ["distributors"] });
+        queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
+      }
       
-      const response = await fileAPI.confirmImportDistributors(rowsToImport, selectedFile?.name);
+      console.log("✅ [P7 CONFIRM IMPORT] Response:", importResponse);
       
-      console.log("✅ [P7 CONFIRM IMPORT] Response:", response);
-      
-      setSuccess(`Import completed! Successfully imported ${response.imported_count} rows.`);
+      setSuccess(`Import completed! Successfully imported ${importResponse.imported_count} rows.`);
       
       // Refresh distributor table in query cache
       queryClient.invalidateQueries({ queryKey: ["distributors"] });
@@ -846,39 +896,65 @@ export default function DataImport() {
             {reviewData ? (
               // Phase 6 Preprocessing Review UI
               <Box>
-                <Typography variant="h6" sx={{ mb: 2 }}>Import Review Dashboard</Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="h6">Import Review Dashboard</Typography>
+                    {openDialog === "sabhasad" && reviewData?.possible_conflicts?.length > 0 && (
+                        <Button 
+                            variant="outlined" 
+                            color="warning" 
+                            size="small" 
+                            onClick={() => {
+                                // Simple CSV export for conflicts
+                                const header = "Customer ID,Uploaded Name,Uploaded Village,Uploaded Mobile,Existing Name,Existing Village,Existing Mobile,Conflict Type,Confidence,Reason\n";
+                                const rows = reviewData.possible_conflicts.map((r: any) => {
+                                    return `"${r.uploaded_row?.customer_code || ''}","${r.uploaded_row?.name || ''}","${r.uploaded_row?.village || ''}","${r.uploaded_row?.mobile || ''}","${r.existing_db_row?.name || ''}","${r.existing_db_row?.village || ''}","${r.existing_db_row?.mobile || ''}","${r.conflict_type || ''}","${r.confidence || ''}","${r.reason || ''}"`;
+                                }).join("\n");
+                                const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement("a");
+                                link.setAttribute("href", url);
+                                link.setAttribute("download", "Conflicts.csv");
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                            }}
+                        >
+                            Download Conflicts.csv
+                        </Button>
+                    )}
+                </Box>
                 <Grid container spacing={2} sx={{ mb: 3 }}>
                   <Grid item xs={3}>
                     <Card sx={{ bgcolor: "success.50", textAlign: "center", py: 2 }}>
-                      <Typography variant="h5" color="success.main" fontWeight="bold">{reviewData.summary.ready_to_import}</Typography>
+                      <Typography variant="h5" color="success.main" fontWeight="bold">{reviewData.summary.ready_to_import || 0}</Typography>
                       <Typography variant="body2" color="text.secondary">Ready</Typography>
                     </Card>
                   </Grid>
                   <Grid item xs={3}>
                     <Card sx={{ bgcolor: "warning.50", textAlign: "center", py: 2 }}>
-                      <Typography variant="h5" color="warning.main" fontWeight="bold">{reviewData.summary.exact_duplicates}</Typography>
+                      <Typography variant="h5" color="warning.main" fontWeight="bold">{reviewData.summary.exact_duplicates || 0}</Typography>
                       <Typography variant="body2" color="text.secondary">Exact Duplicates</Typography>
                     </Card>
                   </Grid>
                   <Grid item xs={3}>
                     <Card sx={{ bgcolor: "info.50", textAlign: "center", py: 2 }}>
-                      <Typography variant="h5" color="info.main" fontWeight="bold">{reviewData.summary.possible_conflicts}</Typography>
+                      <Typography variant="h5" color="info.main" fontWeight="bold">{reviewData.summary.possible_conflicts || 0}</Typography>
                       <Typography variant="body2" color="text.secondary">Conflicts</Typography>
                     </Card>
                   </Grid>
                   <Grid item xs={3}>
                     <Card sx={{ bgcolor: "error.50", textAlign: "center", py: 2 }}>
-                      <Typography variant="h5" color="error.main" fontWeight="bold">{reviewData.summary.invalid_rows}</Typography>
+                      <Typography variant="h5" color="error.main" fontWeight="bold">{reviewData.summary.invalid_rows || 0}</Typography>
                       <Typography variant="body2" color="text.secondary">Invalid</Typography>
                     </Card>
                   </Grid>
                 </Grid>
 
                 <Tabs value={activeTab} onChange={(e, nv) => setActiveTab(nv)} sx={{ mb: 2 }}>
-                  <Tab label="Ready To Import" />
-                  <Tab label="Exact Duplicates" />
-                  <Tab label="Possible Conflicts" />
-                  <Tab label="Invalid Rows" />
+                  <Tab value={0} label="Ready To Import" />
+                  <Tab value={1} label="Exact Duplicates" />
+                  <Tab value={2} label={openDialog === "sabhasad" ? "Phone Conflicts" : "Possible Conflicts"} />
+                  <Tab value={3} label="Invalid Rows" />
                 </Tabs>
 
                 {activeTab === 1 && (
@@ -888,9 +964,57 @@ export default function DataImport() {
                 )}
 
                 {activeTab === 3 && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    Invalid rows contain validation failures and are blocked from import. Fix these rows in your spreadsheet to re-upload.
-                  </Alert>
+                  <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Alert severity="error" sx={{ flex: 1, mr: openDialog === "sabhasad" ? 2 : 0 }}>
+                      Invalid rows contain validation failures and are blocked from import. Fix these rows in your spreadsheet to re-upload.
+                    </Alert>
+                    {openDialog === "sabhasad" && reviewData?.invalid_rows?.length > 0 && (
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => {
+                           const header = "Row Number,Customer ID,Name,Village,Mobile,Validation Errors\n";
+                           const rows = reviewData.invalid_rows.map((r: any, idx: number) => {
+                              const row = r.uploaded_row || {};
+                              let errors = [];
+                              if (!row.name) errors.push("Missing name");
+                              if (!row.village) errors.push("Missing village");
+                              const mobile = row.mobile;
+                              if (mobile === undefined || mobile === null || mobile === "") {
+                                  errors.push("Missing phone number");
+                              } else {
+                                  const str = String(mobile).trim();
+                                  if (str.length === 0 || str.toLowerCase() === "na" || str.toLowerCase() === "null" || str === "-") {
+                                      errors.push("Phone number is empty");
+                                  } else if (/[a-zA-Z]/.test(str)) {
+                                      errors.push("Phone number contains non-numeric characters");
+                                  } else {
+                                      const digits = str.replace(/\D/g, '');
+                                      if (digits.length !== 10) {
+                                          errors.push("Phone number must be exactly 10 digits");
+                                      } else if (str !== digits) {
+                                          errors.push("Invalid mobile format");
+                                      }
+                                  }
+                              }
+                              if (errors.length === 0) errors = [r.reason];
+                              return `"${idx + 1}","${row.customer_code || ''}","${row.name || ''}","${row.village || ''}","${row.mobile || ''}","${errors.join(', ')}"`;
+                           }).join("\n");
+                           const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+                           const url = URL.createObjectURL(blob);
+                           const link = document.createElement("a");
+                           link.setAttribute("href", url);
+                           link.setAttribute("download", "Invalid_Rows.csv");
+                           document.body.appendChild(link);
+                           link.click();
+                           document.body.removeChild(link);
+                        }}
+                      >
+                        Export Invalid Rows
+                      </Button>
+                    )}
+                  </Box>
                 )}
 
                 <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
@@ -910,7 +1034,7 @@ export default function DataImport() {
                                 }
                               }}
                             />
-                          ) : activeTab === 2 ? (
+                          ) : activeTab === 2 && openDialog !== "sabhasad" ? (
                             <Checkbox 
                               indeterminate={selectedConflictIndices.length > 0 && selectedConflictIndices.length < (reviewData?.possible_conflicts || []).length}
                               checked={(reviewData?.possible_conflicts || []).length > 0 && selectedConflictIndices.length === (reviewData?.possible_conflicts || []).length}
@@ -923,9 +1047,11 @@ export default function DataImport() {
                               }}
                             />
                           ) : (
-                            <Checkbox disabled />
+                            openDialog !== "sabhasad" || activeTab !== 2 ? <Checkbox disabled /> : null
                           )}
                         </TableCell>
+                        {openDialog === "sabhasad" && activeTab === 3 && <TableCell sx={{ fontWeight: 'bold' }}>Row #</TableCell>}
+                        {openDialog === "sabhasad" && <TableCell sx={{ fontWeight: 'bold' }}>Customer ID</TableCell>}
                         <TableCell sx={{ fontWeight: 'bold' }}>Uploaded Name</TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
@@ -933,6 +1059,7 @@ export default function DataImport() {
                           <>
                             <TableCell sx={{ fontWeight: 'bold' }}>Existing Match</TableCell>
                             <TableCell sx={{ fontWeight: 'bold' }}>Reason</TableCell>
+                            {openDialog === "sabhasad" && activeTab === 2 && <TableCell sx={{ fontWeight: 'bold' }}>Resolution Action</TableCell>}
                           </>
                         ) : activeTab === 3 ? (
                           <TableCell sx={{ fontWeight: 'bold' }}>Error</TableCell>
@@ -974,7 +1101,8 @@ export default function DataImport() {
                                 }}
                               />
                             </TableCell>
-                            <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                            {openDialog === "sabhasad" && <TableCell>{r.uploaded_row.customer_code}</TableCell>}
+                            <TableCell>{openDialog === "sabhasad" ? r.uploaded_row.name : r.uploaded_row.mantri_name}</TableCell>
                             <TableCell>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Typography variant="body2">{r.uploaded_row.village}</Typography>
@@ -988,7 +1116,7 @@ export default function DataImport() {
                                 </Typography>
                               )}
                             </TableCell>
-                            <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                            <TableCell>{openDialog === "sabhasad" ? r.uploaded_row.mobile : r.uploaded_row.mantri_mobile}</TableCell>
                           </TableRow>
                         );
                       })}
@@ -997,17 +1125,66 @@ export default function DataImport() {
                           <TableCell padding="checkbox">
                             <Checkbox disabled />
                           </TableCell>
-                          <TableCell>{r.uploaded_row.mantri_name}</TableCell>
+                          {openDialog === "sabhasad" && <TableCell>{r.uploaded_row.customer_code || "-"}</TableCell>}
+                          <TableCell>{openDialog === "sabhasad" ? r.uploaded_row.name : r.uploaded_row.mantri_name}</TableCell>
                           <TableCell>{r.uploaded_row.village}</TableCell>
-                          <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
+                          <TableCell>{openDialog === "sabhasad" ? r.uploaded_row.mobile : r.uploaded_row.mantri_mobile}</TableCell>
                           <TableCell>
-                            {r.existing_db_row.mantri_name} ({r.existing_db_row.village})
+                            {openDialog === "sabhasad" 
+                                ? `${r.existing_db_row?.name} (${r.existing_db_row?.village})`
+                                : `${r.existing_db_row?.mantri_name} (${r.existing_db_row?.village})`}
                           </TableCell>
-                          <TableCell><Chip size="small" color="warning" label="Exact Match" /></TableCell>
+                          <TableCell><Chip size="small" color="warning" label={r.reason || "Exact Match"} /></TableCell>
                         </TableRow>
                       ))}
                       {activeTab === 2 && (reviewData?.possible_conflicts || []).map((r: any, i: number) => {
                         const isRedemo = r.is_redemo || r.uploaded_row?.is_redemo;
+                        
+                        if (openDialog === "sabhasad") {
+                          return (
+                            <TableRow key={i} hover>
+                              <TableCell padding="checkbox"></TableCell>
+                              <TableCell>{r.uploaded_row.customer_code}</TableCell>
+                              <TableCell>{r.uploaded_row.name}</TableCell>
+                              <TableCell>{r.uploaded_row.village}</TableCell>
+                              <TableCell>{r.uploaded_row.mobile}</TableCell>
+                              <TableCell>
+                                {r.existing_db_row ? (
+                                    <>
+                                        <Typography variant="body2" fontWeight={600}>{r.existing_db_row.name}</Typography>
+                                        <Typography variant="caption" color="text.secondary" display="block">{r.existing_db_row.village} • {r.existing_db_row.mobile}</Typography>
+                                    </>
+                                ) : "N/A"}
+                              </TableCell>
+                              <TableCell>
+                                <Chip 
+                                    size="small" 
+                                    label={r.confidence} 
+                                    color={r.confidence === "HIGH" ? "success" : r.confidence === "MEDIUM" ? "warning" : "error"} 
+                                    sx={{ mb: 0.5, fontWeight: "bold" }}
+                                />
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                    {r.reason}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Select
+                                  size="small"
+                                  value={sabhasadResolutions[i] || "UNRESOLVED"}
+                                  onChange={(e) => setSabhasadResolutions(prev => ({...prev, [i]: e.target.value}))}
+                                  sx={{ minWidth: 150 }}
+                                  error={!sabhasadResolutions[i] || sabhasadResolutions[i] === "UNRESOLVED"}
+                                >
+                                  <MenuItem value="UNRESOLVED" disabled>-- Select Action --</MenuItem>
+                                  <MenuItem value="SKIP">Skip Row</MenuItem>
+                                  <MenuItem value="UPDATE_EXISTING" disabled={!r.existing_db_row}>Update DB Customer</MenuItem>
+                                  <MenuItem value="IMPORT_NEW">Import as New</MenuItem>
+                                </Select>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        }
+
                         return (
                           <TableRow 
                             key={i}
@@ -1059,19 +1236,56 @@ export default function DataImport() {
                           </TableRow>
                         );
                       })}
-                      {activeTab === 3 && (reviewData?.invalid_rows || []).map((r: any, i: number) => (
-                        <TableRow key={i}>
-                          <TableCell padding="checkbox">
-                            <Checkbox disabled />
-                          </TableCell>
-                          <TableCell>{r.uploaded_row.mantri_name}</TableCell>
-                          <TableCell>{r.uploaded_row.village}</TableCell>
-                          <TableCell>{r.uploaded_row.mantri_mobile}</TableCell>
-                          <TableCell>
-                            <Typography color="error" variant="caption">{r.reason}</Typography>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {activeTab === 3 && (reviewData?.invalid_rows || []).map((r: any, i: number) => {
+                        let errors: string[] = [];
+                        if (openDialog === "sabhasad") {
+                           const row = r.uploaded_row || {};
+                           if (!row.name) errors.push("Missing name");
+                           if (!row.village) errors.push("Missing village");
+                           
+                           const mobile = row.mobile;
+                           if (mobile === undefined || mobile === null || mobile === "") {
+                               errors.push("Missing phone number");
+                           } else {
+                               const str = String(mobile).trim();
+                               if (str.length === 0 || str.toLowerCase() === "na" || str.toLowerCase() === "null" || str === "-") {
+                                   errors.push("Phone number is empty");
+                               } else if (/[a-zA-Z]/.test(str)) {
+                                   errors.push("Phone number contains non-numeric characters");
+                               } else {
+                                   const digits = str.replace(/\D/g, '');
+                                   if (digits.length !== 10) {
+                                       errors.push("Phone number must be exactly 10 digits");
+                                   } else if (str !== digits) {
+                                       errors.push("Invalid mobile format");
+                                   }
+                               }
+                           }
+                           if (errors.length === 0) errors = [r.reason];
+                        } else {
+                           errors = [r.reason];
+                        }
+                        
+                        return (
+                          <TableRow key={i}>
+                            <TableCell padding="checkbox">
+                              <Checkbox disabled />
+                            </TableCell>
+                            {openDialog === "sabhasad" && <TableCell>{i + 1}</TableCell>}
+                            {openDialog === "sabhasad" && <TableCell>{r.uploaded_row?.customer_code || "-"}</TableCell>}
+                            <TableCell>{openDialog === "sabhasad" ? r.uploaded_row?.name : r.uploaded_row?.mantri_name}</TableCell>
+                            <TableCell>{r.uploaded_row?.village}</TableCell>
+                            <TableCell>{openDialog === "sabhasad" ? r.uploaded_row?.mobile : r.uploaded_row?.mantri_mobile}</TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                {errors.map((err, errIdx) => (
+                                   <Chip key={errIdx} label={err} color="error" size="small" variant="outlined" sx={{ fontWeight: 500, alignSelf: 'flex-start' }} />
+                                ))}
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -1240,30 +1454,49 @@ export default function DataImport() {
             </>
             )}
           </DialogContent>
-          <DialogActions sx={{ px: 4, pb: 3 }}>
-            <Button onClick={handleCloseDialog} disabled={uploading}>
-              {t("common.cancel", "Cancel")}
-            </Button>
-            {reviewData ? (
-              <Button
-                variant="contained"
-                disabled={uploading || (selectedReadyIndices.length + selectedConflictIndices.length) === 0}
-                onClick={handleConfirmImport}
-                startIcon={<CheckCircleIcon />}
-                color="success"
-              >
-                {uploading ? "Importing..." : `Confirm Selection (${selectedReadyIndices.length + selectedConflictIndices.length} Selected)`}
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSubmit}
-                variant="contained"
-                disabled={uploading || !selectedFile}
-                startIcon={<CloudUploadIcon />}
-              >
-                {uploading ? t("import.uploading", "Uploading...") : (openDialog === "customer" ? "Preprocess File" : t("import.uploadAndImport", "Upload & Import"))}
-              </Button>
+          <DialogActions sx={{ px: 4, pb: 3, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            {reviewData && openDialog === "sabhasad" && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2" fontWeight={600}>Validation Summary:</Typography>
+                <Box sx={{ display: 'flex', gap: 3 }}>
+                  <Typography variant="body2" color="success.main">Ready: <b>{reviewData.summary.ready_to_import}</b></Typography>
+                  <Typography variant="body2" color="info.main">Conflicts Resolved: <b>{reviewData.possible_conflicts.length > 0 ? Object.values(sabhasadResolutions).filter(r => r !== "UNRESOLVED").length : 0}</b></Typography>
+                  <Typography variant="body2" color="error.main">Still Unresolved: <b>{reviewData.possible_conflicts.length > 0 ? Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length : 0}</b></Typography>
+                  <Typography variant="body2" color="error.dark">Invalid: <b>{reviewData.summary.invalid_rows}</b></Typography>
+                </Box>
+              </Box>
             )}
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+              <Button onClick={handleCloseDialog} disabled={uploading}>
+                {t("common.cancel", "Cancel")}
+              </Button>
+              {reviewData ? (
+                <Button
+                  variant="contained"
+                  disabled={
+                    uploading || 
+                    (openDialog !== "sabhasad" && (selectedReadyIndices.length + selectedConflictIndices.length) === 0) ||
+                    (openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0)
+                  }
+                  onClick={handleConfirmImport}
+                  startIcon={<CheckCircleIcon />}
+                  color="success"
+                >
+                  {openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0 
+                    ? "Resolve Conflicts First" 
+                    : t("import.confirmSelection", "Confirm Selection")}
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  onClick={handleSubmit}
+                  disabled={uploading || !selectedFile}
+                  startIcon={<CloudUploadIcon />}
+                >
+                  {uploading ? t("import.uploading", "Uploading...") : (openDialog === "customer" || openDialog === "sabhasad") ? "Upload & Review" : t("import.uploadAndImport", "Upload & Import")}
+                </Button>
+              )}
+            </Box>
           </DialogActions>
         </Dialog>
       )}

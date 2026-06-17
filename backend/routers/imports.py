@@ -327,6 +327,175 @@ def preprocess_distributors(
             detail=f"Preprocessing failed: {str(e)}",
         )
 
+@router.post("/sabhasad/preprocess")
+def preprocess_sabhasads(
+    file: UploadFile = File(...),
+    conn = Depends(get_db)
+):
+    """
+    Preprocess Sabhasad excel import and return categorized rows.
+    """
+    print("🔥 SABHASAD PREPROCESS API HIT")
+    file_path = save_uploaded_file(file)
+    print(f"[INFO] File saved to: {file_path}")
+
+    try:
+        from clean_excel_customers import extract_sabhasad
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/..")
+        from sabhasad_preprocessing import preprocess_sabhasad_upload
+        
+        # 1. Extract
+        uploaded_rows = extract_sabhasad(file_path)
+        
+        # 2. Fetch existing DB rows
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = conn.table("customers").select("*").range(offset, offset + batch - 1).execute()
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
+            
+        # 3. Preprocess
+        result = preprocess_sabhasad_upload(uploaded_rows, all_rows)
+        return result
+        
+    except Exception as e:
+        print("❌ SABHASAD PREPROCESS ERROR:", str(e))
+        import traceback
+        print("Preprocess error:\n", traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Preprocessing failed: {str(e)}",
+        )
+
+@router.post("/sabhasad/confirm-import")
+def confirm_import_sabhasads(
+    req: ConfirmImportRequest,
+    conn = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    user_role: Optional[str] = Header(None, alias="x-user-role"),
+):
+    """
+    Confirm Import workflow for Sabhasad preprocessing review system.
+    """
+    print("🔥 SABHASAD CONFIRM IMPORT API HIT")
+    selected_rows = req.selected_rows
+    
+    if not selected_rows:
+        return {
+            "imported_count": 0,
+            "skipped_count": 0,
+            "failed_rows": [],
+            "message": "No rows selected for import."
+        }
+        
+    import_batch_id = f"IMPORT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    failed_rows = []
+    imported_count = 0
+    records_to_insert = []
+    
+    # Get max code for new sabhasads
+    try:
+        res = conn.table("customers").select("customer_code").order("customer_code", desc=True).limit(1).execute()
+        last_code = res.data[0]["customer_code"] if res.data else "CUST000"
+        import re
+        m = re.search(r"CUST(\d+)", str(last_code))
+        last_num = int(m.group(1)) if m else 0
+    except Exception:
+        last_num = 0
+
+    for item in selected_rows:
+        row = item.get("row") or item  # Handle different possible payload structures from frontend
+        action = item.get("action", "IMPORT") # Action assigned by the UI for conflicts
+        existing_id = item.get("existing_id") # If updating
+        
+        if action == "SKIP":
+            failed_rows.append({"row": row, "reason": "Skipped by admin resolution."})
+            continue
+
+        if action == "UPDATE_EXISTING" and existing_id:
+            # We are updating an existing customer
+            try:
+                update_payload = {
+                    "mobile": row.get("mobile"),
+                    "name": row.get("name"),
+                    "village": row.get("village"),
+                    "taluka": row.get("taluka"),
+                    "district": row.get("district"),
+                    "state": row.get("state") or "GUJARAT",
+                    "status": "Active"
+                }
+                conn.table("customers").eq("customer_id", existing_id).update(update_payload).execute()
+                imported_count += 1
+            except Exception as e:
+                failed_rows.append({"row": row, "reason": f"Update failed: {str(e)}"})
+            continue
+
+        # Otherwise, insert as new
+        clean_row = {
+            "name": row.get("name"),
+            "mobile": row.get("mobile"),
+            "village": row.get("village"),
+            "taluka": row.get("taluka"),
+            "district": row.get("district"),
+            "state": row.get("state") or "GUJARAT",
+            "status": "Active"
+        }
+        
+        if not row.get("customer_code"):
+            last_num += 1
+            clean_row["customer_code"] = f"CUST{last_num:03d}"
+        else:
+            clean_row["customer_code"] = row.get("customer_code")
+            
+        records_to_insert.append(clean_row)
+
+    if records_to_insert:
+        try:
+            res = conn.table("customers").upsert(records_to_insert).execute()
+            inserted = len(res.data) if res.data else 0
+            imported_count += inserted
+        except Exception as e:
+            failed_rows.extend([
+                {"row": r, "reason": f"Database upsert error: {str(e)}"}
+                for r in records_to_insert
+            ])
+
+    skipped_count = len(failed_rows)
+    
+    # Store import history
+    import_history_data = {
+        "import_batch_id": import_batch_id,
+        "module_name": "SABHASAD",
+        "file_name": req.file_name or "sabhasad.xlsx",
+        "imported_by_email": user_email,
+        "imported_by_role": user_role,
+        "total_records": len(selected_rows),
+        "imported_records": imported_count,
+        "duplicate_records": 0,
+        "conflict_records": 0,
+        "invalid_records": skipped_count,
+        "import_status": "SUCCESS" if imported_count > 0 else "FAILED",
+        "message": f"Conflicts resolved via UI." # Audit info
+    }
+    try:
+        conn.table("import_history").insert(import_history_data).execute()
+    except Exception as eh:
+        print(f"❌ ERROR logging import history: {eh}")
+        
+    return {
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "failed_rows": failed_rows,
+        "message": f"Successfully imported {imported_count} Sabhasads."
+    }
 
 @router.post("/excel")
 def import_excel(
