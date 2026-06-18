@@ -86,6 +86,10 @@ export default function DataImport() {
   // Sabhasad Conflict Resolutions: mapping from index to action (e.g. "UPDATE_EXISTING", "IMPORT_NEW", "SKIP")
   const [sabhasadResolutions, setSabhasadResolutions] = useState<Record<number, string>>({});
 
+  // Final Confirmation Step
+  const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [importPayload, setImportPayload] = useState<any>(null);
+
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
 
@@ -289,6 +293,8 @@ export default function DataImport() {
     setSelectedReadyIndices([]);
     setSelectedConflictIndices([]);
     setSabhasadResolutions({});
+    setShowFinalConfirm(false);
+    setImportPayload(null);
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -413,60 +419,69 @@ export default function DataImport() {
   const handleConfirmImport = async () => {
     if (!reviewData) return;
     
+    if (openDialog === "sabhasad") {
+      // Build the payload but don't submit yet — show final confirm step
+      const readyRows = (selectedReadyIndices || []).map(
+        (idx) => ({
+          row: reviewData.ready_to_import[idx].uploaded_row,
+          action: "IMPORT"
+        })
+      );
+      const conflictRows = Object.entries(sabhasadResolutions)
+        .filter(([_, action]) => action !== "SKIP")
+        .map(([idxStr, action]) => {
+           const idx = parseInt(idxStr, 10);
+           return {
+             row: reviewData.possible_conflicts[idx].uploaded_row,
+             action: action,
+             existing_id: reviewData.possible_conflicts[idx].existing_db_row?.customer_id
+           };
+        });
+      const skippedRows = Object.entries(sabhasadResolutions)
+        .filter(([_, action]) => action === "SKIP");
+
+      setImportPayload({
+        rowsToImport: [...readyRows, ...conflictRows],
+        readyCount: readyRows.length,
+        resolvedConflictCount: conflictRows.length,
+        skippedCount: skippedRows.length,
+        invalidCount: reviewData.summary.invalid_rows || 0,
+      });
+      setShowFinalConfirm(true);
+    } else {
+      // Non-sabhasad: proceed directly as before
+      handleDirectImport();
+    }
+  };
+
+  const handleDirectImport = async () => {
+    if (!reviewData) return;
     try {
       setUploading(true);
       setError(null);
       
       let importResponse;
       
-      if (openDialog === "sabhasad") {
-        const readyRows = (selectedReadyIndices || []).map(
-          (idx) => ({
-            row: reviewData.ready_to_import[idx].uploaded_row,
-            action: "IMPORT"
-          })
-        );
-        const conflictRows = Object.entries(sabhasadResolutions)
-          .filter(([_, action]) => action !== "SKIP")
-          .map(([idxStr, action]) => {
-             const idx = parseInt(idxStr, 10);
-             return {
-               row: reviewData.possible_conflicts[idx].uploaded_row,
-               action: action,
-               existing_id: reviewData.possible_conflicts[idx].existing_db_row?.customer_id
-             };
-          });
-        const rowsToImport = [...readyRows, ...conflictRows];
-        
-        importResponse = await fileAPI.confirmImportSabhasads(rowsToImport, selectedFile?.name);
-        queryClient.invalidateQueries({ queryKey: ["sabhasad"] });
-        queryClient.invalidateQueries({ queryKey: ["customers"] });
-        
-      } else {
-        const readyRows = (selectedReadyIndices || []).map(
-          (idx) => reviewData.ready_to_import[idx].uploaded_row
-        );
-        const conflictRows = (selectedConflictIndices || []).map(
-          (idx) => reviewData.possible_conflicts[idx].uploaded_row
-        );
-        const rowsToImport = [...readyRows, ...conflictRows];
-        
-        console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
-        
-        importResponse = await fileAPI.confirmImportDistributors(rowsToImport, selectedFile?.name);
-        
-        // Refresh distributor table in query cache
-        queryClient.invalidateQueries({ queryKey: ["distributors"] });
-        queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
-      }
+      const readyRows = (selectedReadyIndices || []).map(
+        (idx) => reviewData.ready_to_import[idx].uploaded_row
+      );
+      const conflictRows = (selectedConflictIndices || []).map(
+        (idx) => reviewData.possible_conflicts[idx].uploaded_row
+      );
+      const rowsToImport = [...readyRows, ...conflictRows];
+      
+      console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
+      
+      importResponse = await fileAPI.confirmImportDistributors(rowsToImport, selectedFile?.name);
+      
+      // Refresh distributor table in query cache
+      queryClient.invalidateQueries({ queryKey: ["distributors"] });
+      queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
       
       console.log("✅ [P7 CONFIRM IMPORT] Response:", importResponse);
       
       setSuccess(`Import completed! Successfully imported ${importResponse.imported_count} rows.`);
       
-      // Refresh distributor table in query cache
-      queryClient.invalidateQueries({ queryKey: ["distributors"] });
-      queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
       fetchHistory();
       
       // Reset state and close dialog after a brief delay
@@ -481,6 +496,29 @@ export default function DataImport() {
         errorMessage = err.message;
       }
       setError(errorMessage);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFinalSubmit = async () => {
+    if (!importPayload) return;
+    try {
+      setUploading(true);
+      setError(null);
+      const importResponse = await fileAPI.confirmImportSabhasads(importPayload.rowsToImport, selectedFile?.name);
+      queryClient.invalidateQueries({ queryKey: ["sabhasad"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      console.log("✅ [FINAL SUBMIT] Response:", importResponse);
+      setSuccess(`Import completed! Successfully imported ${importResponse.imported_count} rows.`);
+      fetchHistory();
+      setTimeout(() => { handleCloseDialog(); }, 2000);
+    } catch (err: any) {
+      let errorMessage = "Import failed. Please try again.";
+      if (err?.response?.data?.detail) errorMessage = err.response.data.detail;
+      else if (err instanceof Error) errorMessage = err.message;
+      setError(errorMessage);
+      setShowFinalConfirm(false); // Let user go back and try again
     } finally {
       setUploading(false);
     }
@@ -1453,9 +1491,43 @@ export default function DataImport() {
             )}
             </>
             )}
+            {/* ===== FINAL CONFIRMATION STEP (Sabhasad Only) ===== */}
+            {showFinalConfirm && openDialog === "sabhasad" && importPayload && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 2 }}>Confirm Import</Typography>
+
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: 2,
+                  mb: 3,
+                }}>
+                  <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Ready Rows</Typography>
+                    <Typography variant="h4" fontWeight={800} color="success.main">{importPayload.readyCount}</Typography>
+                  </Box>
+                  <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'info.50', border: '1px solid', borderColor: 'info.200' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Resolved Conflicts</Typography>
+                    <Typography variant="h4" fontWeight={800} color="info.main">{importPayload.resolvedConflictCount}</Typography>
+                  </Box>
+                  <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Skipped Rows</Typography>
+                    <Typography variant="h4" fontWeight={800} color="warning.main">{importPayload.skippedCount}</Typography>
+                  </Box>
+                  <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'error.50', border: '1px solid', borderColor: 'error.200' }}>
+                    <Typography variant="caption" color="text.secondary" display="block">Invalid Rows</Typography>
+                    <Typography variant="h4" fontWeight={800} color="error.main">{importPayload.invalidCount}</Typography>
+                  </Box>
+                </Box>
+
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <strong>Warning:</strong> This action will import data into the database and cannot be undone.
+                </Alert>
+              </Box>
+            )}
           </DialogContent>
           <DialogActions sx={{ px: 4, pb: 3, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-            {reviewData && openDialog === "sabhasad" && (
+            {reviewData && openDialog === "sabhasad" && !showFinalConfirm && (
               <Box sx={{ mb: 2, p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="body2" fontWeight={600}>Validation Summary:</Typography>
                 <Box sx={{ display: 'flex', gap: 3 }}>
@@ -1467,34 +1539,60 @@ export default function DataImport() {
               </Box>
             )}
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-              <Button onClick={handleCloseDialog} disabled={uploading}>
-                {t("common.cancel", "Cancel")}
-              </Button>
-              {reviewData ? (
-                <Button
-                  variant="contained"
-                  disabled={
-                    uploading || 
-                    (openDialog !== "sabhasad" && (selectedReadyIndices.length + selectedConflictIndices.length) === 0) ||
-                    (openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0)
-                  }
-                  onClick={handleConfirmImport}
-                  startIcon={<CheckCircleIcon />}
-                  color="success"
-                >
-                  {openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0 
-                    ? "Resolve Conflicts First" 
-                    : t("import.confirmSelection", "Confirm Selection")}
-                </Button>
+              {showFinalConfirm && openDialog === "sabhasad" ? (
+                <>
+                  <Button
+                    onClick={() => setShowFinalConfirm(false)}
+                    disabled={uploading}
+                    variant="outlined"
+                  >
+                    ← Back to Review
+                  </Button>
+                  <Button onClick={handleCloseDialog} disabled={uploading}>
+                    {t("common.cancel", "Cancel")}
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    onClick={handleFinalSubmit}
+                    disabled={uploading}
+                    startIcon={uploading ? null : <CheckCircleIcon />}
+                  >
+                    {uploading ? "Submitting..." : "Submit Import"}
+                  </Button>
+                </>
               ) : (
-                <Button
-                  variant="contained"
-                  onClick={handleSubmit}
-                  disabled={uploading || !selectedFile}
-                  startIcon={<CloudUploadIcon />}
-                >
-                  {uploading ? t("import.uploading", "Uploading...") : (openDialog === "customer" || openDialog === "sabhasad") ? "Upload & Review" : t("import.uploadAndImport", "Upload & Import")}
-                </Button>
+                <>
+                  <Button onClick={handleCloseDialog} disabled={uploading}>
+                    {t("common.cancel", "Cancel")}
+                  </Button>
+                  {reviewData ? (
+                    <Button
+                      variant="contained"
+                      disabled={
+                        uploading || 
+                        (openDialog !== "sabhasad" && (selectedReadyIndices.length + selectedConflictIndices.length) === 0) ||
+                        (openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0)
+                      }
+                      onClick={handleConfirmImport}
+                      startIcon={<CheckCircleIcon />}
+                      color="success"
+                    >
+                      {openDialog === "sabhasad" && reviewData.possible_conflicts.length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0 
+                        ? "Resolve Conflicts First" 
+                        : t("import.confirmSelection", "Confirm Selection")}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="contained"
+                      onClick={handleSubmit}
+                      disabled={uploading || !selectedFile}
+                      startIcon={<CloudUploadIcon />}
+                    >
+                      {uploading ? t("import.uploading", "Uploading...") : (openDialog === "customer" || openDialog === "sabhasad") ? "Upload & Review" : t("import.uploadAndImport", "Upload & Import")}
+                    </Button>
+                  )}
+                </>
               )}
             </Box>
           </DialogActions>
