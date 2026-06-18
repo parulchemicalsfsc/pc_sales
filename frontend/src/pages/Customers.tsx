@@ -581,11 +581,11 @@ export default function Customers() {
                 >
                   {regions.map((option) => (
                     <MenuItem key={option} value={option}>
-                      {option}
+                      {option.toUpperCase()}
                     </MenuItem>
                   ))}
                   {regions.length === 0 && (
-                    <MenuItem value="Gujarat">Gujarat</MenuItem>
+                    <MenuItem value="Gujarat">GUJARAT</MenuItem>
                   )}
                 </TextField>
               </Grid>
@@ -610,9 +610,9 @@ export default function Customers() {
                     setFormData({ ...formData, status: e.target.value })
                   }
                 >
-                  <MenuItem value="Active">{t("customers.active")}</MenuItem>
+                  <MenuItem value="Active">{String(t("customers.active")).toUpperCase()}</MenuItem>
 
-                  <MenuItem value="Inactive">{t("customers.inactive")}</MenuItem>
+                  <MenuItem value="Inactive">{String(t("customers.inactive")).toUpperCase()}</MenuItem>
                 </TextField>
               </Grid>
             </Grid>
