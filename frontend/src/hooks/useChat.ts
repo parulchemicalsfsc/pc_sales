@@ -524,10 +524,30 @@ export function useChat(currentUserEmail: string | null | undefined) {
 
   // ── Edit message ─────────────────────────────────────────────────────────
   const editMessage = useCallback(
-    async (messageId: number, newContent: string): Promise<{ success: boolean; error?: string }> => {
+    async (messageId: number, newContent: string, newMentions: string[] = [], oldMentions: string[] = []): Promise<{ success: boolean; error?: string }> => {
       try {
         const { chatAPI } = await import("../services/api");
-        await chatAPI.editMessage(messageId, newContent);
+        await chatAPI.editMessage(messageId, newContent, newMentions);
+
+        // Find newly added mentions that weren't there before
+        const addedMentions = newMentions.filter(email => !oldMentions.includes(email) && email !== currentUserEmailRef.current);
+        
+        if (addedMentions.length > 0 && currentUserEmailRef.current) {
+          const senderName = getUserNameRef.current(currentUserEmailRef.current);
+          const notifInserts = addedMentions.map((mentionedEmail) => ({
+            user_email: mentionedEmail,
+            title: `${senderName} mentioned you`,
+            message: newContent.substring(0, 100),
+            notification_type: "mention",
+            entity_type: "chat",
+            action_url: "/chat",
+          }));
+          if (notifInserts.length > 0) {
+            const { error: notifErr } = await supabase.from("notifications").insert(notifInserts);
+            if (notifErr) console.error("[useChat] mention notification error on edit:", notifErr);
+          }
+        }
+
         return { success: true };
       } catch (err: any) {
         const msg = err?.response?.data?.detail || "Failed to edit message.";

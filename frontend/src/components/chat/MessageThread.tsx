@@ -4,7 +4,11 @@ import {
   Typography,
   CircularProgress,
   Avatar,
+  TextField,
+  InputAdornment,
 } from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import { useState } from "react";
 import type { ChatMessage, AppUser, Conversation } from "../../hooks/useChat";
 import MessageBubble, { DateDivider } from "./MessageBubble";
 
@@ -36,6 +40,11 @@ export default function MessageThread({
   loadingConvs = false,
 }: MessageThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [filterQuery, setFilterQuery] = useState("");
+
+  const displayedMessages = messages.filter((m) =>
+    !filterQuery || m.content.toLowerCase().includes(filterQuery.toLowerCase())
+  );
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -133,6 +142,21 @@ export default function MessageThread({
             </Typography>
           )}
         </Box>
+        <Box sx={{ flex: 1 }} />
+        <TextField
+          size="small"
+          placeholder="Filter chat..."
+          value={filterQuery}
+          onChange={(e) => setFilterQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ width: 200 }}
+        />
       </Box>
 
       {/* Messages Area */}
@@ -154,7 +178,7 @@ export default function MessageThread({
           <Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}>
             <CircularProgress size={28} />
           </Box>
-        ) : messages.length === 0 ? (
+        ) : displayedMessages.length === 0 ? (
           <Box
             sx={{
               display: "flex",
@@ -174,8 +198,8 @@ export default function MessageThread({
             </Typography>
           </Box>
         ) : (
-          messages.map((msg, idx) => {
-            const prevMsg = messages[idx - 1];
+          displayedMessages.map((msg, idx) => {
+            const prevMsg = displayedMessages[idx - 1];
             const showDate = !prevMsg || !isSameDay(prevMsg.created_at, msg.created_at);
             return (
               <React.Fragment key={msg.message_id}>

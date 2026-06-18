@@ -1025,16 +1025,27 @@ export const activityAPI = {
 // Export the axios instance for direct use if needed
 export default apiClient;
 
-// Chat Message API (edit / delete — server-enforced time gates)
+// Chat Message API
 export const chatAPI = {
   /** Edit a message (owner only, ≤5 min old). */
-  editMessage: async (messageId: number, content: string) => {
-    const response = await apiClient.put(`/api/chat/messages/${messageId}`, { content });
+  editMessage: async (messageId: number, content: string, mentions?: string[]) => {
+    const response = await apiClient.put(`/api/chat/messages/${messageId}`, { content, mentions });
     return response.data;
   },
   /** Soft-delete a message (owner OR delete_message perm, ≤24 h old). */
   deleteMessage: async (messageId: number) => {
     const response = await apiClient.delete(`/api/chat/messages/${messageId}`);
+    return response.data;
+  },
+  /** Search messages for Archive view */
+  searchMessages: async (params?: {
+    query?: string;
+    users?: string;
+    date_from?: string;
+    date_to?: string;
+    mentions_me?: boolean;
+  }) => {
+    const response = await apiClient.get("/api/chat/messages/search", { params });
     return response.data;
   },
 };

@@ -12,6 +12,11 @@ import {
   Button,
   Snackbar,
   Alert,
+  Paper,
+  List,
+  ListItem,
+  ListItemAvatar,
+  ListItemText,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -106,7 +111,7 @@ interface MessageBubbleProps {
   isOwn: boolean;
   users: AppUser[];
   canDeleteAsAdmin?: boolean; // true when caller has delete_message permission
-  onEdit?: (messageId: number, newContent: string) => Promise<{ success: boolean; error?: string }>;
+  onEdit?: (messageId: number, newContent: string, newMentions: string[], oldMentions: string[]) => Promise<{ success: boolean; error?: string }>;
   onDelete?: (messageId: number) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -132,6 +137,48 @@ export default function MessageBubble({
     severity: "success",
   });
 
+  // ── Mention state for editing ───────────────────────────────────────────────
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState<number>(-1);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const mentionSuggestions = mentionQuery !== null
+    ? users.filter(
+        (u) =>
+          u.email !== message.sender_email &&
+          (u.name?.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+            u.email.toLowerCase().includes(mentionQuery.toLowerCase()))
+      )
+    : [];
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setEditValue(val);
+
+    const cursor = e.target.selectionStart || 0;
+    const beforeCursor = val.slice(0, cursor);
+    const atMatch = beforeCursor.match(/@(\w*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+      setMentionStart(cursor - atMatch[0].length);
+    } else {
+      setMentionQuery(null);
+      setMentionStart(-1);
+    }
+  };
+
+  const insertMention = (user: AppUser) => {
+    const name = user.name || user.email.split("@")[0];
+    const before = editValue.slice(0, mentionStart);
+    const cursor = inputRef.current?.selectionStart || editValue.length;
+    const after = editValue.slice(cursor);
+    setEditValue(`${before}@${name} ${after}`);
+    setMentionQuery(null);
+    setMentionStart(-1);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+
   // ── Time-based UI gate checks ───────────────────────────────────────────────
   const now = Date.now();
   const createdMs = new Date(message.created_at).getTime();
@@ -155,13 +202,23 @@ export default function MessageBubble({
   const handleEditSubmit = async () => {
     if (!onEdit || !editValue.trim() || editValue.trim() === message.content) {
       setEditing(false);
+      setMentionQuery(null);
       return;
     }
     setSavingEdit(true);
-    const result = await onEdit(message.message_id, editValue.trim());
+
+    const newMentions = users
+      .filter((u) => {
+         const name = u.name || u.email.split("@")[0];
+         return editValue.includes(`@${name}`);
+      })
+      .map((u) => u.email);
+
+    const result = await onEdit(message.message_id, editValue.trim(), newMentions, message.mentions);
     setSavingEdit(false);
     if (result.success) {
       setEditing(false);
+      setMentionQuery(null);
     } else {
       setSnack({ open: true, msg: result.error || "Edit failed.", severity: "error" });
     }
@@ -229,17 +286,60 @@ export default function MessageBubble({
             </Box>
           ) : editing ? (
             // ── Inline edit ──────────────────────────────────────────────────
-            <Box sx={{ width: "100%", minWidth: 220 }}>
+            <Box sx={{ width: "100%", minWidth: 220, position: "relative" }}>
+              {mentionQuery !== null && mentionSuggestions.length > 0 && (
+                <Paper
+                  elevation={8}
+                  sx={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: 0,
+                    right: 0,
+                    mb: 0.5,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    borderRadius: 2,
+                    zIndex: 1000,
+                  }}
+                >
+                  <List dense disablePadding>
+                    {mentionSuggestions.map((user) => (
+                      <ListItem
+                        key={user.email}
+                        onClick={() => insertMention(user)}
+                        sx={{ cursor: "pointer", "&:hover": { bgcolor: "action.hover" }, px: 2, py: 0.5 }}
+                      >
+                        <ListItemAvatar sx={{ minWidth: 32 }}>
+                          <Avatar sx={{ width: 24, height: 24, fontSize: "0.7rem", bgcolor: "primary.main" }}>
+                            {(user.name || user.email).charAt(0).toUpperCase()}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={<Typography variant="body2">{user.name || user.email.split("@")[0]}</Typography>}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              )}
               <TextField
+                inputRef={inputRef}
                 value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
+                onChange={handleEditChange}
                 multiline
                 fullWidth
                 size="small"
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditSubmit(); }
-                  if (e.key === "Escape") { setEditing(false); setEditValue(message.content); }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (mentionSuggestions.length > 0 && mentionQuery !== null) {
+                      insertMention(mentionSuggestions[0]);
+                    } else {
+                      handleEditSubmit();
+                    }
+                  }
+                  if (e.key === "Escape") { setEditing(false); setEditValue(message.content); setMentionQuery(null); }
                 }}
                 sx={{ mb: 0.5 }}
               />
