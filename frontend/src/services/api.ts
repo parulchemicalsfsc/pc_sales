@@ -728,6 +728,21 @@ export const fileAPI = {
     });
     return response.data;
   },
+  preprocessSabhasads: async (formData: FormData) => {
+    const response = await apiClient.post("/api/imports/sabhasad/preprocess", formData, {
+      headers: {
+        "Content-Type": undefined,
+      },
+    });
+    return response.data;
+  },
+  confirmImportSabhasads: async (selectedRows: any[], fileName?: string) => {
+    const response = await apiClient.post("/api/imports/sabhasad/confirm-import", {
+      selected_rows: selectedRows,
+      file_name: fileName,
+    });
+    return response.data;
+  },
   uploadFile: async (formData: FormData) => {
     const response = await apiClient.post("/api/imports/excel", formData, {
       headers: {
