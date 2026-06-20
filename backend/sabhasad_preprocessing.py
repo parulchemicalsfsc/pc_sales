@@ -33,37 +33,16 @@ def normalize_string(val) -> str:
 
 def preprocess_sabhasad_upload(uploaded_rows: List[dict], existing_db_rows: List[dict]) -> Dict[str, Any]:
     ready_to_import = []
-    exact_duplicates = []
-    possible_conflicts = []
+    phone_review = []
     invalid_rows = []
     
-    # Pre-process DB rows for fast lookup
-    db_by_code = {}
+    # Pre-process DB rows for fast lookup by phone
     db_by_phone = {}
-    db_by_name_village = {}
-    db_by_name = {}
 
     for r in existing_db_rows:
-        # Customer ID / Code
-        code = str(r.get("customer_code") or "").strip().upper()
-        if code:
-            db_by_code[code] = r
-            
-        # Phone
         phone = clean_phone_number(r.get("mobile"))
         if phone:
             db_by_phone[phone] = r
-            
-        # Name + Village
-        name = normalize_string(r.get("name"))
-        village = normalize_string(r.get("village"))
-        if name and village:
-            db_by_name_village[f"{name}|{village}"] = r
-            
-        if name:
-            if name not in db_by_name:
-                db_by_name[name] = []
-            db_by_name[name].append(r)
 
     # Track duplicates within the excel itself
     uploaded_phones = {}
@@ -88,7 +67,7 @@ def preprocess_sabhasad_upload(uploaded_rows: List[dict], existing_db_rows: List
 
         # Duplicate in Excel check
         if mobile in uploaded_phones:
-            possible_conflicts.append({
+            phone_review.append({
                 "uploaded_row": row,
                 "existing_db_row": uploaded_phones[mobile],
                 "conflict_type": "PHONE_EXISTS_IN_FILE",
@@ -99,89 +78,34 @@ def preprocess_sabhasad_upload(uploaded_rows: List[dict], existing_db_rows: List
         
         uploaded_phones[mobile] = row
         
-        excel_code = str(row.get("customer_code") or "").strip().upper()
         excel_name = normalize_string(row.get("name"))
         excel_village = normalize_string(row.get("village"))
         
-        # Priority 1: Customer ID match
-        if excel_code and excel_code in db_by_code:
-            db_match = db_by_code[excel_code]
-            db_phone = clean_phone_number(db_match.get("mobile"))
-            
-            if db_phone == mobile:
-                # Safe match!
-                exact_duplicates.append({
-                    "uploaded_row": row,
-                    "existing_db_row": db_match,
-                    "reason": "Exact Match on Customer Code and Phone"
-                })
-            else:
-                # Customer Code matches, but phone is different
-                # We need admin confirmation to update phone
-                possible_conflicts.append({
-                    "uploaded_row": row,
-                    "existing_db_row": db_match,
-                    "conflict_type": "PHONE_UPDATE_REQUIRED",
-                    "confidence": "HIGH",
-                    "reason": f"Customer ID {excel_code} matched, but phone differs. Excel: {mobile}, DB: {db_phone}"
-                })
-            continue
-            
-        # Priority 2: Existing Phone Number Match
+        # Priority 1: Existing Phone Number Match
         if mobile in db_by_phone:
             db_match = db_by_phone[mobile]
             db_name = normalize_string(db_match.get("name"))
+            db_village = normalize_string(db_match.get("village"))
             
-            if db_name == excel_name:
-                # Same phone, same name.
-                exact_duplicates.append({
+            if db_name == excel_name and db_village == excel_village:
+                phone_review.append({
                     "uploaded_row": row,
                     "existing_db_row": db_match,
-                    "reason": "Exact Match on Phone and Name"
+                    "conflict_type": "EXACT_DUPLICATE",
+                    "confidence": "HIGH",
+                    "reason": "Exact Match on Phone, Name, and Village"
                 })
             else:
-                # Phone matches, but name differs. Is it a transfer or same person?
-                possible_conflicts.append({
+                phone_review.append({
                     "uploaded_row": row,
                     "existing_db_row": db_match,
-                    "conflict_type": "PHONE_ALREADY_EXISTS",
+                    "conflict_type": "PHONE_CONFLICT",
                     "confidence": "HIGH",
-                    "reason": f"Phone belongs to different name. Excel: {excel_name}, DB: {db_name}"
+                    "reason": f"Phone exists but Name and/or Village differs"
                 })
             continue
-            
-        # Priority 3: Name + Village Match (No phone match or ID match)
-        name_village_key = f"{excel_name}|{excel_village}"
-        if name_village_key in db_by_name_village:
-            db_match = db_by_name_village[name_village_key]
-            db_phone = clean_phone_number(db_match.get("mobile"))
-            
-            # DB has different phone, Excel has new phone.
-            possible_conflicts.append({
-                "uploaded_row": row,
-                "existing_db_row": db_match,
-                "conflict_type": "MULTIPLE_POSSIBLE_MATCHES",
-                "confidence": "MEDIUM",
-                "reason": f"Name & Village matched, but phone is different. Excel: {mobile}, DB: {db_phone}"
-            })
-            continue
-            
-        # Priority 4: Name only match
-        if excel_name in db_by_name:
-            # We just take the first match for simplicity in suggesting
-            db_match = db_by_name[excel_name][0]
-            db_phone = clean_phone_number(db_match.get("mobile"))
-            
-            possible_conflicts.append({
-                "uploaded_row": row,
-                "existing_db_row": db_match,
-                "conflict_type": "NAME_MISMATCH", # Reusing conflict type name
-                "confidence": "LOW",
-                "reason": f"Name matched but Village and Phone differ. Excel: {mobile}, DB: {db_phone}"
-            })
-            continue
 
-        # If we reach here, it's a completely new customer based on all our checks!
+        # If we reach here, it's a new customer
         ready_to_import.append({
             "uploaded_row": row,
             "existing_db_row": None,
@@ -190,21 +114,18 @@ def preprocess_sabhasad_upload(uploaded_rows: List[dict], existing_db_rows: List
 
     print("\n📦 [SABHASAD IMPORT PREPROCESSING]")
     print(f"Ready: {len(ready_to_import)}")
-    print(f"Exact Duplicates: {len(exact_duplicates)}")
-    print(f"Conflicts: {len(possible_conflicts)}")
+    print(f"Phone Review: {len(phone_review)}")
     print(f"Invalid: {len(invalid_rows)}\n")
 
     result = {
         "summary": {
             "total_records": len(uploaded_rows),
             "ready_to_import": len(ready_to_import),
-            "exact_duplicates": len(exact_duplicates),
-            "possible_conflicts": len(possible_conflicts),
+            "phone_review": len(phone_review),
             "invalid_rows": len(invalid_rows)
         },
         "ready_to_import": ready_to_import,
-        "exact_duplicates": exact_duplicates,
-        "possible_conflicts": possible_conflicts,
+        "phone_review": phone_review,
         "invalid_rows": invalid_rows
     }
     
