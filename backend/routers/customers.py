@@ -158,6 +158,9 @@ def create_customer(
 
         # Add customer_code if provided
         if customer.customer_code:
+            existing = db.table("customers").select("customer_id").eq("customer_code", customer.customer_code).execute()
+            if existing.data and len(existing.data) > 0:
+                raise HTTPException(status_code=409, detail="Customer code already exists. Please use a different customer code.")
             customer_data["customer_code"] = customer.customer_code
 
         response = db.table("customers").insert(customer_data).execute()
@@ -221,6 +224,9 @@ def update_customer(
 
         # Add customer_code if provided
         if customer.customer_code:
+            existing = db.table("customers").select("customer_id").eq("customer_code", customer.customer_code).neq("customer_id", customer_id).execute()
+            if existing.data and len(existing.data) > 0:
+                raise HTTPException(status_code=409, detail="Customer code already exists. Please use a different customer code.")
             customer_data["customer_code"] = customer.customer_code
 
         response = (

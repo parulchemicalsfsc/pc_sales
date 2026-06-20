@@ -208,6 +208,8 @@ export default function Customers() {
       const detail = err?.response?.data?.detail || err?.message || "";
       if (err?.response?.status === 422 && detail) {
         setPhoneError(detail);
+      } else if (err?.response?.status === 409 && err?.response?.data?.detail) {
+        setError(err.response.data.detail);
       } else if (err?.isNetworkError || err?.response?.status >= 500) {
         setError("Network error or server error. Please check if customer was saved before trying again.");
       } else {
@@ -233,7 +235,12 @@ export default function Customers() {
       try {
         await pendingSubmitFn();
       } catch (err: any) {
-        setError(err instanceof Error ? err.message : "Failed to save");
+        const detail = err?.response?.data?.detail;
+        if (err?.response?.status === 409 && detail) {
+          setError(detail);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to save");
+        }
       } finally {
         setSubmitting(false);
         setPendingSubmitFn(null);
@@ -578,6 +585,9 @@ export default function Customers() {
                   onChange={(e) =>
                     setFormData({ ...formData, state: e.target.value })
                   }
+                  SelectProps={{
+                    renderValue: (selected) => String(selected).toUpperCase()
+                  }}
                 >
                   {regions.map((option) => (
                     <MenuItem key={option} value={option}>
@@ -609,6 +619,13 @@ export default function Customers() {
                   onChange={(e) =>
                     setFormData({ ...formData, status: e.target.value })
                   }
+                  SelectProps={{
+                    renderValue: (selected) => {
+                      if (selected === "Active") return String(t("customers.active")).toUpperCase();
+                      if (selected === "Inactive") return String(t("customers.inactive")).toUpperCase();
+                      return String(selected).toUpperCase();
+                    }
+                  }}
                 >
                   <MenuItem value="Active">{String(t("customers.active")).toUpperCase()}</MenuItem>
 
