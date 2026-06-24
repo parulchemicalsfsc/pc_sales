@@ -38,16 +38,28 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
     // Prevent infinite loop if they are trying to access dashboard itself
     if (requiredPermission === 'view_dashboard') {
       if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
+      if (hasPermission('view_all_leads')) return <Navigate to="/leads" replace />;
       if (hasPermission('work_leads')) return <Navigate to="/lead-workspace" replace />;
       if (hasPermission('view_calling_list')) return <Navigate to="/calling-list" replace />;
-      return <Navigate to="/login" replace />;
+      if (hasPermission('view_customers')) return <Navigate to="/customers" replace />;
+      if (hasPermission('view_sales')) return <Navigate to="/sales" replace />;
+      if (hasPermission('view_orders')) return <Navigate to="/orders" replace />;
+      if (hasPermission('view_demos')) return <Navigate to="/demos" replace />;
+      if (hasPermission('view_distributors')) return <Navigate to="/distributors" replace />;
+      if (hasPermission('view_shopkeepers')) return <Navigate to="/shopkeepers" replace />;
+      if (hasPermission('view_doctors')) return <Navigate to="/doctors" replace />;
+      if (hasPermission('view_reports')) return <Navigate to="/reports" replace />;
+      if (hasPermission('view_activity_logs')) return <Navigate to="/admin" replace />;
+      if (hasPermission('view_users')) return <Navigate to="/user-management" replace />;
+      return <Navigate to="/activity" replace />;
     }
     
     // Default fallback
     if (hasPermission('view_dashboard')) return <Navigate to="/dashboard" replace />;
     if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
+    if (hasPermission('view_all_leads')) return <Navigate to="/leads" replace />;
     if (hasPermission('work_leads')) return <Navigate to="/lead-workspace" replace />;
-    return <Navigate to="/" replace />;
+    return <Navigate to="/activity" replace />;
   }
 
   // User is authenticated, render the protected content
