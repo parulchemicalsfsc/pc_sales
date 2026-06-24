@@ -306,8 +306,7 @@ export default function CallingList() {
           load(pagination.page);
         }
       } else {
-        // Normal call logging
-        await automationAPI.updateCallStatus(activeItem.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
+        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
         load(pagination.page);

@@ -117,7 +117,7 @@ export default function CallDistribution() {
   const [bulkPriority, setBulkPriority] = useState("Medium");
   const [bulkCount, setBulkCount] = useState(1);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [availableCounts, setAvailableCounts] = useState<{ High: number; Medium: number; Low: number }>({ High: 0, Medium: 0, Low: 0 });
+  const [availableCounts, setAvailableCounts] = useState<{ High: number; Medium: number; Low: number; Any?: number }>({ High: 0, Medium: 0, Low: 0 });
   const [countsLoading, setCountsLoading] = useState(false);
 
   // Pagination for individual reassign
