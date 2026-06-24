@@ -213,6 +213,10 @@ export const customerAPI = {
     const response = await apiClient.get("/api/customers/check-phone", { params });
     return response.data as { duplicate_found: boolean; existing_record: any | null };
   },
+  search: async (q: string) => {
+    const response = await apiClient.get("/api/customers/search", { params: { q } });
+    return response.data;
+  },
 };
 
 // Product API
@@ -418,6 +422,10 @@ export const distributorAPI = {
     if (excludeId !== undefined) params.exclude_id = excludeId;
     const response = await apiClient.get("/api/distributors/check-phone", { params });
     return response.data as { duplicate_found: boolean; existing_record: any | null };
+  },
+  search: async (q: string) => {
+    const response = await apiClient.get("/api/distributors/search", { params: { q } });
+    return response.data;
   },
 };
 
@@ -649,6 +657,10 @@ export const automationAPI = {
     const response = await apiClient.post("/api/automation/update-call-status", payload);
     return response.data;
   },
+  logAdhocCall: async (payload: { entity_id: number; entity_type: string; call_outcome: string; notes?: string; callback_date?: string }) => {
+    const response = await apiClient.post("/api/automation/log-adhoc-call", payload);
+    return response.data;
+  },
   getTelecallers: async () => {
     const response = await apiClient.get("/api/automation/telecallers");
     return response.data;
@@ -697,6 +709,12 @@ export const automationAPI = {
       count,
     });
     return response.data;
+  },
+  getAvailableCounts: async (targetEmail: string) => {
+    const response = await apiClient.get("/api/automation/admin/available-counts", {
+      params: { target_email: targetEmail },
+    });
+    return response.data as { High: number; Medium: number; Low: number };
   },
   refreshDistribution: async () => {
     const response = await apiClient.post("/api/automation/admin/refresh-distribution");

@@ -34,6 +34,8 @@ import {
   FormControl,
   InputLabel,
   Autocomplete,
+  Checkbox,
+  InputAdornment,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -53,6 +55,7 @@ import {
   LocationOn as LocationIcon,
   Calculate as CalculateIcon,
   HelpOutline as HelpIcon,
+  Search as SearchIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -155,6 +158,16 @@ export default function CallingList() {
   const [selectedMantriId, setSelectedMantriId] = useState<string>("");
   const [approxLiter, setApproxLiter] = useState<number>(5);
 
+  // Quick Call Search & Queue
+  const [qcSearch, setQcSearch] = useState("");
+  const [qcResults, setQcResults] = useState<any[]>([]);
+  const [qcSearching, setQcSearching] = useState(false);
+  const [qcSelectedIds, setQcSelectedIds] = useState<Set<number>>(new Set());
+  const [qcQueue, setQcQueue] = useState<any[]>([]);
+  const [qcCurrentIndex, setQcCurrentIndex] = useState(0);
+  const [qcDialogOpen, setQcDialogOpen] = useState(false);
+  const isQuickCall = qcDialogOpen && qcQueue.length > 0;
+
 
 
   // ── Data ────────────────────────────────────────────────
@@ -175,6 +188,31 @@ export default function CallingList() {
   }, [tab]);
 
   useEffect(() => { load(1); }, [load]);
+
+  // Quick Call Search Debounce
+  useEffect(() => {
+    if (qcSearch.trim().length === 0) {
+      setQcResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setQcSearching(true);
+      try {
+        let res;
+        if (role === "sales_manager") {
+          res = await distributorAPI.search(qcSearch);
+        } else {
+          res = await customerAPI.search(qcSearch);
+        }
+        setQcResults(res?.data || []);
+      } catch (err) {
+        console.error("QC Search error:", err);
+      } finally {
+        setQcSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [qcSearch, role]);
 
 
 
@@ -226,7 +264,9 @@ export default function CallingList() {
   };
 
   const submitOutcome = async () => {
-    if (!activeItem || !outcome) return;
+    if (!outcome) return;
+    if (!isQuickCall && !activeItem) return;
+
     if (outcome === "take_order") {
       return handleTakeOrder();
     }
@@ -236,13 +276,67 @@ export default function CallingList() {
     }
     try {
       setSubmitting(true);
-      await automationAPI.updateCallStatus(activeItem.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
-      setToast({ msg: "Call logged successfully", sev: "success" });
-      setDialogOpen(false);
-      load(pagination.page);
+      if (isQuickCall) {
+        // Quick call logging
+        const qcItem = qcQueue[qcCurrentIndex];
+        const entityType = role === "sales_manager" ? "distributor" : "customer";
+        const entityId = entityType === "customer" ? qcItem.customer_id : qcItem.entity_id;
+        await automationAPI.logAdhocCall({
+          entity_id: entityId,
+          entity_type: entityType,
+          call_outcome: outcome,
+          notes: notes,
+          callback_date: outcome === "callback" ? callbackDate : undefined,
+        });
+        setToast({ msg: "Call logged successfully", sev: "success" });
+        // Next in queue
+        if (qcCurrentIndex < qcQueue.length - 1) {
+          setQcCurrentIndex(prev => prev + 1);
+          setOutcome("");
+          setNotes("");
+          setCallbackDate("");
+          setSubmitting(false);
+          return;
+        } else {
+          // Finished queue
+          setQcDialogOpen(false);
+          setQcQueue([]);
+          setQcSelectedIds(new Set());
+          setQcSearch("");
+          load(pagination.page);
+        }
+      } else {
+        // Normal call logging
+        await automationAPI.updateCallStatus(activeItem.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
+        setToast({ msg: "Call logged successfully", sev: "success" });
+        setDialogOpen(false);
+        load(pagination.page);
+      }
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" });
     } finally { setSubmitting(false); }
+  };
+
+  const toggleQcSelection = (item: any) => {
+    const id = role === "sales_manager" ? item.entity_id : item.customer_id;
+    setQcSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const startQuickCallQueue = () => {
+    if (qcSelectedIds.size === 0) return;
+    const selectedItems = qcResults.filter(r => qcSelectedIds.has(role === "sales_manager" ? r.entity_id : r.customer_id));
+    if (selectedItems.length === 0) return;
+    setQcQueue(selectedItems);
+    setQcCurrentIndex(0);
+    setOutcome("");
+    setNotes("");
+    setCallbackDate("");
+    setQcDialogOpen(true);
   };
 
   // Take Order Dialog
@@ -403,6 +497,81 @@ export default function CallingList() {
           </Paper>
         ))}
       </Stack>
+
+      {/* ── Quick Call Search ── */}
+      <Paper sx={{ mb: 2.5, p: 2, borderRadius: 3, border: `1px solid ${border}`, bgcolor: surface }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5, color: "text.secondary" }}>
+          Quick Call Search
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="flex-start">
+          <TextField
+            fullWidth
+            size="small"
+            placeholder={`Search ${role === "sales_manager" ? "distributors" : "customers"} by name, mobile, or village...`}
+            value={qcSearch}
+            onChange={e => setQcSearch(e.target.value)}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+              endAdornment: qcSearching ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : null,
+              sx: { borderRadius: 2 }
+            }}
+          />
+        </Stack>
+
+        {qcSearch.trim().length > 0 && qcResults.length > 0 && (
+          <Box sx={{ mt: 2, border: `1px solid ${border}`, borderRadius: 2, overflow: "hidden" }}>
+            <Box sx={{ maxHeight: 200, overflowY: "auto" }}>
+              {qcResults.map(res => {
+                const id = role === "sales_manager" ? res.entity_id : res.customer_id;
+                const isSelected = qcSelectedIds.has(id);
+                return (
+                  <Box
+                    key={id}
+                    onClick={() => toggleQcSelection(res)}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      p: 1,
+                      borderBottom: `1px solid ${border}`,
+                      cursor: "pointer",
+                      bgcolor: isSelected ? alpha("#2563eb", 0.05) : "transparent",
+                      "&:hover": { bgcolor: alpha("#2563eb", 0.08) }
+                    }}
+                  >
+                    <Checkbox checked={isSelected} size="small" />
+                    <Box sx={{ ml: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{res.name}</Typography>
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        {res.mobile} {res.village ? `· ${res.village}` : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+            {qcSelectedIds.size > 0 && (
+              <Box sx={{ p: 1.5, bgcolor: surfaceMuted, borderTop: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {qcSelectedIds.size} selected
+                </Typography>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={startQuickCallQueue}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+                >
+                  Save & Log Calls
+                </Button>
+              </Box>
+            )}
+          </Box>
+        )}
+        {qcSearch.trim().length > 0 && !qcSearching && qcResults.length === 0 && (
+          <Typography variant="body2" sx={{ color: "text.secondary", mt: 1, px: 1 }}>
+            No results found.
+          </Typography>
+        )}
+      </Paper>
 
       {/* ── Tabs + List ── */}
       <Paper sx={{ borderRadius: 3, border: `1px solid ${border}`, bgcolor: surface, overflow: "hidden", width: "100%" }}>
@@ -732,19 +901,22 @@ export default function CallingList() {
       </Dialog>
 
       {/* ── Post-Call Dialog ── */}
-      <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
+      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
-          Log Call Outcome
-          {activeItem && (
-            <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
-              {activeItem.name} · {activeItem.mobile}
-            </Typography>
-          )}
+          {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
+          {(activeItem || isQuickCall) && (() => {
+            const item = isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
+            return (
+              <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
+                {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
+              </Typography>
+            );
+          })()}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
 
           <Stack spacing={1} sx={{ mb: 2.5 }}>
-            {CALL_OUTCOMES.map(o => (
+            {CALL_OUTCOMES.filter(o => !(isQuickCall && o.value === "take_order")).map(o => (
               <Box
                 key={o.value}
                 onClick={() => setOutcome(o.value)}
@@ -794,7 +966,7 @@ export default function CallingList() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
-          <Button onClick={() => setDialogOpen(false)} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitOutcome}
@@ -802,7 +974,7 @@ export default function CallingList() {
             startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
           >
-            {submitting ? "Saving…" : "Submit"}
+            {submitting ? "Saving…" : (isQuickCall && qcCurrentIndex < qcQueue.length - 1 ? "Save & Next" : "Submit")}
           </Button>
         </DialogActions>
       </Dialog>

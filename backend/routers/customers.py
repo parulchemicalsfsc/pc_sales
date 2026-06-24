@@ -60,6 +60,33 @@ def get_customers(db: SupabaseClient = Depends(get_db)):
         raise HTTPException(
             status_code=500, detail=f"Error fetching customers: {str(e)}"
         )
+
+@router.get("/search", dependencies=[Depends(verify_permission("view_customers"))])
+def search_customers(
+    q: str = "",
+    limit: int = 30,
+    db: SupabaseClient = Depends(get_db),
+):
+    """Search customers by name, mobile, or village. Used for Quick Call feature."""
+    try:
+        if not q or len(q.strip()) < 1:
+            return {"data": [], "total": 0}
+        term = q.strip()
+        res_name = db.table("customers").select("customer_id, name, mobile, village, taluka, district").ilike("name", f"%{term}%").limit(limit).execute()
+        res_mobile = db.table("customers").select("customer_id, name, mobile, village, taluka, district").ilike("mobile", f"%{term}%").limit(limit).execute()
+        res_village = db.table("customers").select("customer_id, name, mobile, village, taluka, district").ilike("village", f"%{term}%").limit(limit).execute()
+        seen = set()
+        results = []
+        for row in (res_name.data or []) + (res_mobile.data or []) + (res_village.data or []):
+            cid = row.get("customer_id")
+            if cid not in seen:
+                seen.add(cid)
+                results.append(row)
+        return {"data": results[:limit], "total": len(results[:limit])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
 @router.get("/{customer_id}/summary", dependencies=[Depends(verify_permission("view_customers"))])
 def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db)):
     """Get summarized sales, payments, and join date for a customer"""

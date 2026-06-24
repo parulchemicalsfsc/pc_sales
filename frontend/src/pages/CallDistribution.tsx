@@ -46,6 +46,9 @@ import {
   ShoppingCart as ShoppingCartIcon,
   CheckCircle as CheckCircleIcon,
   HelpOutline as HelpIcon,
+  SupervisorAccount as SalesManagerIcon,
+  RecordVoiceOver as TelecallerIcon,
+  ArrowDropDown as ArrowDropDownIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -97,6 +100,9 @@ export default function CallDistribution() {
 
   const { timeLeft, progress, isPast } = useCountdownTo10AM();
 
+  // View filter: "all" | "sales_manager" | "telecaller"
+  const [viewFilter, setViewFilter] = useState<"all" | "sales_manager" | "telecaller">("all");
+
   const [distributing, setDistributing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [distStatus, setDistStatus] = useState<any>(null);
@@ -109,8 +115,10 @@ export default function CallDistribution() {
   // Bulk state
   const [bulkEmail, setBulkEmail] = useState("");
   const [bulkPriority, setBulkPriority] = useState("Medium");
-  const [bulkCount, setBulkCount] = useState(10);
+  const [bulkCount, setBulkCount] = useState(1);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [availableCounts, setAvailableCounts] = useState<{ High: number; Medium: number; Low: number }>({ High: 0, Medium: 0, Low: 0 });
+  const [countsLoading, setCountsLoading] = useState(false);
 
   // Pagination for individual reassign
   const [reassignPage, setReassignPage] = useState(0);
@@ -242,12 +250,26 @@ export default function CallDistribution() {
     }
   };
 
+  const effectiveBulkPriority = viewFilter === "telecaller" ? "Any" : bulkPriority;
+
   const handleBulk = async () => {
+    const maxAvail = availableCounts[effectiveBulkPriority as keyof typeof availableCounts] || 0;
+    const effectiveCount = Math.min(bulkCount, maxAvail);
+    if (effectiveCount < 1) {
+      setToast({ msg: `No ${effectiveBulkPriority === "Any" ? "" : effectiveBulkPriority} calls available to assign`, sev: "error" });
+      return;
+    }
     try {
       setBulkLoading(true);
-      const res = await automationAPI.bulkReassign(bulkEmail, bulkPriority, bulkCount);
+      const res = await automationAPI.bulkReassign(bulkEmail, effectiveBulkPriority, effectiveCount);
       setToast({ msg: res.message || "Assigned!", sev: "success" });
       loadData();
+      // Refresh available counts after assignment
+      if (bulkEmail) {
+        const counts = await automationAPI.getAvailableCounts(bulkEmail).catch(() => ({ High: 0, Medium: 0, Low: 0, Any: 0 }));
+        setAvailableCounts(counts);
+        setBulkCount(Math.min(bulkCount, counts[effectiveBulkPriority as keyof typeof counts] || 0) || 1);
+      }
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Bulk assign failed", sev: "error" });
     } finally {
@@ -286,6 +308,48 @@ export default function CallDistribution() {
   const smSummary = allSummary.filter(([_, stats]) => stats.role === "sales_manager");
   const tcSummary = allSummary.filter(([_, stats]) => stats.role !== "sales_manager" && stats.role !== "admin");
 
+  // Role-split telecaller lists for filtered dropdowns
+  const smEmails = new Set(smSummary.map(([email]) => email));
+  const smTelecallers = telecallers.filter(t => smEmails.has(t.email));
+  const tcTelecallers = telecallers.filter(t => !smEmails.has(t.email));
+
+  // Fetch available counts whenever bulkEmail changes
+  useEffect(() => {
+    if (!bulkEmail) {
+      setAvailableCounts({ High: 0, Medium: 0, Low: 0, Any: 0 });
+      return;
+    }
+    let cancelled = false;
+    setCountsLoading(true);
+    automationAPI.getAvailableCounts(bulkEmail)
+      .then((counts) => {
+        if (!cancelled) {
+          setAvailableCounts(counts);
+          // Clamp current bulkCount to max available for current priority
+          const effPri = viewFilter === "telecaller" ? "Any" : bulkPriority;
+          const max = counts[effPri as keyof typeof counts] || 0;
+          setBulkCount(prev => max > 0 ? Math.min(prev, max) : 1);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableCounts({ High: 0, Medium: 0, Low: 0, Any: 0 });
+      })
+      .finally(() => { if (!cancelled) setCountsLoading(false); });
+    return () => { cancelled = true; };
+  }, [bulkEmail]);
+
+  // Current max for the selected priority
+  const maxCount = availableCounts[effectiveBulkPriority as keyof typeof availableCounts] || 0;
+
+  // Active dropdown list depending on view
+  const activeBulkList = viewFilter === "telecaller" ? tcTelecallers
+    : viewFilter === "sales_manager" ? smTelecallers
+    : telecallers;
+
+  const activeTransferList = viewFilter === "telecaller" ? tcTelecallers
+    : viewFilter === "sales_manager" ? smTelecallers
+    : telecallers;
+
   if (!user || !canDistribute) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
@@ -307,13 +371,237 @@ export default function CallDistribution() {
               {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
             </Typography>
           </Box>
-          <Tooltip title="How to use this page">
-            <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main", mt: 0.5 }}>
-              <HelpIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          {/* Top-right controls: view filter dropdown + help button */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id="view-filter-label">View</InputLabel>
+              <Select
+                labelId="view-filter-label"
+                label="View"
+                value={viewFilter}
+                onChange={(e) => setViewFilter(e.target.value as typeof viewFilter)}
+                IconComponent={ArrowDropDownIcon}
+                sx={{
+                  borderRadius: 2,
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  "& .MuiOutlinedInput-notchedOutline": { borderColor: theme.palette.divider },
+                }}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="sales_manager">
+                  <Stack direction="row" alignItems="center" spacing={0.8}>
+                    <SalesManagerIcon sx={{ fontSize: 16, color: "primary.main" }} />
+                    <span>Sales Manager</span>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="telecaller">
+                  <Stack direction="row" alignItems="center" spacing={0.8}>
+                    <TelecallerIcon sx={{ fontSize: 16, color: "success.main" }} />
+                    <span>Telecallers</span>
+                  </Stack>
+                </MenuItem>
+              </Select>
+            </FormControl>
+            <Tooltip title="How to use this page">
+              <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main" }}>
+                <HelpIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </Box>
       </Box>
+
+      {/* ── Overview Cards ── */}
+      {!loading && (
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          {/* Sales Manager Card */}
+          <Grid item xs={12} sm={6}>
+            <Card
+              onClick={() => setViewFilter(viewFilter === "sales_manager" ? "all" : "sales_manager")}
+              sx={{
+                borderRadius: 3,
+                cursor: "pointer",
+                border: `2px solid ${
+                  viewFilter === "sales_manager"
+                    ? theme.palette.primary.main
+                    : theme.palette.divider
+                }`,
+                background: viewFilter === "sales_manager"
+                  ? isDark
+                    ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.18)} 0%, ${alpha(theme.palette.primary.dark, 0.10)} 100%)`
+                    : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.primary.light, 0.04)} 100%)`
+                  : "background.paper",
+                transition: "all 0.22s ease",
+                "&:hover": {
+                  boxShadow: theme.shadows[6],
+                  transform: "translateY(-3px)",
+                  borderColor: theme.palette.primary.main,
+                },
+              }}
+            >
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 2.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: alpha(theme.palette.primary.main, 0.12),
+                    }}
+                  >
+                    <SalesManagerIcon sx={{ color: "primary.main", fontSize: 24 }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+                      Sales Manager
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Distributor Call Distribution
+                    </Typography>
+                  </Box>
+                  {viewFilter === "sales_manager" && (
+                    <Chip
+                      label="Active"
+                      size="small"
+                      color="primary"
+                      sx={{ ml: "auto", fontWeight: 700, height: 22, fontSize: "0.68rem" }}
+                    />
+                  )}
+                </Stack>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="primary.main">
+                        {smSummary.length}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Managers
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="success.main">
+                        {smSummary.reduce((acc, [_, d]: [string, any]) => acc + (d.called || 0), 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Calls Done
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="warning.main">
+                        {smSummary.reduce((acc, [_, d]: [string, any]) => acc + (d.pending || 0), 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Pending
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Telecallers Sabhsad Card */}
+          <Grid item xs={12} sm={6}>
+            <Card
+              onClick={() => setViewFilter(viewFilter === "telecaller" ? "all" : "telecaller")}
+              sx={{
+                borderRadius: 3,
+                cursor: "pointer",
+                border: `2px solid ${
+                  viewFilter === "telecaller"
+                    ? theme.palette.success.main
+                    : theme.palette.divider
+                }`,
+                background: viewFilter === "telecaller"
+                  ? isDark
+                    ? `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.18)} 0%, ${alpha(theme.palette.success.dark, 0.10)} 100%)`
+                    : `linear-gradient(135deg, ${alpha(theme.palette.success.main, 0.08)} 0%, ${alpha(theme.palette.success.light, 0.04)} 100%)`
+                  : "background.paper",
+                transition: "all 0.22s ease",
+                "&:hover": {
+                  boxShadow: theme.shadows[6],
+                  transform: "translateY(-3px)",
+                  borderColor: theme.palette.success.main,
+                },
+              }}
+            >
+              <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
+                <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 2.5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: alpha(theme.palette.success.main, 0.12),
+                    }}
+                  >
+                    <TelecallerIcon sx={{ color: "success.main", fontSize: 24 }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+                      Telecallers Sabhsad
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Sabhsad Distribution
+                    </Typography>
+                  </Box>
+                  {viewFilter === "telecaller" && (
+                    <Chip
+                      label="Active"
+                      size="small"
+                      color="success"
+                      sx={{ ml: "auto", fontWeight: 700, height: 22, fontSize: "0.68rem" }}
+                    />
+                  )}
+                </Stack>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="success.main">
+                        {tcSummary.length}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Telecallers
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="primary.main">
+                        {tcSummary.reduce((acc, [_, d]: [string, any]) => acc + (d.called || 0), 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Calls Done
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={4}>
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography variant="h5" fontWeight={800} color="warning.main">
+                        {tcSummary.reduce((acc, [_, d]: [string, any]) => acc + (d.pending || 0), 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.68rem" }}>
+                        Pending
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -396,7 +684,7 @@ export default function CallDistribution() {
           </Paper>
 
           {/* ── Sales Manager Summary Cards ── */}
-          {smSummary.length > 0 && (
+          {smSummary.length > 0 && (viewFilter === "all" || viewFilter === "sales_manager") && (
             <Box sx={{ mb: 4 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 1.5, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
                 {t("callDistribution.salesManagerDistribution", "Sales Manager Distribution Status")}
@@ -478,7 +766,7 @@ export default function CallDistribution() {
           )}
 
           {/* ── Sabhsad Distribution ── */}
-          <Paper
+          {(viewFilter === "all" || viewFilter === "telecaller") && <Paper
             elevation={0}
             sx={{
               p: 2.5,
@@ -542,12 +830,12 @@ export default function CallDistribution() {
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                           {selected.map((value) => (
-                            <Chip key={value} label={telecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
+                            <Chip key={value} label={tcTelecallers.find(t => t.email === value)?.name || value.split('@')[0]} size="small" />
                           ))}
                         </Box>
                       )}
                     >
-                      {telecallers.map((t) => (
+                      {tcTelecallers.map((t) => (
                         <MenuItem key={t.email} value={t.email}>
                           {t.name || t.email.split("@")[0]}
                         </MenuItem>
@@ -567,10 +855,10 @@ export default function CallDistribution() {
                 </Stack>
               </Grid>
             </Grid>
-          </Paper>
+          </Paper>}
 
           {/* ── Telecaller Summary Cards ── */}
-          {tcSummary.length > 0 && (
+          {tcSummary.length > 0 && (viewFilter === "all" || viewFilter === "telecaller") && (
             <Box sx={{ mb: 4 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 1.5, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
                 {t("callDistribution.telecallerDistribution", "Telecaller Distribution Status")}
@@ -664,37 +952,63 @@ export default function CallDistribution() {
             }}
           >
             <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 2, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
-              Bulk Assign by Priority
+              {viewFilter === "sales_manager" ? "Bulk Assign by Priority (Sales Managers)" : viewFilter === "telecaller" ? "Bulk Assign (Telecallers)" : "Bulk Assign by Priority"}
             </Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
               <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>{t("callDistribution.telecaller", "Telecaller")}</InputLabel>
-                <Select label="Telecaller" value={bulkEmail} onChange={e => setBulkEmail(e.target.value as string)} sx={{ borderRadius: 2 }}>
-                  {telecallers.map(t => (
+                <InputLabel>
+                  {viewFilter === "sales_manager" ? "Sales Manager" : t("callDistribution.telecaller", "Telecaller")}
+                </InputLabel>
+                <Select
+                  label={viewFilter === "sales_manager" ? "Sales Manager" : t("callDistribution.telecaller", "Telecaller")}
+                  value={bulkEmail}
+                  onChange={e => { setBulkEmail(e.target.value as string); }}
+                  sx={{ borderRadius: 2 }}
+                >
+                  {activeBulkList.map(t => (
                     <MenuItem key={t.email} value={t.email}>{t.name || t.email.split("@")[0]}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              <FormControl size="small" sx={{ minWidth: 130 }}>
-                <InputLabel>{t("callDistribution.priority", "Priority")}</InputLabel>
-                <Select label="Priority" value={bulkPriority} onChange={e => setBulkPriority(e.target.value as string)} sx={{ borderRadius: 2 }}>
-                  <MenuItem value="High">🔴 High</MenuItem>
-                  <MenuItem value="Medium">🟡 Medium</MenuItem>
-                  <MenuItem value="Low">🟢 Low</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
-                size="small"
-                type="number"
-                label={t("callDistribution.count", "Count")}
-                value={bulkCount}
-                onChange={e => setBulkCount(Math.max(1, parseInt(e.target.value) || 1))}
-                sx={{ width: 100, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-                inputProps={{ min: 1 }}
-              />
+              {viewFilter !== "telecaller" && (
+                <FormControl size="small" sx={{ minWidth: 130 }}>
+                  <InputLabel>{t("callDistribution.priority", "Priority")}</InputLabel>
+                  <Select
+                    label="Priority"
+                    value={bulkPriority}
+                    onChange={e => {
+                      const newPriority = e.target.value as string;
+                      setBulkPriority(newPriority);
+                    }}
+                    sx={{ borderRadius: 2 }}
+                  >
+                    <MenuItem value="High">🔴 High</MenuItem>
+                    <MenuItem value="Medium">🟡 Medium</MenuItem>
+                    <MenuItem value="Low">🟢 Low</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
+              {(() => {
+                return (
+                  <TextField
+                    size="small"
+                    type="number"
+                    label={maxCount > 0 ? `Count (max: ${maxCount})` : "Count"}
+                    value={bulkCount}
+                    onChange={e => {
+                      const val = Math.max(1, parseInt(e.target.value) || 1);
+                      setBulkCount(maxCount > 0 ? Math.min(val, maxCount) : val);
+                    }}
+                    sx={{ width: 160, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    inputProps={{ min: 1, max: maxCount > 0 ? maxCount : undefined }}
+                    disabled={maxCount === 0 && !countsLoading}
+                    helperText={countsLoading ? "Loading availability..." : (maxCount === 0 && bulkEmail ? `No ${effectiveBulkPriority === "Any" ? "" : effectiveBulkPriority} calls available` : "")}
+                  />
+                );
+              })()}
               <Button
                 variant="contained"
-                disabled={!bulkEmail || bulkLoading}
+                disabled={!bulkEmail || bulkLoading || (maxCount === 0 && !countsLoading)}
                 startIcon={bulkLoading ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
                 onClick={handleBulk}
                 sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, px: 3 }}
@@ -716,13 +1030,24 @@ export default function CallDistribution() {
             }}
           >
             <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "info.main", mb: 2, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
-              Transfer Pending Calls (Half-Day / Absent)
+              {viewFilter === "sales_manager"
+                ? "Transfer Pending Calls — Sales Managers (Half-Day / Absent)"
+                : viewFilter === "telecaller"
+                ? "Transfer Pending Calls — Telecallers (Half-Day / Absent)"
+                : "Transfer Pending Calls (Half-Day / Absent)"}
             </Typography>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
               <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>From (Half-Day Telecaller)</InputLabel>
-                <Select label="From (Half-Day Telecaller)" value={transferFrom} onChange={e => setTransferFrom(e.target.value as string)} sx={{ borderRadius: 2 }}>
-                  {telecallers.map(t => (
+                <InputLabel>
+                  {viewFilter === "sales_manager" ? "From (Sales Manager)" : "From (Half-Day Telecaller)"}
+                </InputLabel>
+                <Select
+                  label={viewFilter === "sales_manager" ? "From (Sales Manager)" : "From (Half-Day Telecaller)"}
+                  value={transferFrom}
+                  onChange={e => setTransferFrom(e.target.value as string)}
+                  sx={{ borderRadius: 2 }}
+                >
+                  {activeTransferList.map(t => (
                     <MenuItem key={t.email} value={t.email}>{t.name || t.email.split("@")[0]}</MenuItem>
                   ))}
                 </Select>
@@ -731,9 +1056,16 @@ export default function CallDistribution() {
                 →
               </Typography>
               <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>To (Available Telecaller)</InputLabel>
-                <Select label="To (Available Telecaller)" value={transferTo} onChange={e => setTransferTo(e.target.value as string)} sx={{ borderRadius: 2 }}>
-                  {telecallers.map(t => (
+                <InputLabel>
+                  {viewFilter === "sales_manager" ? "To (Available Sales Manager)" : "To (Available Telecaller)"}
+                </InputLabel>
+                <Select
+                  label={viewFilter === "sales_manager" ? "To (Available Sales Manager)" : "To (Available Telecaller)"}
+                  value={transferTo}
+                  onChange={e => setTransferTo(e.target.value as string)}
+                  sx={{ borderRadius: 2 }}
+                >
+                  {activeTransferList.map(t => (
                     <MenuItem key={t.email} value={t.email}>{t.name || t.email.split("@")[0]}</MenuItem>
                   ))}
                 </Select>
@@ -806,7 +1138,10 @@ export default function CallDistribution() {
                                 onChange={e => handleReassign(a.assignment_id, e.target.value as string)}
                                 sx={{ borderRadius: 2, fontSize: 12 }}
                               >
-                                {telecallers
+                                {(viewFilter === "sales_manager" ? smTelecallers
+                                  : viewFilter === "telecaller" ? tcTelecallers
+                                  : tcTelecallers
+                                )
                                   .filter(t => t.email !== a.user_email)
                                   .map(t => (
                                     <MenuItem key={t.email} value={t.email} sx={{ fontSize: 13 }}>

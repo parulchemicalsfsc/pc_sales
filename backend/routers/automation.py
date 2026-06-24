@@ -46,6 +46,13 @@ class TransferPendingRequest(BaseModel):
     from_user_email: str
     to_user_email: str
 
+class AdhocCallRequest(BaseModel):
+    entity_id: int          # customer_id or distributor_id
+    entity_type: str        # 'customer' or 'distributor'
+    call_outcome: str       # connected, not_reachable, callback, wrong_number
+    notes: Optional[str] = None
+    callback_date: Optional[str] = None
+
 VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
 
 # ─── Distribution Logic ──────────────────────────────────
@@ -683,6 +690,92 @@ def start_call_timer(
         logger.error(f"Error starting call timer: {e}")
         raise HTTPException(status_code=500, detail="Failed to start call timer")
 
+
+@router.post("/log-adhoc-call")
+def log_adhoc_call(
+    body: AdhocCallRequest,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Log a call outcome for any customer/distributor without needing a pre-existing assignment.
+    - If a Pending assignment exists for this user+entity today → update it.
+    - Otherwise → create a new assignment record with the final status.
+    Also always writes to call_logs.
+    """
+    if body.call_outcome not in VALID_OUTCOMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid outcome. Must be one of: {', '.join(VALID_OUTCOMES)}"
+        )
+
+    try:
+        today_str = get_today_ist()
+        status_map = {
+            "connected": "Called",
+            "not_reachable": "Not Reachable",
+            "callback": "Callback",
+            "wrong_number": "Wrong Number",
+        }
+        new_status = status_map[body.call_outcome]
+
+        # Check for an existing Pending assignment for this user + entity today
+        existing_res = db.table("calling_assignments") \
+            .select("assignment_id") \
+            .eq("user_email", user_email) \
+            .eq("customer_id", body.entity_id) \
+            .eq("assigned_date", today_str) \
+            .eq("status", "Pending") \
+            .execute()
+
+        assignment_id = None
+        if existing_res.data:
+            # Update existing
+            assignment_id = existing_res.data[0]["assignment_id"]
+            upd = {"status": new_status, "notes": body.notes or ""}
+            if body.call_outcome == "callback" and body.callback_date:
+                upd["callback_date"] = body.callback_date
+            db.table("calling_assignments").eq("assignment_id", assignment_id).update(upd).execute()
+        else:
+            priority = "High" if body.entity_type == "distributor" else "Medium"
+
+            # Create new called assignment
+            new_row = {
+                "user_email": user_email,
+                "customer_id": body.entity_id,
+                "entity_type": body.entity_type,
+                "assigned_date": today_str,
+                "status": new_status,
+                "notes": body.notes or "",
+                "priority": priority,
+                "reason": "Adhoc Call",
+            }
+            if body.call_outcome == "callback" and body.callback_date:
+                new_row["callback_date"] = body.callback_date
+            ins = db.table("calling_assignments").insert(new_row).execute()
+            if ins.data:
+                assignment_id = ins.data[0].get("assignment_id")
+
+        # Always write a call_logs entry
+        log_row = {
+            "assignment_id": assignment_id,
+            "customer_id": body.entity_id,
+            "user_email": user_email,
+            "call_outcome": body.call_outcome,
+            "notes": body.notes or "",
+            "called_at": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+        }
+        if body.call_outcome == "callback" and body.callback_date:
+            log_row["callback_date"] = body.callback_date
+        db.table("call_logs").insert(log_row).execute()
+
+        return {"message": f"Call logged: {new_status}", "status": new_status, "assignment_id": assignment_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging adhoc call: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/update-call-status")
@@ -1463,6 +1556,56 @@ def admin_refresh_distribution(
         raise HTTPException(status_code=500, detail=f"Refresh failed: {e}")
 
 
+@router.get("/admin/available-counts")
+def get_available_counts(
+    target_email: str = Query(..., description="Target telecaller email (excluded from counts)"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Admin: Get the number of available (pending) calls per priority level and total.
+    Excludes calls already assigned to the target email.
+    Filters by entity_type: 'distributor' for sales_manager, 'customer' for telecaller.
+    Returns: { "High": N, "Medium": N, "Low": N, "Any": N }
+    """
+    try:
+        today_str = get_today_ist()
+
+        # Determine target user's role to filter the correct entity_type
+        user_res = db.table("app_users").select("role").eq("email", target_email).execute()
+        role = user_res.data[0]["role"] if user_res.data else "telecaller"
+        target_entity = "distributor" if role == "sales_manager" else "customer"
+
+        # Get emails of all users with the same role
+        role_res = db.table("app_users").select("email").eq("role", role).execute()
+        same_role_emails = [r["email"] for r in role_res.data] if role_res.data else []
+
+        if not same_role_emails:
+            return {"High": 0, "Medium": 0, "Low": 0, "Any": 0}
+
+        res = db.table("calling_assignments") \
+            .select("priority") \
+            .eq("assigned_date", today_str) \
+            .eq("status", "Pending") \
+            .eq("entity_type", target_entity) \
+            .in_("user_email", same_role_emails) \
+            .neq("user_email", target_email) \
+            .execute()
+
+        rows = res.data or []
+        counts = {"High": 0, "Medium": 0, "Low": 0, "Any": len(rows)}
+        for r in rows:
+            p = r.get("priority")
+            # If no priority is set, it won't increment High/Medium/Low but will be in Any
+            if p in counts:
+                counts[p] += 1
+
+        return counts
+
+    except Exception as e:
+        logger.error(f"Error getting available counts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/admin/bulk-reassign")
 def admin_bulk_reassign(
     body: BulkReassignRequest,
@@ -1478,15 +1621,52 @@ def admin_bulk_reassign(
     try:
         today_str = get_today_ist()
 
+        # Determine target user's role to filter the correct entity_type
+        user_res = db.table("app_users").select("role").eq("email", body.target_email).execute()
+        role = user_res.data[0]["role"] if user_res.data else "telecaller"
+        target_entity = "distributor" if role == "sales_manager" else "customer"
+
+        # Get emails of all users with the same role
+        role_res = db.table("app_users").select("email").eq("role", role).execute()
+        same_role_emails = [r["email"] for r in role_res.data] if role_res.data else []
+
+        if not same_role_emails:
+            raise HTTPException(status_code=404, detail="No users found with the same role.")
+
+        # Server-side validation: check how many are actually available
+        avail_query = db.table("calling_assignments") \
+            .select("assignment_id") \
+            .eq("assigned_date", today_str) \
+            .eq("status", "Pending") \
+            .eq("entity_type", target_entity) \
+            .in_("user_email", same_role_emails) \
+            .neq("user_email", body.target_email)
+
+        if body.priority != "Any":
+            avail_query = avail_query.eq("priority", body.priority)
+
+        avail_res = avail_query.execute()
+        available = len(avail_res.data or [])
+
+        if body.count > available:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requested {body.count} but only {available} {body.priority} priority calls are available"
+            )
+
         # Get pending assignments of this priority NOT already assigned to target
-        res = db.table("calling_assignments") \
+        res_query = db.table("calling_assignments") \
             .select("assignment_id, user_email") \
             .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
-            .eq("priority", body.priority) \
-            .neq("user_email", body.target_email) \
-            .limit(body.count) \
-            .execute()
+            .eq("entity_type", target_entity) \
+            .in_("user_email", same_role_emails) \
+            .neq("user_email", body.target_email)
+
+        if body.priority != "Any":
+            res_query = res_query.eq("priority", body.priority)
+
+        res = res_query.limit(body.count).execute()
 
         candidates = res.data or []
         if not candidates:
