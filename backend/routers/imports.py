@@ -483,7 +483,6 @@ def confirm_import_sabhasads(
         "conflict_records": 0,
         "invalid_records": skipped_count,
         "import_status": "SUCCESS" if imported_count > 0 else "FAILED",
-        "message": f"Conflicts resolved via UI." # Audit info
     }
     try:
         conn.table("import_history").insert(import_history_data).execute()
