@@ -387,6 +387,7 @@ def confirm_import_sabhasads(
     """
     print("🔥 SABHASAD CONFIRM IMPORT API HIT")
     selected_rows = req.selected_rows
+    print("selected_rows:", len(selected_rows))
     
     if not selected_rows:
         return {
@@ -459,9 +460,12 @@ def confirm_import_sabhasads(
 
     if records_to_insert:
         try:
+            print("records_to_insert:", len(records_to_insert))
             res = conn.table("customers").upsert(records_to_insert).execute()
             inserted = len(res.data) if res.data else 0
             imported_count += inserted
+            print("res.data length:", len(res.data) if res.data else 0)
+            print("res:", res)
         except Exception as e:
             failed_rows.extend([
                 {"row": r, "reason": f"Database upsert error: {str(e)}"}
@@ -489,12 +493,23 @@ def confirm_import_sabhasads(
     except Exception as eh:
         print(f"❌ ERROR logging import history: {eh}")
         
+    print({
+       "imported_count": imported_count,
+       "skipped_count": skipped_count,
+       "failed_rows": len(failed_rows)
+    })
+    if imported_count == 0:
+        print("first 5 records_to_insert:")
+        for r in records_to_insert[:5]:
+            print(r)
+
     return {
         "imported_count": imported_count,
         "skipped_count": skipped_count,
         "failed_rows": failed_rows,
         "message": f"Successfully imported {imported_count} Sabhasads."
     }
+
 
 @router.post("/excel")
 def import_excel(
