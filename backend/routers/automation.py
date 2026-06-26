@@ -1150,24 +1150,29 @@ def get_admin_assignments(
 
         assignments = res.data or []
 
-        # Enrich with customer details
-        cust_ids = list(set(a["customer_id"] for a in assignments if a.get("customer_id")))
-        customers_map = {}
-        if cust_ids:
-            cust_res = db.table("customers") \
-                .select("customer_id, name, mobile, village") \
-                .in_("customer_id", cust_ids) \
-                .execute()
-            customers_map = {c["customer_id"]: c for c in (cust_res.data or [])}
+        # NOTE: customer_id in calling_assignments actually stores distributor_id (schema reuse).
+        # Enrich with distributor (mantri) details from the distributors table.
+        dist_ids = list(set(a["customer_id"] for a in assignments if a.get("customer_id")))
+        distributors_map = {}
+        if dist_ids:
+            # Fetch in chunks of 100 to avoid URL length limits
+            for i in range(0, len(dist_ids), 100):
+                chunk = dist_ids[i:i+100]
+                dist_res = db.table("distributors") \
+                    .select("distributor_id, mantri_name, mantri_mobile, village") \
+                    .in_("distributor_id", chunk) \
+                    .execute()
+                for d in (dist_res.data or []):
+                    distributors_map[d["distributor_id"]] = d
 
         enhanced = []
         for a in assignments:
-            c = customers_map.get(a["customer_id"], {})
+            d = distributors_map.get(a["customer_id"], {})
             enhanced.append({
                 **a,
-                "name": c.get("name", "Unknown"),
-                "mobile": c.get("mobile", ""),
-                "village": c.get("village", ""),
+                "name": d.get("mantri_name") or "Unknown",
+                "mobile": d.get("mantri_mobile") or "",
+                "village": d.get("village") or "",
             })
 
         # Count total for date

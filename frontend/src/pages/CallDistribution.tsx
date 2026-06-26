@@ -101,7 +101,7 @@ export default function CallDistribution() {
   const { timeLeft, progress, isPast } = useCountdownTo10AM();
 
   // View filter: "all" | "sales_manager" | "telecaller"
-  const [viewFilter, setViewFilter] = useState<"all" | "sales_manager" | "telecaller">("all");
+  const [viewFilter, setViewFilter] = useState<"all" | "sales_manager" | "telecaller">("sales_manager");
 
   const [distributing, setDistributing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -296,11 +296,6 @@ export default function CallDistribution() {
     }
   };
 
-  const pendingAssignments = useMemo(() =>
-    (adminData?.assignments || []).filter((a: any) => a.status === "Pending"),
-    [adminData]
-  );
-
   const allSummary = adminData?.telecaller_summary
     ? Object.entries(adminData.telecaller_summary as Record<string, any>)
     : [];
@@ -312,6 +307,15 @@ export default function CallDistribution() {
   const smEmails = new Set(smSummary.map(([email]) => email));
   const smTelecallers = telecallers.filter(t => smEmails.has(t.email));
   const tcTelecallers = telecallers.filter(t => !smEmails.has(t.email));
+
+  const pendingAssignments = useMemo(() => {
+    const all = (adminData?.assignments || []).filter((a: any) => a.status === "Pending");
+    if (viewFilter === "sales_manager") return all.filter((a: any) => smEmails.has(a.user_email));
+    if (viewFilter === "telecaller") return all.filter((a: any) => !smEmails.has(a.user_email));
+    return all;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminData, viewFilter, smSummary]);
+
 
   // Fetch available counts whenever bulkEmail changes
   useEffect(() => {
@@ -371,38 +375,8 @@ export default function CallDistribution() {
               {t("callDistribution.subtitle", "Manage and monitor today's telecaller assignments")}
             </Typography>
           </Box>
-          {/* Top-right controls: view filter dropdown + help button */}
+          {/* Top-right controls: help button */}
           <Stack direction="row" spacing={1} alignItems="center">
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel id="view-filter-label">View</InputLabel>
-              <Select
-                labelId="view-filter-label"
-                label="View"
-                value={viewFilter}
-                onChange={(e) => setViewFilter(e.target.value as typeof viewFilter)}
-                IconComponent={ArrowDropDownIcon}
-                sx={{
-                  borderRadius: 2,
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  "& .MuiOutlinedInput-notchedOutline": { borderColor: theme.palette.divider },
-                }}
-              >
-                <MenuItem value="all">All</MenuItem>
-                <MenuItem value="sales_manager">
-                  <Stack direction="row" alignItems="center" spacing={0.8}>
-                    <SalesManagerIcon sx={{ fontSize: 16, color: "primary.main" }} />
-                    <span>Sales Manager</span>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="telecaller">
-                  <Stack direction="row" alignItems="center" spacing={0.8}>
-                    <TelecallerIcon sx={{ fontSize: 16, color: "success.main" }} />
-                    <span>Telecallers</span>
-                  </Stack>
-                </MenuItem>
-              </Select>
-            </FormControl>
             <Tooltip title="How to use this page">
               <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main" }}>
                 <HelpIcon fontSize="small" />
@@ -418,7 +392,7 @@ export default function CallDistribution() {
           {/* Sales Manager Card */}
           <Grid item xs={12} sm={6}>
             <Card
-              onClick={() => setViewFilter(viewFilter === "sales_manager" ? "all" : "sales_manager")}
+              onClick={() => setViewFilter(viewFilter === "sales_manager" ? "telecaller" : "sales_manager")}
               sx={{
                 borderRadius: 3,
                 cursor: "pointer",
@@ -511,7 +485,7 @@ export default function CallDistribution() {
           {/* Telecallers Sabhsad Card */}
           <Grid item xs={12} sm={6}>
             <Card
-              onClick={() => setViewFilter(viewFilter === "telecaller" ? "all" : "telecaller")}
+              onClick={() => setViewFilter(viewFilter === "telecaller" ? "sales_manager" : "telecaller")}
               sx={{
                 borderRadius: 3,
                 cursor: "pointer",
@@ -1100,7 +1074,7 @@ export default function CallDistribution() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("customers.title", "Sabhasad")}</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>Mantri</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("fields.village", "Village")}</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.assignedTo", "Assigned To")}</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.reassign", "Reassign")}</TableCell>
