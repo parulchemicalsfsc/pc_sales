@@ -979,7 +979,16 @@ def get_telecallers(
     """List all active telecaller users."""
     try:
         telecallers = _get_telecaller_emails(db)
-        return {"telecallers": telecallers}
+        sales_managers = _get_present_sales_managers(db)
+        
+        combined = []
+        seen = set()
+        for u in telecallers + sales_managers:
+            if u["email"] not in seen:
+                combined.append(u)
+                seen.add(u["email"])
+                
+        return {"telecallers": combined}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1150,30 +1159,58 @@ def get_admin_assignments(
 
         assignments = res.data or []
 
-        # NOTE: customer_id in calling_assignments actually stores distributor_id (schema reuse).
-        # Enrich with distributor (mantri) details from the distributors table.
-        dist_ids = list(set(a["customer_id"] for a in assignments if a.get("customer_id")))
+        # Enrich details based on entity_type (distributor vs customer)
+        dist_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
+        cust_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
+        
+        # Fallback: if entity_type is missing, guess based on whether we can find it in distributors first?
+        # Actually, let's just add any missing entity_type to both sets to be safe
+        missing_type_ids = [a["customer_id"] for a in assignments if not a.get("entity_type") and a.get("customer_id")]
+        dist_ids.extend(missing_type_ids)
+        cust_ids.extend(missing_type_ids)
+
+        dist_ids = list(set(dist_ids))
+        cust_ids = list(set(cust_ids))
+
         distributors_map = {}
         if dist_ids:
-            # Fetch in chunks of 100 to avoid URL length limits
             for i in range(0, len(dist_ids), 100):
                 chunk = dist_ids[i:i+100]
-                dist_res = db.table("distributors") \
-                    .select("distributor_id, mantri_name, mantri_mobile, village") \
-                    .in_("distributor_id", chunk) \
-                    .execute()
+                dist_res = db.table("distributors").select("distributor_id, mantri_name, mantri_mobile, village").in_("distributor_id", chunk).execute()
                 for dist_row in (dist_res.data or []):
                     distributors_map[dist_row["distributor_id"]] = dist_row
 
+        customers_map = {}
+        if cust_ids:
+            for i in range(0, len(cust_ids), 100):
+                chunk = cust_ids[i:i+100]
+                cust_res = db.table("customers").select("customer_id, name, mobile, village").in_("customer_id", chunk).execute()
+                for cust_row in (cust_res.data or []):
+                    customers_map[cust_row["customer_id"]] = cust_row
+
         enhanced = []
         for a in assignments:
-            dist_info = distributors_map.get(a["customer_id"], {})
-            enhanced.append({
-                **a,
-                "name": dist_info.get("mantri_name") or "Unknown",
-                "mobile": dist_info.get("mantri_mobile") or "",
-                "village": dist_info.get("village") or "",
-            })
+            e_type = a.get("entity_type")
+            cid = a.get("customer_id")
+            
+            # If explicit customer or it wasn't found in distributors
+            if e_type == "customer" or (e_type != "distributor" and cid in customers_map and cid not in distributors_map):
+                info = customers_map.get(cid, {})
+                enhanced.append({
+                    **a,
+                    "name": info.get("name") or "Unknown",
+                    "mobile": info.get("mobile") or "",
+                    "village": info.get("village") or "",
+                })
+            else:
+                # Default to distributor
+                info = distributors_map.get(cid, {})
+                enhanced.append({
+                    **a,
+                    "name": info.get("mantri_name") or "Unknown",
+                    "mobile": info.get("mantri_mobile") or "",
+                    "village": info.get("village") or "",
+                })
 
         # Count total for date
         count_res = db.table("calling_assignments") \

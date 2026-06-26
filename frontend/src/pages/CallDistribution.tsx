@@ -304,9 +304,9 @@ export default function CallDistribution() {
   const tcSummary = allSummary.filter(([_, stats]) => stats.role !== "sales_manager" && stats.role !== "admin");
 
   // Role-split telecaller lists for filtered dropdowns
-  const smEmails = new Set(smSummary.map(([email]) => email));
-  const smTelecallers = telecallers.filter(t => smEmails.has(t.email));
-  const tcTelecallers = telecallers.filter(t => !smEmails.has(t.email));
+  const smTelecallers = telecallers.filter(t => t.role === "sales_manager");
+  const tcTelecallers = telecallers.filter(t => t.role !== "sales_manager" && t.role !== "admin");
+  const smEmails = new Set(smTelecallers.map(t => t.email));
 
   const pendingAssignments = useMemo(() => {
     const all = (adminData?.assignments || []).filter((a: any) => a.status === "Pending");
@@ -1074,7 +1074,9 @@ export default function CallDistribution() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>Mantri</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>
+                        {viewFilter === "sales_manager" ? "Mantri" : t("customers.title", "Sabhasad")}
+                      </TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("fields.village", "Village")}</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.assignedTo", "Assigned To")}</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.reassign", "Reassign")}</TableCell>
@@ -1112,16 +1114,19 @@ export default function CallDistribution() {
                                 onChange={e => handleReassign(a.assignment_id, e.target.value as string)}
                                 sx={{ borderRadius: 2, fontSize: 12 }}
                               >
-                                {(viewFilter === "sales_manager" ? smTelecallers
-                                  : viewFilter === "telecaller" ? tcTelecallers
-                                  : tcTelecallers
-                                )
-                                  .filter(t => t.email !== a.user_email)
-                                  .map(t => (
+                                {(() => {
+                                  const targets = (viewFilter === "sales_manager" ? smTelecallers : tcTelecallers)
+                                    .filter(t => t.email !== a.user_email);
+                                  
+                                  if (targets.length === 0) {
+                                    return <MenuItem disabled value="" sx={{ fontSize: 13 }}>No others available</MenuItem>;
+                                  }
+                                  return targets.map(t => (
                                     <MenuItem key={t.email} value={t.email} sx={{ fontSize: 13 }}>
                                       {t.name || t.email.split("@")[0]}
                                     </MenuItem>
-                                  ))}
+                                  ));
+                                })()}
                               </Select>
                             </FormControl>
                           </TableCell>
