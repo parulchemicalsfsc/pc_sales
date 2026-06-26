@@ -1162,17 +1162,17 @@ def get_admin_assignments(
                     .select("distributor_id, mantri_name, mantri_mobile, village") \
                     .in_("distributor_id", chunk) \
                     .execute()
-                for d in (dist_res.data or []):
-                    distributors_map[d["distributor_id"]] = d
+                for dist_row in (dist_res.data or []):
+                    distributors_map[dist_row["distributor_id"]] = dist_row
 
         enhanced = []
         for a in assignments:
-            d = distributors_map.get(a["customer_id"], {})
+            dist_info = distributors_map.get(a["customer_id"], {})
             enhanced.append({
                 **a,
-                "name": d.get("mantri_name") or "Unknown",
-                "mobile": d.get("mantri_mobile") or "",
-                "village": d.get("village") or "",
+                "name": dist_info.get("mantri_name") or "Unknown",
+                "mobile": dist_info.get("mantri_mobile") or "",
+                "village": dist_info.get("village") or "",
             })
 
         # Count total for date
