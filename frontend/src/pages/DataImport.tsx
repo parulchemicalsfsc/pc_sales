@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Box,
@@ -29,7 +29,11 @@ import {
   Checkbox,
   Select,
   MenuItem,
-  Tooltip
+  Tooltip,
+  Snackbar,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -43,6 +47,7 @@ import {
   AttachFile as AttachFileIcon,
   CheckCircle as CheckCircleIcon,
   Group as GroupIcon,
+  ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
 import { fileAPI } from "../services/api";
 import { useTranslation } from "../hooks/useTranslation";
@@ -65,6 +70,121 @@ interface ImportDialog {
   }[];
 }
 
+// Returns the suggested default resolution action for a given conflict type.
+// PHONE_CONFLICT is intentionally left unresolved to require human review.
+const getDefaultResolution = (conflictType: string): string => {
+  if (conflictType === "EXACT_DUPLICATE") return "SKIP";
+  if (conflictType === "PHONE_EXISTS_IN_FILE") return "SKIP";
+  return "UNRESOLVED";
+};
+
+// ---------------------------------------------------------------------------
+// PhoneReviewRow — memoized row component for the Sabhasad Phone Review table.
+//
+// Performance design:
+//  - React.memo: only the row whose props changed re-renders; unchanged rows
+//    are skipped entirely when a sibling dropdown changes.
+//  - useCallback: stabilizes handleChange so memo comparison succeeds.
+//  - Module-level sx constants: allocated once at load time, never recreated.
+// ---------------------------------------------------------------------------
+
+interface PhoneReviewRowProps {
+  rowData: { uploaded_row: any; existing_db_row: any | null; conflict_type: string; };
+  index: number;
+  resolution: string;
+  isSuggested: boolean;
+  onResolutionChange: (index: number, value: string) => void;
+}
+
+
+
+const PhoneReviewRow = memo(function PhoneReviewRow({
+  rowData,
+  index,
+  resolution,
+  isSuggested,
+  onResolutionChange,
+}: PhoneReviewRowProps) {
+  const { uploaded_row, existing_db_row, conflict_type } = rowData;
+
+  const handleChange = useCallback(
+    (e: { target: { value: unknown } }) => { onResolutionChange(index, e.target.value as string); },
+    [index, onResolutionChange]
+  );
+
+  const isNameMismatch = conflict_type === "PHONE_CONFLICT" && existing_db_row != null && uploaded_row.name !== existing_db_row.name;
+  const isVillageMismatch = conflict_type === "PHONE_CONFLICT" && existing_db_row != null && uploaded_row.village !== existing_db_row.village;
+  const hasError = !resolution || resolution === "UNRESOLVED";
+  const chipColor = conflict_type === "EXACT_DUPLICATE" ? ("default" as const) : conflict_type === "PHONE_CONFLICT" ? ("warning" as const) : ("error" as const);
+  const tooltipTitle = conflict_type === "EXACT_DUPLICATE" ? "Exact Match on Phone, Name, and Village" : conflict_type === "PHONE_EXISTS_IN_FILE" ? "Duplicate phone number found within the uploaded Excel file" : "Phone number exists but customer details differ";
+
+  return (
+    <TableRow hover>
+      <TableCell padding="checkbox" />
+      <TableCell>
+        <Tooltip title={tooltipTitle} placement="top" arrow>
+          <Chip size="small" label={conflict_type.replace(/_/g, " ")} color={chipColor} sx={prSx.chip} />
+        </Tooltip>
+        <Typography variant="caption" display="block" color="text.secondary" sx={prSx.caption}>{tooltipTitle}</Typography>
+      </TableCell>
+      <TableCell>
+        <Box sx={prSx.recordBox}>
+          <Typography variant="body1" fontWeight={700} sx={prSx.uploadedName}>{uploaded_row.name || "-"}</Typography>
+          <Box sx={prSx.chipRow}>
+            <Chip size="small" variant="outlined" label={`📞 ${uploaded_row.mobile || "-"}`} sx={prSx.phoneChip} />
+            <Chip size="small" variant="outlined" label={`📍 ${uploaded_row.village || "-"}`} sx={prSx.villageChip} />
+            {uploaded_row.customer_code && <Chip size="small" variant="outlined" label={`🆔 ${uploaded_row.customer_code}`} sx={prSx.idChip} />}
+          </Box>
+        </Box>
+      </TableCell>
+      <TableCell>
+        {existing_db_row ? (
+          <Box sx={prSx.recordBox}>
+            <Typography variant="body1" fontWeight={700} sx={{ mb: 0.5, color: isNameMismatch ? "warning.dark" : "text.primary", bgcolor: isNameMismatch ? "warning.light" : "transparent", px: isNameMismatch ? 0.5 : 0, borderRadius: 0.5, display: "inline-block", fontSize: "1.05rem" }}>
+              {existing_db_row.name}
+            </Typography>
+            <Box sx={prSx.chipRow}>
+              <Chip size="small" variant="outlined" label={`📞 ${existing_db_row.mobile}`} sx={prSx.phoneChip} />
+              <Chip size="small" variant={isVillageMismatch ? "filled" : "outlined"} color={isVillageMismatch ? "warning" : "default"} label={`📍 ${existing_db_row.village}`} sx={{ fontSize: "0.8rem", borderColor: "divider", fontWeight: isVillageMismatch ? 700 : 500 }} />
+              <Chip size="small" variant="outlined" label={`🆔 ${existing_db_row.customer_code || "-"}`} sx={prSx.idChip} />
+            </Box>
+          </Box>
+        ) : (
+          <Box sx={prSx.noRecord}><Typography variant="caption" color="text.secondary" fontStyle="italic">No existing record</Typography></Box>
+        )}
+      </TableCell>
+      <TableCell>
+        <Box sx={prSx.resolutionBox}>
+          <Select size="small" value={resolution} onChange={handleChange as any} sx={prSx.select} error={hasError}>
+            <MenuItem value="UNRESOLVED" disabled>-- Select Action --</MenuItem>
+            <MenuItem value="SKIP">Skip Row</MenuItem>
+            {conflict_type !== "EXACT_DUPLICATE" && <MenuItem value="UPDATE_EXISTING" disabled={!existing_db_row}>Update DB Customer</MenuItem>}
+            {conflict_type === "PHONE_EXISTS_IN_FILE" && <MenuItem value="IMPORT_NEW">Import as New</MenuItem>}
+          </Select>
+          {isSuggested && <Chip label="Suggested" size="small" color="info" variant="outlined" sx={prSx.badge} />}
+        </Box>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+// Module-level sx constants — allocated once at load time, never recreated during renders.
+const prSx = {
+  chip:         { fontWeight: "bold", fontSize: "0.75rem", borderRadius: 1, cursor: "help" },
+  caption:      { mt: 1, maxWidth: 150, lineHeight: 1.2, fontSize: "0.7rem", opacity: 0.8 },
+  recordBox:    { p: 1.5, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" },
+  uploadedName: { mb: 0.5, color: "primary.main", fontSize: "1.05rem" },
+  chipRow:      { display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 },
+  phoneChip:    { fontWeight: 600, fontSize: "0.85rem", color: "text.primary", borderColor: "divider" },
+  villageChip:  { fontSize: "0.8rem", color: "text.primary", borderColor: "divider" },
+  idChip:       { fontSize: "0.8rem", color: "text.secondary", borderColor: "divider" },
+  noRecord:     { p: 1.5, display: "flex", alignItems: "center", justifyContent: "center", height: "100%", bgcolor: "action.hover", borderRadius: 1, border: "1px dashed", borderColor: "divider" },
+  resolutionBox:{ p: 1, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" },
+  select:       { minWidth: 200, bgcolor: "background.paper", borderRadius: 1, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" },
+  badge:        { mt: 0.75, height: 18, fontSize: "0.62rem", fontWeight: 700, display: "flex", width: "fit-content" },
+} as const;
+
+
 export default function DataImport() {
   const { t } = useTranslation();
   const [openDialog, setOpenDialog] = useState<ImportType | null>(null);
@@ -86,6 +206,19 @@ export default function DataImport() {
   
   // Sabhasad Conflict Resolutions: mapping from index to action (e.g. "UPDATE_EXISTING", "IMPORT_NEW", "SKIP")
   const [sabhasadResolutions, setSabhasadResolutions] = useState<Record<number, string>>({});
+  // Tracks which Phone Review row indices the admin has manually overridden (clears the "Suggested" badge)
+  const [sabhasadUserOverrides, setSabhasadUserOverrides] = useState<Set<number>>(new Set());
+
+  // Bulk actions selected default values
+  const [bulkActionsState, setBulkActionsState] = useState({
+    EXACT_DUPLICATE: "SKIP",
+    PHONE_EXISTS_IN_FILE: "SKIP",
+    PHONE_CONFLICT: "UPDATE_EXISTING"
+  });
+  const [bulkActionSnackbar, setBulkActionSnackbar] = useState({ open: false, message: "" });
+
+  // Show Unresolved Only Filter State
+  const [showUnresolvedOnly, setShowUnresolvedOnly] = useState(false);
 
   // Final Confirmation Step
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
@@ -96,6 +229,59 @@ export default function DataImport() {
 
   const [importHistory, setImportHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ─── Memoized Derived Values ─────────────────────────────────────────────────
+  // Conflict-type counts — recomputed only when reviewData changes (on upload).
+  const phoneReviewStats = useMemo(() => {
+    const phoneReview = reviewData?.phone_review || [];
+    let exactDupCount = 0;
+    let phoneInFileCount = 0;
+    let phoneConflictCount = 0;
+    for (const r of phoneReview) {
+      if (r.conflict_type === "EXACT_DUPLICATE") exactDupCount++;
+      else if (r.conflict_type === "PHONE_EXISTS_IN_FILE") phoneInFileCount++;
+      else if (r.conflict_type === "PHONE_CONFLICT") phoneConflictCount++;
+    }
+    return { exactDupCount, phoneInFileCount, phoneConflictCount, suggestableCount: exactDupCount + phoneInFileCount };
+  }, [reviewData]);
+
+  // Resolved/unresolved counts — recomputed only when sabhasadResolutions changes.
+  // Single pass replaces the four separate Object.values().filter() calls that
+  // were previously scattered across the render (stats panel + footer + button x2).
+  const { resolvedCount, unresolvedCount } = useMemo(() => {
+    const values = Object.values(sabhasadResolutions);
+    let unresolved = 0;
+    for (const v of values) {
+      if (v === "UNRESOLVED") unresolved++;
+    }
+    return { resolvedCount: values.length - unresolved, unresolvedCount: unresolved };
+  }, [sabhasadResolutions]);
+
+  // Phone review mapped array with original indices + filter
+  const visiblePhoneReviewRows = useMemo(() => {
+    const rows = reviewData?.phone_review || [];
+    const mapped = rows.map((r: any, idx: number) => ({ rowData: r, originalIndex: idx }));
+    if (!showUnresolvedOnly) return mapped;
+    
+    return mapped.filter((item: any) => {
+      const res = sabhasadResolutions[item.originalIndex] ?? getDefaultResolution(item.rowData.conflict_type);
+      return !res || res === "UNRESOLVED";
+    });
+  }, [reviewData?.phone_review, showUnresolvedOnly, sabhasadResolutions]);
+
+  // Grouped visible phone review rows
+  const groupedPhoneReviewRows = useMemo(() => {
+    const exactDups: any[] = [];
+    const phoneExists: any[] = [];
+    const phoneConflicts: any[] = [];
+    
+    for (const item of visiblePhoneReviewRows) {
+      if (item.rowData.conflict_type === "EXACT_DUPLICATE") exactDups.push(item);
+      else if (item.rowData.conflict_type === "PHONE_EXISTS_IN_FILE") phoneExists.push(item);
+      else if (item.rowData.conflict_type === "PHONE_CONFLICT") phoneConflicts.push(item);
+    }
+    return { exactDups, phoneExists, phoneConflicts };
+  }, [visiblePhoneReviewRows]);
 
   const fetchHistory = async () => {
     try {
@@ -294,6 +480,7 @@ export default function DataImport() {
     setSelectedReadyIndices([]);
     setSelectedConflictIndices([]);
     setSabhasadResolutions({});
+    setSabhasadUserOverrides(new Set());
     setShowFinalConfirm(false);
     setImportPayload(null);
   };
@@ -372,9 +559,10 @@ export default function DataImport() {
         if (openDialog === "sabhasad" && response && response.phone_review) {
           const defaultResolutions: Record<number, string> = {};
           response.phone_review.forEach((c: any, idx: number) => {
-            defaultResolutions[idx] = c.conflict_type === "EXACT_DUPLICATE" ? "SKIP" : "UNRESOLVED";
+            defaultResolutions[idx] = getDefaultResolution(c.conflict_type);
           });
           setSabhasadResolutions(defaultResolutions);
+          setSabhasadUserOverrides(new Set()); // Clear any stale overrides from a previous upload
         }
         
         setUploading(false);
@@ -520,6 +708,57 @@ export default function DataImport() {
       setUploading(false);
     }
   };
+
+  // Bulk-applies the suggested action (SKIP) to all rows that have an automatic suggestion.
+  // PHONE_CONFLICT rows are intentionally left unresolved.
+  // Phase 1 fix: builds the new Set once outside the loop; calls setState only twice total.
+  const handleApplyAllSuggestions = () => {
+    if (!reviewData?.phone_review) return;
+    const newResolutions: Record<number, string> = { ...sabhasadResolutions };
+    const newOverrides = new Set(sabhasadUserOverrides); // single copy, not N copies
+    reviewData.phone_review.forEach((r: any, idx: number) => {
+      const suggestion = getDefaultResolution(r.conflict_type);
+      if (suggestion !== "UNRESOLVED") {
+        newResolutions[idx] = suggestion;
+        newOverrides.delete(idx); // remove so "Suggested" badge reappears
+      }
+    });
+    setSabhasadResolutions(newResolutions); // one setState call
+    setSabhasadUserOverrides(newOverrides); // one setState call
+  };
+
+  // Bulk-applies a specific action to all rows matching a specific conflict type.
+  const handleBulkAction = (conflictType: string, action: string, count: number) => {
+    if (!reviewData?.phone_review) return;
+    const newResolutions: Record<number, string> = { ...sabhasadResolutions };
+    const newOverrides = new Set(sabhasadUserOverrides);
+    
+    reviewData.phone_review.forEach((r: any, idx: number) => {
+      if (r.conflict_type === conflictType) {
+        newResolutions[idx] = action;
+        newOverrides.add(idx); // mark as manually resolved to remove Suggested badge
+      }
+    });
+    
+    setSabhasadResolutions(newResolutions);
+    setSabhasadUserOverrides(newOverrides);
+    
+    // Show snackbar feedback
+    const conflictLabel = conflictType.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    const actionLabel = action.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    setBulkActionSnackbar({ open: true, message: `✓ Applied "${actionLabel}" to ${count} ${conflictLabel} rows.` });
+  };
+
+  // Stable callback passed to every PhoneReviewRow.
+  // Empty deps: only uses setState updater functions (which are always stable).
+  const handleResolutionChange = useCallback((index: number, value: string) => {
+    setSabhasadResolutions(prev => ({ ...prev, [index]: value }));
+    setSabhasadUserOverrides(prev => {
+      const next = new Set(prev);
+      next.add(index);
+      return next;
+    });
+  }, []);
 
   const getCardColor = (type: ImportType) => {
     switch (type) {
@@ -879,9 +1118,10 @@ export default function DataImport() {
         <Dialog
           open={Boolean(openDialog)}
           onClose={handleCloseDialog}
+          fullScreen={openDialog === "sabhasad" && !!reviewData}
           maxWidth={openDialog === "sabhasad" && reviewData ? false : "md"}
           fullWidth
-          sx={{ '& .MuiDialog-paper': openDialog === "sabhasad" && reviewData ? { width: '90vw', maxWidth: '1400px' } : {} }}
+          sx={{ '& .MuiDialog-paper': openDialog === "sabhasad" && reviewData ? { height: '100%', maxHeight: 'none' } : {} }}
         >
           <DialogTitle sx={{ pb: 1 }}>
             <Box
@@ -1071,24 +1311,255 @@ export default function DataImport() {
                 )}
 
                 {openDialog === "sabhasad" && activeTab === 1 && (
-                  <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider', display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                    <Typography variant="caption" fontWeight="bold" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center' }}>LEGEND:</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip size="small" label="EXACT DUPLICATE" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
-                      <Typography variant="caption" color="text.secondary">Exact Match on Phone, Name, and Village</Typography>
+                  <>
+                    {/* Phone Review Summary Statistics — uses memoized phoneReviewStats and unresolvedCount */}
+                    <Box sx={{ mb: 2, p: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary' }}>
+                          Phone Review Summary
+                        </Typography>
+                        {phoneReviewStats.suggestableCount > 0 && (
+                          <Button
+                            variant="contained"
+                            color="info"
+                            size="small"
+                            onClick={handleApplyAllSuggestions}
+                            sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 1.5, fontSize: '0.8rem' }}
+                          >
+                            ✓ Apply All Suggested Actions
+                          </Button>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
+                        <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Chip size="small" label="EXACT DUPLICATE" sx={{ height: 20, fontSize: '0.62rem', fontWeight: 'bold' }} />
+                            <Typography variant="h6" fontWeight={800} color="text.primary">{phoneReviewStats.exactDupCount}</Typography>
+                          </Box>
+                          <Typography variant="caption" color="success.main" fontWeight={600}>Auto-suggested: Skip</Typography>
+                        </Box>
+                        <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Chip size="small" color="error" label="DUPLICATE IN FILE" sx={{ height: 20, fontSize: '0.62rem', fontWeight: 'bold' }} />
+                            <Typography variant="h6" fontWeight={800} color="text.primary">{phoneReviewStats.phoneInFileCount}</Typography>
+                          </Box>
+                          <Typography variant="caption" color="success.main" fontWeight={600}>Auto-suggested: Skip</Typography>
+                        </Box>
+                        <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: unresolvedCount > 0 ? 'warning.50' : 'background.paper', border: '1px solid', borderColor: unresolvedCount > 0 ? 'warning.300' : 'divider', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Chip size="small" color="warning" label="PHONE CONFLICT" sx={{ height: 20, fontSize: '0.62rem', fontWeight: 'bold' }} />
+                            <Typography variant="h6" fontWeight={800} color={unresolvedCount > 0 ? 'warning.dark' : 'text.primary'}>{phoneReviewStats.phoneConflictCount}</Typography>
+                          </Box>
+                          <Typography variant="caption" color={unresolvedCount > 0 ? 'warning.dark' : 'text.secondary'} fontWeight={600}>
+                            {unresolvedCount > 0 ? `${unresolvedCount} require manual review` : 'All resolved ✓'}
+                          </Typography>
+                        </Box>
+                      </Box>
                     </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip size="small" color="error" label="PHONE EXISTS IN FILE" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
-                      <Typography variant="caption" color="text.secondary">Duplicate phone number found within the uploaded Excel file</Typography>
+
+                    {/* Bulk Actions */}
+                    {(phoneReviewStats.exactDupCount > 0 || phoneReviewStats.phoneInFileCount > 0 || phoneReviewStats.phoneConflictCount > 0) && (
+                      <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" fontWeight="bold" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>BULK ACTIONS:</Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          {phoneReviewStats.exactDupCount > 0 && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, p: 1, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                              <Typography variant="body2" fontWeight={700} sx={{ width: { xs: '100%', sm: 220 } }}>EXACT DUPLICATE ({phoneReviewStats.exactDupCount})</Typography>
+                              <Typography variant="caption" color="text.secondary">Default Action:</Typography>
+                              <Select size="small" value={bulkActionsState.EXACT_DUPLICATE} onChange={(e) => setBulkActionsState(p => ({ ...p, EXACT_DUPLICATE: e.target.value as string }))} sx={{ minWidth: 150, height: 32 }}>
+                                <MenuItem value="SKIP">Skip</MenuItem>
+                              </Select>
+                              <Button variant="contained" size="small" onClick={() => handleBulkAction("EXACT_DUPLICATE", bulkActionsState.EXACT_DUPLICATE, phoneReviewStats.exactDupCount)} sx={{ textTransform: 'none', height: 32, px: 2 }}>Apply to All</Button>
+                            </Box>
+                          )}
+                          {phoneReviewStats.phoneInFileCount > 0 && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, p: 1, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                              <Typography variant="body2" fontWeight={700} sx={{ width: { xs: '100%', sm: 220 } }}>PHONE EXISTS IN FILE ({phoneReviewStats.phoneInFileCount})</Typography>
+                              <Typography variant="caption" color="text.secondary">Default Action:</Typography>
+                              <Select size="small" value={bulkActionsState.PHONE_EXISTS_IN_FILE} onChange={(e) => setBulkActionsState(p => ({ ...p, PHONE_EXISTS_IN_FILE: e.target.value as string }))} sx={{ minWidth: 150, height: 32 }}>
+                                <MenuItem value="SKIP">Skip</MenuItem>
+                                <MenuItem value="UPDATE_EXISTING">Update Existing</MenuItem>
+                                <MenuItem value="IMPORT_NEW">Import as New</MenuItem>
+                              </Select>
+                              <Button variant="contained" size="small" onClick={() => handleBulkAction("PHONE_EXISTS_IN_FILE", bulkActionsState.PHONE_EXISTS_IN_FILE, phoneReviewStats.phoneInFileCount)} sx={{ textTransform: 'none', height: 32, px: 2 }}>Apply to All</Button>
+                            </Box>
+                          )}
+                          {phoneReviewStats.phoneConflictCount > 0 && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, p: 1, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                              <Typography variant="body2" fontWeight={700} sx={{ width: { xs: '100%', sm: 220 } }}>PHONE CONFLICT ({phoneReviewStats.phoneConflictCount})</Typography>
+                              <Typography variant="caption" color="text.secondary">Default Action:</Typography>
+                              <Select size="small" value={bulkActionsState.PHONE_CONFLICT} onChange={(e) => setBulkActionsState(p => ({ ...p, PHONE_CONFLICT: e.target.value as string }))} sx={{ minWidth: 150, height: 32 }}>
+                                <MenuItem value="SKIP">Skip</MenuItem>
+                                <MenuItem value="UPDATE_EXISTING">Update Existing</MenuItem>
+                                <MenuItem value="IMPORT_NEW">Import as New</MenuItem>
+                              </Select>
+                              <Button variant="contained" size="small" onClick={() => handleBulkAction("PHONE_CONFLICT", bulkActionsState.PHONE_CONFLICT, phoneReviewStats.phoneConflictCount)} sx={{ textTransform: 'none', height: 32, px: 2 }}>Apply to All</Button>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {/* Show Unresolved Only Filter */}
+                    <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Checkbox 
+                          checked={showUnresolvedOnly} 
+                          onChange={(e) => setShowUnresolvedOnly(e.target.checked)} 
+                          size="small"
+                        />
+                        <Typography variant="body2" fontWeight={600}>Show Unresolved Only</Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mr: 1 }}>
+                        Showing: {visiblePhoneReviewRows.length} of {(reviewData?.phone_review || []).length} rows
+                      </Typography>
                     </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Chip size="small" color="warning" label="PHONE CONFLICT" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
-                      <Typography variant="caption" color="text.secondary">Phone number exists but customer details differ</Typography>
+
+                    {/* Legend */}
+                    <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider', display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                      <Typography variant="caption" fontWeight="bold" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center' }}>LEGEND:</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip size="small" label="EXACT DUPLICATE" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
+                        <Typography variant="caption" color="text.secondary">Exact Match on Phone, Name, and Village</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip size="small" color="error" label="PHONE EXISTS IN FILE" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
+                        <Typography variant="caption" color="text.secondary">Duplicate phone number found within the uploaded Excel file</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip size="small" color="warning" label="PHONE CONFLICT" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 'bold' }} />
+                        <Typography variant="caption" color="text.secondary">Phone number exists but customer details differ</Typography>
+                      </Box>
                     </Box>
-                  </Box>
+                  </>
                 )}
 
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
+                {openDialog === "sabhasad" && activeTab === 1 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pb: 4 }}>
+                    {groupedPhoneReviewRows.phoneConflicts.length > 0 && (
+                      <Accordion defaultExpanded TransitionProps={{ unmountOnExit: true }} sx={{ border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'warning.50' }}>
+                          <Typography fontWeight={700} color="warning.dark">✓ Phone Conflicts ({groupedPhoneReviewRows.phoneConflicts.length})</Typography>
+                          <Typography variant="caption" sx={{ ml: 2, mt: 0.5, color: 'text.secondary' }}>Require manual review.</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ p: 0 }}>
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell padding="checkbox"><Checkbox disabled /></TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Type</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Uploaded Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Existing Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Resolution</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {groupedPhoneReviewRows.phoneConflicts.map((item: any) => (
+                                  <PhoneReviewRow
+                                    key={item.originalIndex}
+                                    rowData={item.rowData}
+                                    index={item.originalIndex}
+                                    resolution={sabhasadResolutions[item.originalIndex] ?? getDefaultResolution(item.rowData.conflict_type)}
+                                    isSuggested={!sabhasadUserOverrides.has(item.originalIndex) && !!sabhasadResolutions[item.originalIndex] && sabhasadResolutions[item.originalIndex] !== "UNRESOLVED"}
+                                    onResolutionChange={handleResolutionChange}
+                                  />
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                    
+                    {groupedPhoneReviewRows.phoneExists.length > 0 && (
+                      <Accordion defaultExpanded TransitionProps={{ unmountOnExit: true }} sx={{ border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'error.50' }}>
+                          <Typography fontWeight={700} color="error.dark">✓ Phone Exists In File ({groupedPhoneReviewRows.phoneExists.length})</Typography>
+                          <Typography variant="caption" sx={{ ml: 2, mt: 0.5, color: 'text.secondary' }}>Duplicate phone number found within the uploaded Excel file.</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ p: 0 }}>
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell padding="checkbox"><Checkbox disabled /></TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Type</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Uploaded Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Existing Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Resolution</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {groupedPhoneReviewRows.phoneExists.map((item: any) => (
+                                  <PhoneReviewRow
+                                    key={item.originalIndex}
+                                    rowData={item.rowData}
+                                    index={item.originalIndex}
+                                    resolution={sabhasadResolutions[item.originalIndex] ?? getDefaultResolution(item.rowData.conflict_type)}
+                                    isSuggested={!sabhasadUserOverrides.has(item.originalIndex) && !!sabhasadResolutions[item.originalIndex] && sabhasadResolutions[item.originalIndex] !== "UNRESOLVED"}
+                                    onResolutionChange={handleResolutionChange}
+                                  />
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+
+                    {groupedPhoneReviewRows.exactDups.length > 0 && (
+                      <Accordion defaultExpanded={false} TransitionProps={{ unmountOnExit: true }} sx={{ border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'background.default' }}>
+                          <Typography fontWeight={700} color="text.secondary">✓ Exact Duplicates ({groupedPhoneReviewRows.exactDups.length})</Typography>
+                          <Typography variant="caption" sx={{ ml: 2, mt: 0.5, color: 'text.secondary' }}>Automatically marked as Skip.</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ p: 0 }}>
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell padding="checkbox"><Checkbox disabled /></TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Type</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Uploaded Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Existing Record</TableCell>
+                                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Resolution</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {groupedPhoneReviewRows.exactDups.map((item: any) => (
+                                  <PhoneReviewRow
+                                    key={item.originalIndex}
+                                    rowData={item.rowData}
+                                    index={item.originalIndex}
+                                    resolution={sabhasadResolutions[item.originalIndex] ?? getDefaultResolution(item.rowData.conflict_type)}
+                                    isSuggested={!sabhasadUserOverrides.has(item.originalIndex) && !!sabhasadResolutions[item.originalIndex] && sabhasadResolutions[item.originalIndex] !== "UNRESOLVED"}
+                                    onResolutionChange={handleResolutionChange}
+                                  />
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                    
+                    {(reviewData?.phone_review || []).length > 0 && visiblePhoneReviewRows.length === 0 && (
+                      <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <CheckCircleIcon color="success" sx={{ fontSize: 40, mb: 1 }} />
+                        <Typography variant="h6" color="success.main" fontWeight={700}>✅ All Phone Review items have been resolved.</Typography>
+                        <Typography variant="body2" color="text.secondary">No unresolved rows remaining.</Typography>
+                      </Box>
+                    )}
+                    
+                    {(reviewData?.phone_review || []).length === 0 && (
+                      <Box sx={{ py: 4, textAlign: 'center' }}>
+                        <Typography variant="body1" color="text.secondary">No phone review items found.</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 400 }}>
                   <Table stickyHeader size="small">
                     <TableHead>
                       <TableRow>
@@ -1122,29 +1593,18 @@ export default function DataImport() {
                           )}
                         </TableCell>
                         {openDialog === "sabhasad" && activeTab === 3 && <TableCell sx={{ fontWeight: 'bold' }}>Row #</TableCell>}
-                        {openDialog === "sabhasad" && activeTab !== 1 && <TableCell sx={{ fontWeight: 'bold' }}>Customer ID</TableCell>}
-                        {openDialog === "sabhasad" && activeTab === 1 ? (
+                        {openDialog === "sabhasad" && <TableCell sx={{ fontWeight: 'bold' }}>Customer ID</TableCell>}
+                        <TableCell sx={{ fontWeight: 'bold' }}>Uploaded Name</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
+                        {activeTab === 1 || activeTab === 2 ? (
                           <>
-                            <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Type</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Uploaded Record</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Existing Record</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Resolution</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Existing Match</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold' }}>Reason</TableCell>
                           </>
-                        ) : (
-                          <>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Uploaded Name</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
-                            <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
-                            {activeTab === 1 || activeTab === 2 ? (
-                              <>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Existing Match</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Reason</TableCell>
-                              </>
-                            ) : activeTab === 3 ? (
-                              <TableCell sx={{ fontWeight: 'bold' }}>Error</TableCell>
-                            ) : null}
-                          </>
-                        )}
+                        ) : activeTab === 3 ? (
+                          <TableCell sx={{ fontWeight: 'bold' }}>Error</TableCell>
+                        ) : null}
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1215,91 +1675,6 @@ export default function DataImport() {
                           <TableCell><Chip size="small" color="warning" label={r.reason || "Exact Match"} /></TableCell>
                         </TableRow>
                       ))}
-                      {activeTab === 1 && openDialog === "sabhasad" && (reviewData?.phone_review || []).map((r: any, i: number) => {
-                        return (
-                            <TableRow key={i} hover>
-                              <TableCell padding="checkbox"></TableCell>
-                              <TableCell>
-                                <Tooltip 
-                                    title={
-                                        r.conflict_type === "EXACT_DUPLICATE" ? "Exact Match on Phone, Name, and Village" :
-                                        r.conflict_type === "PHONE_EXISTS_IN_FILE" ? "Duplicate phone number found within the uploaded Excel file" :
-                                        "Phone number exists but customer details differ"
-                                    } 
-                                    placement="top" 
-                                    arrow
-                                >
-                                    <Chip 
-                                        size="small" 
-                                        label={r.conflict_type.replace(/_/g, ' ')} 
-                                        color={r.conflict_type === "EXACT_DUPLICATE" ? "default" : r.conflict_type === "PHONE_CONFLICT" ? "warning" : "error"} 
-                                        sx={{ fontWeight: "bold", fontSize: '0.75rem', borderRadius: 1, cursor: 'help' }}
-                                    />
-                                </Tooltip>
-                                <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 1, maxWidth: 150, lineHeight: 1.2, fontSize: '0.7rem', opacity: 0.8 }}>
-                                    {r.conflict_type === "EXACT_DUPLICATE" ? "Exact Match on Phone, Name, and Village" :
-                                     r.conflict_type === "PHONE_EXISTS_IN_FILE" ? "Duplicate phone number found within the uploaded Excel file" :
-                                     "Phone number exists but customer details differ"}
-                                </Typography>
-                              </TableCell>
-                              <TableCell>
-                                <Box sx={{ p: 1.5, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                                  <Typography variant="body1" fontWeight={700} sx={{ mb: 0.5, color: 'primary.main', fontSize: '1.05rem' }}>{r.uploaded_row.name || '-'}</Typography>
-                                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-                                    <Chip size="small" variant="outlined" label={`📞 ${r.uploaded_row.mobile || '-'}`} sx={{ fontWeight: 600, fontSize: '0.85rem', color: 'text.primary', borderColor: 'divider' }} />
-                                    <Chip size="small" variant="outlined" label={`📍 ${r.uploaded_row.village || '-'}`} sx={{ fontSize: '0.8rem', color: 'text.primary', borderColor: 'divider' }} />
-                                    {r.uploaded_row.customer_code && <Chip size="small" variant="outlined" label={`🆔 ${r.uploaded_row.customer_code}`} sx={{ fontSize: '0.8rem', color: 'text.secondary', borderColor: 'divider' }} />}
-                                  </Box>
-                                </Box>
-                              </TableCell>
-                              <TableCell>
-                                {r.existing_db_row ? (
-                                  <Box sx={{ p: 1.5, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                                    <Typography variant="body1" fontWeight={700} sx={{ mb: 0.5, color: (r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.name !== r.existing_db_row.name) ? 'warning.dark' : 'text.primary', bgcolor: (r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.name !== r.existing_db_row.name) ? 'warning.light' : 'transparent', px: (r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.name !== r.existing_db_row.name) ? 0.5 : 0, borderRadius: 0.5, display: 'inline-block', fontSize: '1.05rem' }}>{r.existing_db_row.name}</Typography>
-                                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
-                                      <Chip size="small" variant="outlined" label={`📞 ${r.existing_db_row.mobile}`} sx={{ fontWeight: 600, fontSize: '0.85rem', color: 'text.primary', borderColor: 'divider' }} />
-                                      <Chip 
-                                        size="small" 
-                                        variant={r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.village !== r.existing_db_row.village ? "filled" : "outlined"}
-                                        color={r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.village !== r.existing_db_row.village ? "warning" : "default"}
-                                        label={`📍 ${r.existing_db_row.village}`} 
-                                        sx={{ fontSize: '0.8rem', borderColor: 'divider', fontWeight: r.conflict_type === 'PHONE_CONFLICT' && r.uploaded_row.village !== r.existing_db_row.village ? 700 : 500 }} 
-                                      />
-                                      <Chip size="small" variant="outlined" label={`🆔 ${r.existing_db_row.customer_code || '-'}`} sx={{ fontSize: '0.8rem', color: 'text.secondary', borderColor: 'divider' }} />
-                                    </Box>
-                                  </Box>
-                                ) : (
-                                  <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', bgcolor: 'action.hover', borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}>
-                                    <Typography variant="caption" color="text.secondary" fontStyle="italic">No existing record</Typography>
-                                  </Box>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Box sx={{ p: 1, bgcolor: 'background.default', borderRadius: 1, border: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <Select
-                                    size="small"
-                                    value={sabhasadResolutions[i] || (r.conflict_type === "EXACT_DUPLICATE" ? "SKIP" : "UNRESOLVED")}
-                                    onChange={(e) => setSabhasadResolutions(prev => ({...prev, [i]: e.target.value}))}
-                                    sx={{ minWidth: 200, bgcolor: 'background.paper', borderRadius: 1, boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
-                                    error={r.conflict_type !== "EXACT_DUPLICATE" && (!sabhasadResolutions[i] || sabhasadResolutions[i] === "UNRESOLVED")}
-                                  >
-                                    {r.conflict_type !== "EXACT_DUPLICATE" && <MenuItem value="UNRESOLVED" disabled>-- Select Action --</MenuItem>}
-                                    <MenuItem value="SKIP">Skip Row</MenuItem>
-                                    {r.conflict_type !== "EXACT_DUPLICATE" && <MenuItem value="UPDATE_EXISTING" disabled={!r.existing_db_row}>Update DB Customer</MenuItem>}
-                                    {r.conflict_type === "PHONE_EXISTS_IN_FILE" && <MenuItem value="IMPORT_NEW">Import as New</MenuItem>}
-                                  </Select>
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                        );
-                      })}
-                      {activeTab === 1 && openDialog === "sabhasad" && (reviewData?.phone_review || []).length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                            <Typography variant="body1" color="text.secondary">No phone review items found.</Typography>
-                          </TableCell>
-                        </TableRow>
-                      )}
                       {activeTab === 2 && openDialog !== "sabhasad" && (reviewData?.possible_conflicts || []).map((r: any, i: number) => {
                         const isRedemo = r.is_redemo || r.uploaded_row?.is_redemo;
                         return (
@@ -1406,6 +1781,7 @@ export default function DataImport() {
                     </TableBody>
                   </Table>
                 </TableContainer>
+                )}
               </Box>
             ) : (
               <>
@@ -1611,8 +1987,8 @@ export default function DataImport() {
                 <Typography variant="subtitle2" fontWeight={700} sx={{ textTransform: 'uppercase', letterSpacing: 0.5, color: 'text.secondary' }}>Validation Summary</Typography>
                 <Box sx={{ display: 'flex', gap: 4 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="success.main" fontWeight={600}>READY</Typography><Chip size="medium" color="success" label={reviewData.summary.ready_to_import} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="info.main" fontWeight={600}>RESOLVED</Typography><Chip size="medium" color="info" label={(reviewData.phone_review || []).length > 0 ? Object.values(sabhasadResolutions).filter(r => r !== "UNRESOLVED").length : 0} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="warning.main" fontWeight={600}>UNRESOLVED</Typography><Chip size="medium" color="warning" label={(reviewData.phone_review || []).length > 0 ? Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length : 0} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="info.main" fontWeight={600}>RESOLVED</Typography><Chip size="medium" color="info" label={(reviewData.phone_review || []).length > 0 ? resolvedCount : 0} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="warning.main" fontWeight={600}>UNRESOLVED</Typography><Chip size="medium" color="warning" label={(reviewData.phone_review || []).length > 0 ? unresolvedCount : 0} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Typography variant="body2" color="error.main" fontWeight={600}>INVALID</Typography><Chip size="medium" color="error" label={reviewData.summary.invalid_rows} sx={{ fontWeight: 'bold', fontSize: '1rem' }} /></Box>
                 </Box>
               </Box>
@@ -1651,13 +2027,13 @@ export default function DataImport() {
                       disabled={
                         uploading || 
                         (openDialog !== "sabhasad" && (selectedReadyIndices.length + selectedConflictIndices.length) === 0) ||
-                        (openDialog === "sabhasad" && (reviewData.phone_review || []).length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0)
+                        (openDialog === "sabhasad" && (reviewData.phone_review || []).length > 0 && unresolvedCount > 0)
                       }
                       onClick={handleConfirmImport}
                       startIcon={<CheckCircleIcon />}
                       color="success"
                     >
-                      {openDialog === "sabhasad" && (reviewData.phone_review || []).length > 0 && Object.values(sabhasadResolutions).filter(r => r === "UNRESOLVED").length > 0 
+                      {openDialog === "sabhasad" && (reviewData.phone_review || []).length > 0 && unresolvedCount > 0
                         ? "Resolve Conflicts First" 
                         : t("import.confirmSelection", "Confirm Selection")}
                     </Button>
@@ -1677,6 +2053,14 @@ export default function DataImport() {
           </DialogActions>
         </Dialog>
       )}
+
+      <Snackbar
+        open={bulkActionSnackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setBulkActionSnackbar(p => ({ ...p, open: false }))}
+        message={bulkActionSnackbar.message}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }
