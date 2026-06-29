@@ -90,16 +90,25 @@ export default function Customers() {
     try {
       setLoading(true);
       setError(null);
-      const [custRes, regionsRes] = await Promise.all([
+      const [custResult, regionsResult] = await Promise.allSettled([
         customerAPI.getAll({ limit: 1000 }),
         apiClient.get("/api/products/config/regions"),
       ]);
-      setCustomers(custRes.data || []);
-      const rNames = (regionsRes.data || []).map((r: any) => r.name);
-      setRegions(rNames);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("customers.loadError", "Failed to load Sabhasad"));
-      console.error("Error loading Sabhasad:", err);
+
+      if (custResult.status === "fulfilled") {
+        setCustomers(custResult.value.data || []);
+      } else {
+        setError(custResult.reason instanceof Error ? custResult.reason.message : t("customers.loadError", "Failed to load Sabhasad"));
+        console.error("Error loading Sabhasad:", custResult.reason);
+      }
+
+      if (regionsResult.status === "fulfilled") {
+        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
+        setRegions(rNames);
+      } else {
+        console.warn("Could not load regions (using fallback):", regionsResult.reason?.message);
+        // Regions dropdown will fall back to Gujarat via the existing regions.length === 0 guard
+      }
     } finally {
       setLoading(false);
     }

@@ -50,6 +50,7 @@ from routers import (
     leads,
     attendance,
     reviews,
+    telecaller_orders,
 )
 from scheduler import start_scheduler
 
@@ -176,3 +177,4 @@ app.include_router(chat, prefix="/api/chat")
 app.include_router(leads, prefix="/api/leads")
 app.include_router(attendance, prefix="/api/attendance")
 app.include_router(reviews.router, prefix="/api/reviews")
+app.include_router(telecaller_orders, prefix="/api/telecaller-orders")

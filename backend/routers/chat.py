@@ -94,12 +94,17 @@ def edit_message(
         )
 
     old_content = msg["content"]
+    new_mentions = body.get("mentions")
+
+    update_data = {"content": new_content, "is_edited": True}
+    if new_mentions is not None and isinstance(new_mentions, list):
+        update_data["mentions"] = new_mentions
 
     # Perform the update
     update_res = (
         db.table("chat_messages")
         .eq("message_id", message_id)
-        .update({"content": new_content, "is_edited": True})
+        .update(update_data)
         .execute()
     )
     if not update_res.data:
@@ -204,3 +209,46 @@ def delete_message(
     )
 
     return {"message": "Message deleted successfully.", "message_id": message_id}
+
+
+# ─── Search messages ──────────────────────────────────────────────────────────
+
+@router.get("/messages/search")
+def search_messages(
+    query: Optional[str] = None,
+    users: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    mentions_me: Optional[bool] = False,
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Search chat messages based on filters.
+    """
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+
+    q = db.table("chat_messages").select("*").eq("is_deleted", False)
+
+    if query:
+        q = q.ilike("content", f"%{query}%")
+
+    if users:
+        user_list = [u.strip() for u in users.split(",") if u.strip()]
+        if user_list:
+            q = q.in_("sender_email", user_list)
+
+    if date_from:
+        q = q.gte("created_at", date_from)
+
+    if date_to:
+        q = q.lte("created_at", date_to)
+
+    if mentions_me:
+        q = q.contains("mentions", [user_email])
+
+    # Execute query, order by created_at descending to show newest matches first
+    res = q.order("created_at", desc=True).limit(500).execute()
+
+    return {"data": res.data if res.data else []}

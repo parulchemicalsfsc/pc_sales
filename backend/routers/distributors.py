@@ -61,6 +61,40 @@ def check_distributor_phone(
 
 
 
+@router.get("/search", dependencies=[Depends(verify_permission("view_distributors"))])
+def search_distributors(
+    q: str = "",
+    limit: int = 30,
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Search distributors by mantri_name, mantri_mobile, or village. Used for Quick Call feature."""
+    try:
+        if not q or len(q.strip()) < 1:
+            return {"data": [], "total": 0}
+        term = q.strip()
+        res_name = db.table("distributors").select("distributor_id, mantri_name, mantri_mobile, village, taluka, district").ilike("mantri_name", f"%{term}%").limit(limit).execute()
+        res_mobile = db.table("distributors").select("distributor_id, mantri_name, mantri_mobile, village, taluka, district").ilike("mantri_mobile", f"%{term}%").limit(limit).execute()
+        res_village = db.table("distributors").select("distributor_id, mantri_name, mantri_mobile, village, taluka, district").ilike("village", f"%{term}%").limit(limit).execute()
+        seen = set()
+        results = []
+        for row in (res_name.data or []) + (res_mobile.data or []) + (res_village.data or []):
+            did = row.get("distributor_id")
+            if did not in seen:
+                seen.add(did)
+                # Normalize field names for consistent frontend usage
+                results.append({
+                    "entity_id": did,
+                    "name": row.get("mantri_name"),
+                    "mobile": row.get("mantri_mobile"),
+                    "village": row.get("village"),
+                    "taluka": row.get("taluka"),
+                    "district": row.get("district"),
+                })
+        return {"data": results[:limit], "total": len(results[:limit])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
 @router.get("/resolved", response_model=List[ResolvedDistributor], dependencies=[Depends(verify_permission("view_distributors"))])
 def get_resolved_distributors(db: SupabaseClient = Depends(get_supabase)):
     """Get all distributors dynamically merged to their latest valid states."""
