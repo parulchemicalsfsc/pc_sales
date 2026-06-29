@@ -60,11 +60,6 @@ def detect_excel_type(file_path: str) -> str:
     print(f"DEBUG: Starting detection for: {file_path}")
     xls = pd.ExcelFile(file_path)
 
-    # 1. SALES → always has 2+ sheets
-    if len(xls.sheet_names) >= 2:
-        print("Detected Type: SALES (Multiple sheets)")
-        return "SALES"
-
     # Read first 20 rows to scan for keywords
     df = pd.read_excel(xls, sheet_name=0, header=None, nrows=20)
     df.dropna(how="all", inplace=True)
@@ -72,14 +67,14 @@ def detect_excel_type(file_path: str) -> str:
     # Flatten everything to a single lowercase string for scanning
     all_text = " ".join(df.astype(str).values.flatten()).lower()
     
-    # 2. DISTRIBUTORS (HIGH PRIORITY)
+    # 1. DISTRIBUTORS (HIGH PRIORITY)
     # Check for distributor-specific keywords
     dist_keywords = ["dairy", "sabhasad_count", "milk_collection", "mantri", "dairy_time", "collection"]
     if any(k in all_text for k in dist_keywords):
         print(f"Detected Type: DISTRIBUTORS (Found keyword in: {dist_keywords})")
         return "DISTRIBUTORS"
 
-    # 3. SABHASAD (SECOND PRIORITY)
+    # 2. SABHASAD (SECOND PRIORITY)
     # Pattern: Name field AND Mobile field
     name_hits = ["sabhasad name", "member name", "sabahsad name", "name"]
     mobile_hits = ["mobile", "number", "contact", "phone", "mobile no"]
@@ -90,6 +85,11 @@ def detect_excel_type(file_path: str) -> str:
     if has_name and has_mobile:
         print(f"Detected Type: SABHASAD (Found Name + Mobile pattern)")
         return "SABHASAD"
+
+    # 3. SALES → always has 2+ sheets (run after checking sheet 0 metadata keywords)
+    if len(xls.sheet_names) >= 2:
+        print("Detected Type: SALES (Multiple sheets)")
+        return "SALES"
 
     # 4. CUSTOMERS (LEGACY FALLBACK)
     if re.search(r"\b\d{10}\b", all_text):

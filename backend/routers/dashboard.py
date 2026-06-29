@@ -25,14 +25,23 @@ def dashboard_metrics(db: SupabaseClient = Depends(get_supabase)):
         total_sales = sum((s.get("total_amount") or 0) for s in sales_data)
         total_transactions = len(sales_data)
 
-        # 2. Customer Metrics — only fetch status column
-        customers_response = db.table("customers").select("status").execute()
-        customers_data = customers_response.data or []
-
-        total_customers = len(customers_data)
-        active_customers = sum(
-            1 for c in customers_data if str(c.get("status", "")).lower() == "active"
+        # 2. Customer Metrics — using exact count to avoid pagination limit
+        total_resp = (
+            db.table("customers")
+            .select("*", count="exact")
+            .limit(1)
+            .execute()
         )
+        total_customers = total_resp.count or 0
+
+        active_resp = (
+            db.table("customers")
+            .select("*", count="exact")
+            .ilike("status", "active")
+            .limit(1)
+            .execute()
+        )
+        active_customers = active_resp.count or 0
 
         # 3. Demo Conversion Rate — only fetch conversion_status column
         demo_conversion_rate = 0
