@@ -365,6 +365,13 @@ async def intake_rfq(
     material: str = Form(default=""),
     target_delivery: str = Form(default=""),
     message: str = Form(default=""),
+    rate_per_unit: float = Form(default=0.0),
+    shipping: float = Form(default=0.0),
+    intent: str = Form(default="rfq"),
+    street_address: str = Form(default=""),
+    city: str = Form(default=""),
+    province: str = Form(default=""),
+    postal_code: str = Form(default=""),
     attachment: UploadFile = File(default=None),
     db: SupabaseClient = Depends(get_db),
 ):
@@ -444,6 +451,18 @@ async def intake_rfq(
     if material_clean:
         merged_description = f"{product_name} (Material: {material_clean})"
 
+    # Handle Address mapping
+    address_line_1 = company_name
+    address_line_2 = ""
+    
+    if street_address or city or province or postal_code:
+        address_line_1 = street_address.strip() or company_name
+        address_line_2 = ", ".join([p for p in [city, province, postal_code] if p.strip()])
+
+    final_message = (message or "").strip()
+    if intent.lower() == "purchase":
+        final_message = f"[PURCHASE INTENT] {final_message}".strip()
+
     # Create lead record
     lead_data = {
         "lead_id": lead_id,
@@ -453,7 +472,7 @@ async def intake_rfq(
         "phone": phone,
         "company_name": company_name,
         "product_interest": merged_description,
-        "message": (message or "").strip() or None,
+        "message": final_message or None,
         "rfq_quantity": quantity,
         "rfq_material": material_clean or None,
         "rfq_delivery": (target_delivery or "").strip() or None,
@@ -480,16 +499,33 @@ async def intake_rfq(
     try:
         is_vibgyor = source_name.lower().strip() in ["vibgyor maple", "vibgyor_maple"]
         product_desc = "Grasshawk KLAW™ Professional Mole Trap" if is_vibgyor else merged_description
+        
+        amount = quantity * rate_per_unit
+        items_total = amount
+        transportation_charge = shipping
+
+        if is_vibgyor:
+            cgst_percent = 13
+            sgst_percent = 0
+        else:
+            cgst_percent = 9
+            sgst_percent = 9
+            
+        cgst_amount = round((items_total + transportation_charge) * cgst_percent / 100, 2)
+        sgst_amount = round((items_total + transportation_charge) * sgst_percent / 100, 2)
+        total_gst_amount = cgst_amount + sgst_amount
+        grand_total = items_total + transportation_charge + total_gst_amount
+
         draft_data = {
             "lead_id": lead_id,
             "is_draft": True,
             "name": full_name,
             "email": email,
-            "address_line_1": company_name,
-            "address_line_2": "",
+            "address_line_1": address_line_1,
+            "address_line_2": address_line_2,
             "address_line_3": "",
             "delivery_requirement": (target_delivery or "").strip() or None,
-            "notes": (message or "").strip() or None,
+            "notes": final_message or None,
             "payment_terms": "50% Advance, 50% on Dispatch",
             "items": [
                 {
@@ -498,17 +534,18 @@ async def intake_rfq(
                     "hsn_code": "",
                     "packages": "",
                     "quantity": quantity,
-                    "rate_per_unit": 0,
-                    "amount": 0,
+                    "rate_per_unit": rate_per_unit,
+                    "amount": amount,
                 }
             ],
-            "items_total": 0,
-            "grand_total": 0,
-            "cgst_percent": 9,
-            "cgst_amount": 0,
-            "sgst_percent": 9,
-            "sgst_amount": 0,
-            "total_gst_amount": 0,
+            "items_total": items_total,
+            "transportation_charge": transportation_charge,
+            "grand_total": grand_total,
+            "cgst_percent": cgst_percent,
+            "cgst_amount": cgst_amount,
+            "sgst_percent": sgst_percent,
+            "sgst_amount": sgst_amount,
+            "total_gst_amount": total_gst_amount,
             "loose_count": quantity,
             "attachment_url": attachment_url,
             "attachment_name": attachment_name,
@@ -518,10 +555,16 @@ async def intake_rfq(
     except Exception as e:
         logger.warning(f"[LEADS] Failed to create draft quotation for {lead_id}: {e}")
 
-    # Logging & notifications
+    activity_message = f"RFQ Lead received from {source_name}"
+    if intent.lower() == "purchase":
+        activity_message = f"Purchase Intent Lead received from {source_name}"
+            
+    if attachment_name:
+        activity_message += f" (with attachment: {attachment_name})"
+
     _log_lead_activity(
         db, lead_id, "Assignment",
-        f"RFQ Lead received from {source_name}" + (f" (with attachment: {attachment_name})" if attachment_name else ""),
+        activity_message,
         logged_by="system", is_auto=True,
     )
     _notify_lead_managers(
