@@ -244,27 +244,16 @@
           <td></td>
           <td style="text-align:right;">{{ "{:,.2f}".format(data.transportation_charge|float) if data.transportation_charge else "0.00" }}</td>
         </tr>
-        <!-- ROW 3: CGST -->
+        <!-- ROW 3: HST -->
         <tr class="sum-row">
           <td></td>
           <td></td>
-          <td style="font-weight:bold;">CGST {% if data.cgst_percent %}({{ data.cgst_percent }}%){% endif %}</td>
+          <td style="font-weight:bold;">HST {% if data.cgst_percent %}({{ data.cgst_percent }}%){% endif %}</td>
           <td></td>
           <td></td>
           <td></td>
           <td></td>
           <td style="text-align:right;">{{ "{:,.2f}".format(data.cgst_amount|float) if data.cgst_amount else "0.00" }}</td>
-        </tr>
-        <!-- ROW 4: SGST -->
-        <tr class="sum-row">
-          <td></td>
-          <td></td>
-          <td style="font-weight:bold;">SGST {% if data.sgst_percent %}({{ data.sgst_percent }}%){% endif %}</td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td style="text-align:right;">{{ "{:,.2f}".format(data.sgst_amount|float) if data.sgst_amount else "0.00" }}</td>
         </tr>
         <!-- ROW 4: Grand Total — top border closes the block -->
         <tr class="sum-row">
