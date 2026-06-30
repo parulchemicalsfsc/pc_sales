@@ -128,7 +128,8 @@ export default function Sales() {
   const [tcOrderTelecallerFilter, setTcOrderTelecallerFilter] = useState<string>("");
 
   // Toast
-  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" | "warning" } | null>(null);
+
 
   // Pre-Sale Workflow
   const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("pre_sales");
