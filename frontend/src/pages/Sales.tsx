@@ -130,6 +130,11 @@ export default function Sales() {
   // Toast
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
 
+  // Pre-Sale Workflow
+  const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("pre_sales");
+  const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
+  const [confirming, setConfirming] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -993,6 +998,33 @@ export default function Sales() {
     }
   };
 
+  const handleConfirmSelected = async () => {
+    if (selectedRowIds.length === 0 || confirming) return;
+    if (!window.confirm(`Confirm ${selectedRowIds.length} pre-sale(s)? Invoice numbers will be generated.`)) return;
+
+    setConfirming(true);
+    try {
+      const response = await salesAPI.confirmSales(selectedRowIds);
+      
+      const successCount = response.succeeded?.length || 0;
+      const failedCount = response.failed?.length || 0;
+      
+      if (failedCount > 0) {
+        setToast({ msg: `${successCount} confirmed, ${failedCount} failed to confirm.`, sev: "warning" });
+      } else {
+        setToast({ msg: `Successfully confirmed ${successCount} sale(s)`, sev: "success" });
+      }
+      
+      setSelectedRowIds([]);
+      loadData(true); // reload table data
+    } catch (err: any) {
+      console.error("Error confirming sales:", err);
+      setToast({ msg: err?.response?.data?.detail || "Failed to confirm sales", sev: "error" });
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const getTotalAmount = () => {
     return items.reduce((sum, item) => sum + (item.amount || 0), 0);
   };
@@ -1016,7 +1048,11 @@ export default function Sales() {
 
     const matchesRefundDue = !refundDueOnly || sale.payment_status === "Refund Due";
 
-    return matchesSearch && matchesBuyerType && matchesNote && matchesRefundDue;
+    const matchesTab = saleTab === "pre_sales"
+      ? sale.sale_stage === "pre_sale"
+      : sale.sale_stage !== "pre_sale";
+
+    return matchesSearch && matchesBuyerType && matchesNote && matchesRefundDue && matchesTab;
   });
 
   const columns: GridColDef[] = [
@@ -1024,9 +1060,12 @@ export default function Sales() {
       field: "invoice_no",
       headerName: tf("invoice_no"),
       width: 140,
-      renderCell: (params) => (
-        <Chip label={params.value} size="small" color="primary" />
-      ),
+      renderCell: (params) => {
+        if (!params.value && params.row.sale_stage === "pre_sale") {
+          return <Chip label="Pre-Sale" size="small" color="warning" />;
+        }
+        return <Chip label={params.value || "N/A"} size="small" color="primary" />;
+      },
     },
     {
       field: "customer_name",
@@ -1367,17 +1406,54 @@ export default function Sales() {
 
               <Box sx={{ ml: "auto", display: "flex", gap: 2 }}>
                 <Chip
-                  label={`${t("dashboard.totalSales")}: ${sales.length}`}
+                  label={`Pre-Sales: ${sales.filter(s => s.sale_stage === "pre_sale").length}`}
+                  color="warning"
+                />
+                <Chip
+                  label={`Confirmed: ${sales.filter(s => s.sale_stage !== "pre_sale").length}`}
                   color="primary"
                 />
                 <Chip
-                  label={`${t("dashboard.amount")}: ₹${sales.reduce((sum, s) => sum + s.total_amount, 0).toLocaleString()}`}
+                  label={`Amount: ₹${filteredSales.reduce((sum, s) => sum + s.total_amount, 0).toLocaleString()}`}
                   color="success"
                 />
               </Box>
             </Box>
           </CardContent>
         </Card>
+
+        {/* Tab Selection */}
+        <Box sx={{ mb: 2, display: "flex", alignItems: "center", gap: 2 }}>
+          <ToggleButtonGroup
+            value={saleTab}
+            exclusive
+            onChange={(e, newVal) => {
+              if (newVal) {
+                setSaleTab(newVal);
+                setSelectedRowIds([]);
+              }
+            }}
+            color="primary"
+          >
+            <ToggleButton value="pre_sales">
+              Pre-Sales
+            </ToggleButton>
+            <ToggleButton value="confirmed">
+              Confirmed Sales
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          {saleTab === "pre_sales" && selectedRowIds.length > 0 && (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleConfirmSelected}
+              disabled={confirming}
+            >
+              {confirming ? <CircularProgress size={24} color="inherit" /> : `Confirm Selected (${selectedRowIds.length})`}
+            </Button>
+          )}
+        </Box>
 
         {/* Sales Table */}
         <Card>
@@ -1396,6 +1472,9 @@ export default function Sales() {
                       paginationModel: { pageSize: 25 },
                     },
                   }}
+                  checkboxSelection={saleTab === "pre_sales"}
+                  onRowSelectionModelChange={(newSelection) => setSelectedRowIds(newSelection as number[])}
+                  rowSelectionModel={selectedRowIds}
                   disableRowSelectionOnClick
                 />
               )}

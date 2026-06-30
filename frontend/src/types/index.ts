@@ -43,6 +43,7 @@ export interface Sale {
   notes?: string;
   created_date?: string;
   updated_date?: string;
+  sale_stage?: string;
 }
 
 export interface SaleItem {

@@ -540,37 +540,14 @@ def create_sale(
             capacity = product.get("capacity_ltr", 0) or 0
             total_liters += capacity * item.quantity
 
-        # ── Generate invoice number via RPC ──────────────────────────────────────
-        # We call get_next_invoice_no() — a plain RETURNS TEXT Supabase RPC function
-        # that uses pg_advisory_xact_lock for concurrency safety.
-        invoice_no = ""
-        if sale.invoice_no and sale.invoice_no.strip():
-            # Caller explicitly provided an invoice number — use it directly
-            invoice_no = sale.invoice_no.strip()
-        else:
-            # Auto-generate via RPC
-            try:
-                invoice_no = db.rpc("get_next_invoice_no", {})
-                if not invoice_no or not isinstance(invoice_no, str):
-                    raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
-                print(f"[create_sale] Generated invoice_no via RPC: {invoice_no}")
-            except Exception as rpc_err:
-                err_body = ""
-                if hasattr(rpc_err, "response") and rpc_err.response is not None:
-                    try:
-                        err_body = rpc_err.response.text
-                    except Exception:
-                        pass
-                err_str = f"{rpc_err}" + (f" | DB: {err_body}" if err_body else "")
-                print(f"[create_sale] RPC get_next_invoice_no failed: {err_str}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Could not generate invoice number. Ensure get_next_invoice_no() function is installed in Supabase. Error: {err_str}",
-                )
+        # ── Pre-sale workflow ──────────────────────────────────────────────────
+        # Sales are created as pre-sales (sale_stage='pre_sale') with no
+        # invoice number. Invoice number, sale_code, and demo auto-conversion
+        # are deferred to POST /confirm when the sale is confirmed.
+        invoice_no = None
 
-        # Build sale record with the generated/provided invoice_no
+        # Build sale record — no invoice_no yet (assigned on confirmation)
         sale_data: dict = {
-            "invoice_no": invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
@@ -578,6 +555,7 @@ def create_sale(
             "notes": sale.notes or None,
             "payment_terms": sale.payment_terms or None,
             "buyer_type": buyer_type,
+            "sale_stage": "pre_sale",
         }
         # Set only the relevant buyer FK — null out all others
         if is_distributor_sale:
@@ -634,31 +612,7 @@ def create_sale(
 
         created_sale = sale_response.data[0]
         sale_id = created_sale.get("sale_id")
-        invoice_no = created_sale.get("invoice_no", invoice_no)  # prefer DB generated value
-        
-        # Generate and store sale_code in MMyy#### format (optional - only if column exists)
-        try:
-            now = datetime.now()
-            month_year_prefix = now.strftime("%m%y")  # e.g., "0126" for Jan 2026
-            first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            
-            # Count sales created this month (including this one)
-            count_response = (
-                db.table("sales")
-                .select("sale_id", count="exact")
-                .gte("created_at", first_day.isoformat())
-                .execute()
-            )
-            sequence = count_response.count if count_response.count else 1
-            sale_code = f"{month_year_prefix}{sequence:04d}"
-            
-            # Update the sale with the generated sale_code
-            db.table("sales").eq("sale_id", sale_id).update({"sale_code": sale_code}).execute()
-            created_sale["sale_code"] = sale_code  # Add to response
-        except Exception as e:
-            # Column doesn't exist yet - skip sale_code generation
-            print(f"Could not set sale_code: {e}")
-            pass
+        # invoice_no and sale_code are deferred to confirm endpoint
 
         # Insert sale items
         sale_items_data = []
@@ -685,7 +639,7 @@ def create_sale(
                     status_code=400, detail="Failed to create sale items"
                 )
 
-        # Log activity
+        # Log activity (pre-sale created)
         if user_email:
             try:
                 logger = get_activity_logger(db)
@@ -700,11 +654,11 @@ def create_sale(
                 logger.log_create(
                     user_email=user_email,
                     entity_type="sale",
-                    entity_name=f"{invoice_no} - {buyer_name}",
+                    entity_name=f"Pre-Sale #{sale_id} - {buyer_name}",
                     entity_id=sale_id,
                     new_state=created_sale,
                     metadata={
-                        "invoice_no": invoice_no,
+                        "sale_stage": "pre_sale",
                         "buyer_type": buyer_type,
                         "buyer_id": sale.distributor_id if is_distributor_sale else sale.customer_id,
                         "total_amount": total_amount,
@@ -714,56 +668,8 @@ def create_sale(
             except Exception as log_err:
                 print(f"Warning: Failed to log activity: {str(log_err)}")
 
-        # Auto-convert demos for this customer
+        # NOTE: Demo auto-conversion is deferred to POST /confirm endpoint
         converted_demos = []
-        try:
-            # Check if this customer has any scheduled or pending demos
-            demos_response = (
-                db.table("demos")
-                .select("demo_id, product_id, conversion_status, demo_date")
-                .eq("customer_id", sale.customer_id)
-                .in_("conversion_status", ["Scheduled", "Pending", "Follow-up"])
-                .execute()
-            )
-
-            if demos_response.data:
-                # Get product IDs from the sale items
-                sale_product_ids = [item.product_id for item in sale.items]
-
-                # Update matching demos to "Converted"
-                for demo in demos_response.data:
-                    demo_product_id = demo.get("product_id")
-                    demo_id = demo.get("demo_id")
-
-                    # If the demo product matches any product in the sale, mark as converted
-                    if demo_product_id in sale_product_ids:
-                        try:
-                            update_response = (
-                                db.table("demos")
-                                .eq("demo_id", demo_id)
-                                .update(
-                                    {
-                                        "conversion_status": "Converted",
-                                        "notes": f"Auto-converted: Sale {invoice_no} created on {sale.sale_date}",
-                                    }
-                                )
-                                .execute()
-                            )
-
-                            if update_response.data:
-                                converted_demos.append(demo_id)
-                        except Exception as demo_update_err:
-                            print(
-                                f"Warning: Failed to update demo {demo_id}: {str(demo_update_err)}"
-                            )
-
-                if converted_demos:
-                    print(
-                        f"Auto-converted {len(converted_demos)} demo(s) for customer {sale.customer_id}: {converted_demos}"
-                    )
-
-        except Exception as demo_err:
-            print(f"Warning: Failed to auto-convert demos: {str(demo_err)}")
 
         # Handle Initial Payment
         if sale.paid_amount and sale.paid_amount > 0:
@@ -813,11 +719,11 @@ def create_sale(
 
 
         return {
-            "message": "Sale created successfully",
+            "message": "Pre-sale created successfully",
             "sale": created_sale,
             "items_count": len(sale_items_data),
-            "converted_demos": len(converted_demos),
-            "demo_ids": converted_demos if converted_demos else [],
+            "converted_demos": 0,
+            "demo_ids": [],
         }
     except HTTPException:
         raise
@@ -837,6 +743,168 @@ def create_sale(
                 detail=f"A duplicate invoice number was detected. DB response: {err_body or error_str}",
             )
         raise HTTPException(status_code=500, detail=f"Error creating sale: {error_str}" + (f" | {err_body}" if err_body else ""))
+
+
+@router.post("/confirm", dependencies=[Depends(verify_permission("create_sale"))])
+def confirm_sales(
+    payload: dict,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Bulk-confirm pre-sales: generate invoice numbers, sale_codes, auto-convert demos.
+
+    Expects: { "sale_ids": [1, 2, 3, ...] }
+    Returns: { "succeeded": [...], "failed": [...], "skipped": [...] }
+
+    Each sale is processed independently (per-sale try/except).
+    Race condition safe: uses WHERE sale_stage = 'pre_sale' to prevent double-confirmation.
+    """
+    sale_ids = payload.get("sale_ids", [])
+    if not sale_ids or not isinstance(sale_ids, list):
+        raise HTTPException(status_code=400, detail="sale_ids must be a non-empty list")
+
+    succeeded = []
+    failed = []
+    skipped = []
+
+    for sale_id in sale_ids:
+        try:
+            # ── 1. Fetch sale with race-condition guard ──────────────────────
+            sale_resp = (
+                db.table("sales")
+                .select("*")
+                .eq("sale_id", sale_id)
+                .eq("sale_stage", "pre_sale")
+                .execute()
+            )
+            if not sale_resp.data:
+                # Already confirmed by another user, or doesn't exist
+                skipped.append({
+                    "sale_id": sale_id,
+                    "reason": "Already confirmed or not found",
+                })
+                continue
+
+            sale = sale_resp.data[0]
+
+            # ── 2. Generate invoice number via RPC ───────────────────────────
+            invoice_no = db.rpc("get_next_invoice_no", {})
+            if not invoice_no or not isinstance(invoice_no, str):
+                raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
+
+            # ── 3. Generate sale_code (MMyy#### format) ──────────────────────
+            sale_code = None
+            try:
+                now = datetime.now()
+                month_year_prefix = now.strftime("%m%y")
+                first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                count_response = (
+                    db.table("sales")
+                    .select("sale_id", count="exact")
+                    .eq("sale_stage", "confirmed")
+                    .gte("created_at", first_day.isoformat())
+                    .execute()
+                )
+                sequence = (count_response.count or 0) + 1
+                sale_code = f"{month_year_prefix}{sequence:04d}"
+            except Exception as sc_err:
+                print(f"[confirm_sales] Could not generate sale_code for {sale_id}: {sc_err}")
+
+            # ── 4. Update sale: confirm + assign invoice_no ──────────────────
+            # Double WHERE guard: sale_id + sale_stage prevents race condition
+            update_data = {
+                "sale_stage": "confirmed",
+                "invoice_no": invoice_no,
+            }
+            if sale_code:
+                update_data["sale_code"] = sale_code
+
+            update_resp = (
+                db.table("sales")
+                .eq("sale_id", sale_id)
+                .eq("sale_stage", "pre_sale")
+                .update(update_data)
+                .execute()
+            )
+
+            if not update_resp.data:
+                # Race condition: another request confirmed it between our SELECT and UPDATE
+                skipped.append({
+                    "sale_id": sale_id,
+                    "reason": "Already confirmed by another user",
+                })
+                continue
+
+            confirmed_sale = update_resp.data[0]
+
+            # ── 5. Auto-convert demos ────────────────────────────────────────
+            converted_demos = []
+            customer_id = sale.get("customer_id")
+            if customer_id:
+                try:
+                    demos_response = (
+                        db.table("demos")
+                        .select("demo_id, product_id, conversion_status")
+                        .eq("customer_id", customer_id)
+                        .in_("conversion_status", ["Scheduled", "Pending", "Follow-up"])
+                        .execute()
+                    )
+                    if demos_response.data:
+                        # Get product IDs from the sale items
+                        items_resp = db.table("sale_items").select("product_id").eq("sale_id", sale_id).execute()
+                        sale_product_ids = [i["product_id"] for i in (items_resp.data or [])]
+
+                        for demo in demos_response.data:
+                            if demo.get("product_id") in sale_product_ids:
+                                try:
+                                    db.table("demos").eq("demo_id", demo["demo_id"]).update({
+                                        "conversion_status": "Converted",
+                                        "notes": f"Auto-converted: Sale {invoice_no} confirmed on {sale.get('sale_date')}",
+                                    }).execute()
+                                    converted_demos.append(demo["demo_id"])
+                                except Exception:
+                                    pass
+                except Exception as demo_err:
+                    print(f"[confirm_sales] Demo auto-convert failed for sale {sale_id}: {demo_err}")
+
+            # ── 6. Activity logging ──────────────────────────────────────────
+            if user_email:
+                try:
+                    logger = get_activity_logger(db)
+                    logger.log_update_with_diff(
+                        user_email=user_email,
+                        entity_type="sale",
+                        entity_name=f"{invoice_no} (Sale #{sale_id})",
+                        entity_id=sale_id,
+                        before={"sale_stage": "pre_sale", "invoice_no": None},
+                        after={"sale_stage": "confirmed", "invoice_no": invoice_no},
+                        skip_fields=["created_at"],
+                    )
+                except Exception:
+                    pass
+
+            succeeded.append({
+                "sale_id": sale_id,
+                "invoice_no": invoice_no,
+                "sale_code": sale_code,
+                "converted_demos": len(converted_demos),
+            })
+            print(f"[confirm_sales] Confirmed sale {sale_id} → {invoice_no}")
+
+        except Exception as e:
+            err_str = str(e)
+            print(f"[confirm_sales] Failed to confirm sale {sale_id}: {err_str}")
+            failed.append({
+                "sale_id": sale_id,
+                "error": err_str,
+            })
+
+    return {
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "summary": f"{len(succeeded)} confirmed, {len(skipped)} skipped, {len(failed)} failed",
+    }
 
 
 @router.get("/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])
@@ -1060,6 +1128,9 @@ def get_invoice_pdf(
             raise HTTPException(status_code=404, detail="Sale not found")
 
         sale = sale_response.data[0]
+        
+        if sale.get("sale_stage") == "pre_sale":
+            raise HTTPException(status_code=400, detail="Cannot generate invoice for an unconfirmed pre-sale")
 
         # Get customer data
         customer_response = (

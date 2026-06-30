@@ -70,6 +70,7 @@ class Sale(BaseModel):
     dispatch_date: Optional[str] = None
     delivery_date: Optional[str] = None
     tracking_number: Optional[str] = None
+    sale_stage: str = "confirmed"
 
 
 class SaleItem(BaseModel):

@@ -168,7 +168,9 @@ export default function OrderManagement() {
         customersData.map((c: Customer) => [c.customer_id, c]),
       );
 
-      const ordersData = salesData.map((sale: any) => {
+      const ordersData = salesData
+        .filter((sale: any) => sale.sale_stage !== "pre_sale")
+        .map((sale: any) => {
         // Use backend-resolved name if present, else fall back to customers map
         const fallback = customersMap.get(sale.customer_id) || ({} as Customer);
         return {

@@ -50,12 +50,26 @@ def check_customer_phone(
 
 @router.get("/", dependencies=[Depends(verify_permission("view_customers"))])
 def get_customers(db: SupabaseClient = Depends(get_db)):
-    """Get all customers"""
+    """Get all customers — paginated to bypass Supabase's 1000-row server cap"""
     try:
-        response = (
-            db.table("customers").select("*").order("created_at", desc=True).execute()
-        )
-        return {"data": response.data, "total": len(response.data)}
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            resp = (
+                db.table("customers")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not resp.data:
+                break
+            all_rows.extend(resp.data)
+            if len(resp.data) < batch:
+                break
+            offset += batch
+        return {"data": all_rows, "total": len(all_rows)}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error fetching customers: {str(e)}"

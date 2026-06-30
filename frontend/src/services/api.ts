@@ -491,6 +491,10 @@ export const salesAPI = {
     const response = await apiClient.post("/api/sales", data);
     return response.data;
   },
+  confirmSales: async (saleIds: number[]) => {
+    const response = await apiClient.post("/api/sales/confirm", { sale_ids: saleIds });
+    return response.data;
+  },
   update: async (id: number, data: any) => {
     const response = await apiClient.put(`/api/sales/${id}`, data);
     return response.data;
