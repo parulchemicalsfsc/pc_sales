@@ -648,12 +648,18 @@ export default function DataImport() {
       let importResponse;
       
       const readyRows = (selectedReadyIndices || []).map(
-        (idx) => reviewData.ready_to_import[idx].uploaded_row
+        (idx) => {
+          const item = reviewData.ready_to_import[idx];
+          return item?.uploaded_row || item?.row || item;
+        }
       );
       const conflictRows = (selectedConflictIndices || []).map(
-        (idx) => reviewData.possible_conflicts[idx].uploaded_row
+        (idx) => {
+          const item = reviewData.possible_conflicts[idx];
+          return item?.uploaded_row || item?.row || item;
+        }
       );
-      const rowsToImport = [...readyRows, ...conflictRows];
+      const rowsToImport = [...readyRows, ...conflictRows].filter(Boolean);
       
       console.log("🚀 [P7 CONFIRM IMPORT] Selected Rows Count:", rowsToImport.length);
       
@@ -1241,12 +1247,10 @@ export default function DataImport() {
                   <Tab value={0} label="Ready To Import" />
                   {openDialog === "sabhasad" ? (
                     <Tab value={1} label="Phone Review" />
-                  ) : (
-                    <>
-                      <Tab value={1} label="Exact Duplicates" />
-                      <Tab value={2} label="Possible Conflicts" />
-                    </>
-                  )}
+                  ) : [
+                    <Tab key="exact" value={1} label="Exact Duplicates" />,
+                    <Tab key="conflicts" value={2} label="Possible Conflicts" />
+                  ]}
                   <Tab value={3} label="Invalid Rows" />
                 </Tabs>
 

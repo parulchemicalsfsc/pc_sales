@@ -81,7 +81,10 @@ def confirm_import_distributors(
     failed_rows = []
     imported_count = 0
     
-    for row in selected_rows:
+    for item in selected_rows:
+        # Handle different possible payload structures from frontend
+        row = item.get("uploaded_row") or item.get("row") or item
+        
         # Re-run safety validation
         village = str(row.get("village") or "").strip()
         taluka = str(row.get("taluka") or "").strip()
@@ -210,7 +213,7 @@ def confirm_import_distributors(
         # Clean row for insertion
         clean_row = {
             k: v for k, v in row.items() 
-            if k not in ["original_village", "clean_village", "redemo_pattern"]
+            if k not in ["original_village", "clean_village", "redemo_pattern", "raw_mobile_value"]
         }
         clean_row["is_redemo"] = bool(is_redemo)
         distributors_to_insert.append(clean_row)
