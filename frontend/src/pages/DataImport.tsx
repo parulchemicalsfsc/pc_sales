@@ -31,6 +31,7 @@ import {
   MenuItem,
   Tooltip,
   Snackbar,
+  CircularProgress,
   Accordion,
   AccordionSummary,
   AccordionDetails
@@ -229,6 +230,62 @@ export default function DataImport() {
 
   const [importHistory, setImportHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Rollback state
+  const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false);
+  const [rollbackTarget, setRollbackTarget] = useState<any>(null);
+  const [rollbackLoading, setRollbackLoading] = useState(false);
+  const [rollbackNotification, setRollbackNotification] = useState<{ open: boolean; message: string; severity: "success" | "error" }>({ open: false, message: "", severity: "success" });
+
+  const latestSabhasadBatchId = useMemo(() => {
+    return importHistory.find(h => h.module_name === "SABHASAD" && h.import_status === "SUCCESS")?.import_batch_id;
+  }, [importHistory]);
+
+  const latestDistributorBatchId = useMemo(() => {
+    return importHistory.find(h => h.module_name === "DISTRIBUTORS" && h.import_status === "SUCCESS")?.import_batch_id;
+  }, [importHistory]);
+
+  const handleRollbackClick = (row: any) => {
+    setRollbackTarget(row);
+    setRollbackConfirmOpen(true);
+  };
+
+  const executeRollback = async () => {
+    if (!rollbackTarget) return;
+    try {
+      setRollbackLoading(true);
+      const res = await fileAPI.rollbackLatestImport(rollbackTarget.module_name);
+      
+      const moduleName = rollbackTarget.module_name === "SABHASAD" ? "Sabhasad" : "Distributor";
+      setRollbackNotification({
+        open: true,
+        message: `Successfully rolled back the latest ${moduleName} import.`,
+        severity: "success"
+      });
+      
+      setRollbackConfirmOpen(false);
+      fetchHistory();
+      if (rollbackTarget.module_name === "SABHASAD") {
+        queryClient.invalidateQueries({ queryKey: ["sabhasad"] });
+        queryClient.invalidateQueries({ queryKey: ["customers"] });
+      } else if (rollbackTarget.module_name === "DISTRIBUTORS") {
+        queryClient.invalidateQueries({ queryKey: ["distributors"] });
+        queryClient.invalidateQueries({ queryKey: ["resolved_distributors"] });
+      }
+    } catch (err: any) {
+      let errorMessage = "Rollback failed. Please try again.";
+      if (err?.response?.data?.detail) errorMessage = err.response.data.detail;
+      else if (err instanceof Error) errorMessage = err.message;
+      setRollbackNotification({
+        open: true,
+        message: errorMessage,
+        severity: "error"
+      });
+    } finally {
+      setRollbackLoading(false);
+    }
+  };
+
 
   // ─── Memoized Derived Values ─────────────────────────────────────────────────
   // Conflict-type counts — recomputed only when reviewData changes (on upload).
@@ -916,6 +973,33 @@ export default function DataImport() {
           {params.value}
         </Typography>
       ),
+    },
+    {
+      field: "actions",
+      headerName: "Actions",
+      flex: 1,
+      minWidth: 120,
+      align: "center",
+      headerAlign: "center",
+      renderCell: (params) => {
+        const isLatestSabhasad = params.row.module_name === "SABHASAD" && params.row.import_batch_id === latestSabhasadBatchId;
+        const isLatestDistributor = params.row.module_name === "DISTRIBUTORS" && params.row.import_batch_id === latestDistributorBatchId;
+        const isSuccess = params.row.import_status === "SUCCESS";
+        
+        if ((isLatestSabhasad || isLatestDistributor) && isSuccess) {
+          return (
+            <Button
+              size="small"
+              color="error"
+              variant="outlined"
+              onClick={() => handleRollbackClick(params.row)}
+            >
+              ↩ Rollback
+            </Button>
+          );
+        }
+        return <Typography variant="body2" color="text.secondary">—</Typography>;
+      }
     },
   ];
 
@@ -2002,6 +2086,7 @@ export default function DataImport() {
                 <>
                   <Button
                     onClick={() => setShowFinalConfirm(false)}
+
                     disabled={uploading}
                     variant="outlined"
                   >
@@ -2065,6 +2150,52 @@ export default function DataImport() {
         message={bulkActionSnackbar.message}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
+
+      <Snackbar
+        open={rollbackNotification.open}
+        autoHideDuration={4000}
+        onClose={() => setRollbackNotification(p => ({ ...p, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={rollbackNotification.severity} variant="filled" sx={{ width: '100%' }} onClose={() => setRollbackNotification(p => ({ ...p, open: false }))}>
+          {rollbackNotification.message}
+        </Alert>
+      </Snackbar>
+
+      <Dialog open={rollbackConfirmOpen} onClose={() => setRollbackConfirmOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          Rollback Latest Import
+        </DialogTitle>
+        <DialogContent dividers>
+          {rollbackTarget && (
+            <>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="body1"><strong>File:</strong> {rollbackTarget.file_name}</Typography>
+                <Typography variant="body1"><strong>Module:</strong> {rollbackTarget.module_name}</Typography>
+                <Typography variant="body1"><strong>Imported Records:</strong> {rollbackTarget.imported_records}</Typography>
+              </Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                This will remove all records imported by the latest successful import for this module.
+                <br /><br />
+                <strong>Rollback is only available for the latest successful import. If records were manually added immediately after the import, they may also be affected.</strong>
+                <br /><br />
+                This action cannot be undone.
+              </Alert>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRollbackConfirmOpen(false)} disabled={rollbackLoading}>Cancel</Button>
+          <Button onClick={executeRollback} color="error" variant="contained" disabled={rollbackLoading}>
+            {rollbackLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} color="inherit" />
+                Rolling Back...
+              </Box>
+            ) : "Rollback"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

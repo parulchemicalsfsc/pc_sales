@@ -731,3 +731,90 @@ def get_import_history(
             status_code=500,
             detail=f"Failed to fetch import history: {str(e)}"
         )
+
+
+class RollbackRequest(BaseModel):
+    module_name: str
+
+@router.post("/rollback-latest")
+def rollback_latest_import(
+    req: RollbackRequest,
+    conn = Depends(get_db),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    user_role: Optional[str] = Header(None, alias="x-user-role"),
+):
+    """
+    Rollback the latest successful import for the given module (SABHASAD or DISTRIBUTORS).
+    Version 1 implementation.
+    """
+    module_name = req.module_name.upper()
+    if module_name not in ["SABHASAD", "DISTRIBUTORS"]:
+        raise HTTPException(status_code=400, detail="Invalid module name. Only SABHASAD and DISTRIBUTORS are supported.")
+
+    target_table = "customers" if module_name == "SABHASAD" else "distributors"
+
+    # Step 1: Find the latest successful import
+    res = conn.table("import_history").select("*").eq("module_name", module_name).eq("import_status", "SUCCESS").order("created_at", desc=True).limit(1).execute()
+    
+    if not res.data:
+        raise HTTPException(status_code=404, detail=f"No successful imports found for module {module_name}.")
+        
+    latest_import = res.data[0]
+    import_created_at = latest_import["created_at"]
+    imported_records = latest_import["imported_records"]
+    
+    if imported_records <= 0:
+        raise HTTPException(status_code=400, detail="Latest import had 0 imported records. Nothing to rollback.")
+        
+    # Step 2: Fetch the latest `imported_records` rows from the target table
+    pk_column = "customer_id" if module_name == "SABHASAD" else "distributor_id"
+    
+    candidate_res = conn.table(target_table).select(pk_column).order(pk_column, desc=True).limit(imported_records).execute()
+    candidate_rows = candidate_res.data
+    candidate_count = len(candidate_rows)
+    
+    # Step 3: Safeguard Check
+    if candidate_count != imported_records:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Rollback aborted. Expected {imported_records} imported records but found {candidate_count} candidate records."
+        )
+        
+    # Step 4: Extract primary keys and Delete
+    if module_name == "SABHASAD":
+        customer_ids = [r["customer_id"] for r in candidate_rows]
+        print("Candidate Rows:", candidate_rows)
+        print("IDs to delete:", customer_ids)
+        
+        if not customer_ids:
+            raise HTTPException(status_code=400, detail="Rollback aborted. No candidate IDs found for deletion.")
+            
+        try:
+            for customer_id in customer_ids:
+                conn.table("customers").eq("customer_id", customer_id).delete().execute()
+        except Exception as e:
+            print(f"❌ ERROR deleting records during rollback: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete imported records.")
+    else:
+        distributor_ids = [r["distributor_id"] for r in candidate_rows]
+        print("Candidate Rows:", candidate_rows)
+        print("IDs to delete:", distributor_ids)
+        
+        if not distributor_ids:
+            raise HTTPException(status_code=400, detail="Rollback aborted. No candidate IDs found for deletion.")
+            
+        try:
+            for distributor_id in distributor_ids:
+                conn.table("distributors").eq("distributor_id", distributor_id).delete().execute()
+        except Exception as e:
+            print(f"❌ ERROR deleting records during rollback: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete imported records.")
+        
+    # Step 5: Update import history
+    try:
+        conn.table("import_history").update({"import_status": "ROLLED_BACK"}).eq("import_id", latest_import["import_id"]).execute()
+    except Exception as e:
+        print(f"❌ ERROR updating import history status: {e}")
+        
+    return {"message": f"Successfully rolled back latest {module_name.capitalize()} import."}
+

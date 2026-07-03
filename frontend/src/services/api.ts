@@ -786,6 +786,12 @@ export const fileAPI = {
     const response = await apiClient.get("/api/imports/history");
     return response.data;
   },
+  rollbackLatestImport: async (moduleName: string) => {
+    const response = await apiClient.post("/api/imports/rollback-latest", {
+      module_name: moduleName,
+    });
+    return response.data;
+  },
 };
 
 // Admin API
