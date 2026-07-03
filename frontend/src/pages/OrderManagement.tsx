@@ -280,11 +280,39 @@ export default function OrderManagement() {
 
   const getOrderSteps = (order: Order) => {
     const currentStatus = order.order_status?.toLowerCase() || "pending";
-    const steps = [
+
+    // ── Credit Note / Return Pickup: reverse-logistics flow ────────────────
+    if (order.is_return) {
+      return [
+        {
+          label: "Return Initiated",
+          date: order.sale_date,
+          completed: ["pending", "dispatch", "delivered", "completed", "cancelled"].includes(currentStatus),
+        },
+        {
+          label: "Picked Up from Customer",
+          date: order.shipment_date,
+          completed: ["dispatch", "delivered", "completed"].includes(currentStatus),
+        },
+        {
+          label: "In Transit to Company",
+          date: order.dispatch_date,
+          completed: ["delivered", "completed"].includes(currentStatus),
+        },
+        {
+          label: "Returned to Company",
+          date: order.delivery_date,
+          completed: ["completed"].includes(currentStatus),
+        },
+      ];
+    }
+
+    // ── Regular Sale: forward-delivery flow ────────────────────────────────
+    return [
       {
         label: t("orderManagement.pending", "Pending"),
         date: order.sale_date,
-        completed: ["pending", "prepared_for_shipment", "dispatch", "delivered", "verified", "completed"].includes(currentStatus)
+        completed: ["pending", "prepared_for_shipment", "dispatch", "delivered", "verified", "completed"].includes(currentStatus),
       },
       {
         label: t("orderManagement.prepared", "Prepared for Shipment"),
@@ -302,7 +330,6 @@ export default function OrderManagement() {
         completed: ["delivered", "verified", "completed"].includes(currentStatus),
       },
     ];
-    return steps;
   };
 
   const getNextStatus = (currentStatus: string) => {
@@ -1117,7 +1144,7 @@ export default function OrderManagement() {
 
               <Box mt={4}>
                 <Typography variant="subtitle2" color="textSecondary" mb={2}>
-                  Order Timeline
+                  {selectedOrder.is_return ? "Return Timeline" : "Order Timeline"}
                 </Typography>
                 <Stepper
                   activeStep={
