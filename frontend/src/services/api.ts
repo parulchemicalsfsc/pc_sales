@@ -792,6 +792,10 @@ export const fileAPI = {
     });
     return response.data;
   },
+  deleteImportHistory: async (importId: number) => {
+    const response = await apiClient.delete(`/api/imports/history/${importId}`);
+    return response.data;
+  },
 };
 
 // Admin API

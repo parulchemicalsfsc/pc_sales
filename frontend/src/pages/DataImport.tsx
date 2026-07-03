@@ -34,7 +34,10 @@ import {
   CircularProgress,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Menu,
+  ListItemIcon,
+  ListItemText
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
@@ -49,6 +52,9 @@ import {
   CheckCircle as CheckCircleIcon,
   Group as GroupIcon,
   ExpandMore as ExpandMoreIcon,
+  MoreVert as MoreVertIcon,
+  Delete as DeleteIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 import { fileAPI } from "../services/api";
 import { useTranslation } from "../hooks/useTranslation";
@@ -186,6 +192,43 @@ const prSx = {
 } as const;
 
 
+// ---------------------------------------------------------------------------
+// ActionsCell — menu for Import History actions
+// ---------------------------------------------------------------------------
+const ActionsCell = memo(({ row, isRollbackEligible, isAdmin, onRollback, onDelete }: any) => {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+  
+  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+  const handleClose = () => {
+    setAnchorEl(null);
+  };
+
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+      <IconButton size="small" onClick={handleClick} title="Actions">
+        <MoreVertIcon fontSize="small" />
+      </IconButton>
+      <Menu anchorEl={anchorEl} open={open} onClose={handleClose}>
+        {isRollbackEligible && (
+          <MenuItem onClick={() => { handleClose(); onRollback(row); }}>
+            <ListItemIcon><UndoIcon fontSize="small" color="error" /></ListItemIcon>
+            <ListItemText primary="Rollback" primaryTypographyProps={{ color: "error", variant: "body2", fontWeight: 600 }} />
+          </MenuItem>
+        )}
+        {isAdmin && (
+          <MenuItem onClick={() => { handleClose(); onDelete(row); }}>
+            <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+            <ListItemText primary="Delete History" primaryTypographyProps={{ color: "error", variant: "body2", fontWeight: 600 }} />
+          </MenuItem>
+        )}
+      </Menu>
+    </Box>
+  );
+});
+
 export default function DataImport() {
   const { t } = useTranslation();
   const [openDialog, setOpenDialog] = useState<ImportType | null>(null);
@@ -237,12 +280,48 @@ export default function DataImport() {
   const [rollbackLoading, setRollbackLoading] = useState(false);
   const [rollbackNotification, setRollbackNotification] = useState<{ open: boolean; message: string; severity: "success" | "error" }>({ open: false, message: "", severity: "success" });
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleDeleteClick = (row: any) => {
+    setDeleteTarget(row);
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setDeleteLoading(true);
+      await fileAPI.deleteImportHistory(deleteTarget.import_id);
+      
+      setRollbackNotification({
+        open: true,
+        message: "History record deleted successfully.",
+        severity: "success"
+      });
+      
+      setDeleteConfirmOpen(false);
+      fetchHistory();
+    } catch (err: any) {
+      let errorMessage = "Failed to delete history record.";
+      if (err?.response?.data?.detail) errorMessage = err.response.data.detail;
+      else if (err instanceof Error) errorMessage = err.message;
+      setRollbackNotification({ open: true, message: errorMessage, severity: "error" });
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   const latestSabhasadBatchId = useMemo(() => {
-    return importHistory.find(h => h.module_name === "SABHASAD" && h.import_status === "SUCCESS")?.import_batch_id;
+    const latest = importHistory.find(h => h.module_name === "SABHASAD");
+    return latest?.import_status === "SUCCESS" ? latest.import_batch_id : null;
   }, [importHistory]);
 
   const latestDistributorBatchId = useMemo(() => {
-    return importHistory.find(h => h.module_name === "DISTRIBUTORS" && h.import_status === "SUCCESS")?.import_batch_id;
+    const latest = importHistory.find(h => h.module_name === "DISTRIBUTORS");
+    return latest?.import_status === "SUCCESS" ? latest.import_batch_id : null;
   }, [importHistory]);
 
   const handleRollbackClick = (row: any) => {
@@ -920,7 +999,13 @@ export default function DataImport() {
       renderCell: (params) => {
         if (!params.value) return "-";
         try {
-          const date = new Date(params.value);
+          // Supabase naive timestamps (without timezone) are returned in UTC but lack the 'Z' suffix.
+          // Appending 'Z' ensures JS parses it as UTC, then toLocaleString converts it to local time (e.g. IST).
+          let dateString = params.value;
+          if (/\d$/.test(dateString)) {
+            dateString += "Z";
+          }
+          const date = new Date(dateString);
           return date.toLocaleString();
         } catch {
           return params.value;
@@ -985,20 +1070,23 @@ export default function DataImport() {
         const isLatestSabhasad = params.row.module_name === "SABHASAD" && params.row.import_batch_id === latestSabhasadBatchId;
         const isLatestDistributor = params.row.module_name === "DISTRIBUTORS" && params.row.import_batch_id === latestDistributorBatchId;
         const isSuccess = params.row.import_status === "SUCCESS";
+        const isAdmin = localStorage.getItem("user_role") === "admin";
         
-        if ((isLatestSabhasad || isLatestDistributor) && isSuccess) {
-          return (
-            <Button
-              size="small"
-              color="error"
-              variant="outlined"
-              onClick={() => handleRollbackClick(params.row)}
-            >
-              ↩ Rollback
-            </Button>
-          );
+        const showRollback = (isLatestSabhasad || isLatestDistributor) && isSuccess;
+
+        if (!showRollback && !isAdmin) {
+          return <Typography variant="body2" color="text.secondary">—</Typography>;
         }
-        return <Typography variant="body2" color="text.secondary">—</Typography>;
+
+        return (
+          <ActionsCell 
+            row={params.row} 
+            isRollbackEligible={showRollback} 
+            isAdmin={isAdmin} 
+            onRollback={handleRollbackClick} 
+            onDelete={handleDeleteClick} 
+          />
+        );
       }
     },
   ];
@@ -2193,6 +2281,35 @@ export default function DataImport() {
                 Rolling Back...
               </Box>
             ) : "Rollback"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          Delete Import History
+        </DialogTitle>
+        <DialogContent dividers>
+          {deleteTarget && (
+            <>
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                This will permanently remove this history record.
+              </Typography>
+              <Alert severity="warning">
+                Imported data will NOT be affected.
+              </Alert>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)} disabled={deleteLoading}>Cancel</Button>
+          <Button onClick={executeDelete} color="error" variant="contained" disabled={deleteLoading}>
+            {deleteLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} color="inherit" />
+                Deleting...
+              </Box>
+            ) : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>
