@@ -132,7 +132,7 @@ export default function Sales() {
 
 
   // Pre-Sale Workflow
-  const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("pre_sales");
+  const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("confirmed");
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
   const [confirming, setConfirming] = useState(false);
 
