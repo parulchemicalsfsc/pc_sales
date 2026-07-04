@@ -20,6 +20,8 @@ import {
   TableRow,
   Paper,
   InputAdornment,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -90,6 +92,8 @@ export default function CreditNoteReturnDialog({
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
   const [amountOverride, setAmountOverride] = useState<string>("");
   const [amountEdited, setAmountEdited] = useState(false);
+  const [requiresPickup, setRequiresPickup] = useState(false);
+  const [pickupItems, setPickupItems] = useState("");
 
   // ── Load sale items on open ─────────────────────────────────────────────────
   useEffect(() => {
@@ -102,6 +106,8 @@ export default function CreditNoteReturnDialog({
     setReturnQtys({});
     setSaleInfo(null);
     setSaleItems([]);
+    setRequiresPickup(false);
+    setPickupItems("");
 
     notesAPI.getSaleItems(saleId)
       .then((data) => {
@@ -145,7 +151,11 @@ export default function CreditNoteReturnDialog({
       });
 
   const totalReturnQty = Object.values(returnQtys).reduce((s, q) => s + q, 0);
-  const canSubmit = totalReturnQty > 0 && reason.trim().length > 0 && displayAmount > 0;
+  const canSubmit =
+    totalReturnQty > 0 &&
+    reason.trim().length > 0 &&
+    displayAmount > 0 &&
+    (!requiresPickup || pickupItems.trim().length > 0);
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -161,7 +171,8 @@ export default function CreditNoteReturnDialog({
         reason: reason.trim(),
         issue_date: issueDate,
         return_items: returnItems,
-        // requires_pickup and pickup_items are set automatically by backend
+        requires_pickup: requiresPickup,
+        pickup_items: requiresPickup ? pickupItems.trim() : undefined,
       });
       onSuccess?.();
       onClose();
@@ -381,9 +392,41 @@ export default function CreditNoteReturnDialog({
               />
             </Box>
 
-            {totalReturnQty > 0 && (
-              <Alert severity="info" sx={{ mt: 2 }}>
-                A <strong>reverse logistics pickup</strong> will be automatically created for the {totalReturnQty} returned item{totalReturnQty !== 1 ? "s" : ""}. It will appear in the <strong>Order Management → Return Pickups</strong> tab.
+            <Divider sx={{ mb: 2 }} />
+
+            {/* ── Requires Physical Pickup ── */}
+            <Box sx={{ mb: 2 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={requiresPickup}
+                    onChange={(e) => setRequiresPickup(e.target.checked)}
+                    color="warning"
+                  />
+                }
+                label={
+                  <Typography variant="body2" fontWeight={600}>
+                    Requires Physical Pickup (Reverse Logistics)
+                  </Typography>
+                }
+              />
+              {requiresPickup && (
+                <TextField
+                  label="Items to Pickup (required)"
+                  fullWidth
+                  size="small"
+                  value={pickupItems}
+                  onChange={(e) => setPickupItems(e.target.value)}
+                  helperText={pickupItems.trim() ? "" : "e.g. 2x 5L Cans, 1x Box"}
+                  error={requiresPickup && pickupItems.trim().length === 0}
+                  sx={{ mt: 1.5, ml: 4, width: "calc(100% - 32px)" }}
+                />
+              )}
+            </Box>
+
+            {requiresPickup && totalReturnQty > 0 && (
+              <Alert severity="info" sx={{ mt: 1 }}>
+                A <strong>reverse logistics pickup</strong> will be created for the {totalReturnQty} returned item{totalReturnQty !== 1 ? "s" : ""}. It will appear in <strong>Order Management → Return Pickups</strong>.
               </Alert>
             )}
           </>
