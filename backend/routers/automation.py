@@ -205,18 +205,8 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     logger.info(f"[DIST] Telecallers to distribute to: {valid_emails}")
 
     # 2. Clear ghost assignments (assignments for users no longer in telecaller list)
-    # Also clean up any lingering pending assignments from past days as a fallback
+    # (Removed old pending cleanup per user request - pending assignments now roll over)
     try:
-        old_res = db.table("calling_assignments") \
-            .select("assignment_id") \
-            .lt("assigned_date", today_str) \
-            .eq("status", "Pending") \
-            .execute()
-        if old_res.data:
-            for old_row in old_res.data:
-                db.table("calling_assignments").eq("assignment_id", old_row["assignment_id"]).delete().execute()
-            logger.info(f"[DIST] Fallback cleanup complete — deleted {len(old_res.data)} old pending assignments.")
-
         ghost_res = db.table("calling_assignments") \
             .select("assignment_id, user_email") \
             .eq("assigned_date", today_str) \
@@ -306,11 +296,27 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     except Exception as e:
         logger.warning(f"[DIST] Could not load affinity map (non-fatal): {e}")
 
-    # 5. Round-robin assignment
+    # 5. Skip distributors who already have a Pending assignment
+    existing_pending = set()
+    try:
+        ep_res = db.table("calling_assignments") \
+            .select("customer_id") \
+            .eq("status", "Pending") \
+            .in_("customer_id", [c["customer_id"] for c in customers_to_call]) \
+            .execute()
+        for r in (ep_res.data or []):
+            existing_pending.add(r["customer_id"])
+    except Exception as e:
+        logger.warning(f"[DIST] Could not load existing pending assignments (non-fatal): {e}")
+
+    # 6. Round-robin assignment
     assignments = []
     notifications_map = {}
     for i, cust in enumerate(customers_to_call):
         cust_id = cust["customer_id"]
+        if cust_id in existing_pending:
+            continue
+            
         assigned_email = affinity_map.get(cust_id)
         if not assigned_email or assigned_email not in emails:
             assigned_email = sorted_emails[i % len(sorted_emails)]

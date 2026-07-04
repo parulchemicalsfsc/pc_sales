@@ -258,6 +258,29 @@ export default function OrderManagement() {
     return statusLabels[status] || status;
   };
 
+  // Return-pickup specific labels (mapped from pickup_status via order_status)
+  const getReturnStatusLabel = (status: string) => {
+    const labels: { [key: string]: string } = {
+      pending:   "Return Initiated",
+      dispatch:  "Picked Up from Customer",
+      delivered: "In Transit to Company",
+      completed: "Returned to Company",
+      cancelled: "Cancelled",
+    };
+    return labels[status] || status;
+  };
+
+  const getReturnStatusColor = (status: string): any => {
+    const colors: { [key: string]: any } = {
+      pending:   "warning",
+      dispatch:  "info",
+      delivered: "primary",
+      completed: "success",
+      cancelled: "error",
+    };
+    return colors[status] || "default";
+  };
+
   const getShipmentStatusColor = (status: string) => {
     const statusColors: { [key: string]: any } = {
       not_shipped: "default",
@@ -992,23 +1015,31 @@ export default function OrderManagement() {
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
-                    <Chip
-                      label={getOrderStatusLabel(order.order_status || "pending")}
-                      color={getOrderStatusColor(
-                        order.order_status || "pending",
-                      )}
-                      size="small"
-                      onDelete={
-                        getNextStatus(order.order_status || "pending")
-                          ? () => handleQuickStatusAdvance(order)
-                          : undefined
-                      }
-                      deleteIcon={
-                        <Tooltip title={`Advance to ${getOrderStatusLabel(getNextStatus(order.order_status || "pending") || "")}`}>
-                          <NextStatusIcon />
-                        </Tooltip>
-                      }
-                    />
+                    {order.is_return ? (
+                      <Chip
+                        label={getReturnStatusLabel(order.order_status || "pending")}
+                        color={getReturnStatusColor(order.order_status || "pending")}
+                        size="small"
+                      />
+                    ) : (
+                      <Chip
+                        label={getOrderStatusLabel(order.order_status || "pending")}
+                        color={getOrderStatusColor(
+                          order.order_status || "pending",
+                        )}
+                        size="small"
+                        onDelete={
+                          getNextStatus(order.order_status || "pending")
+                            ? () => handleQuickStatusAdvance(order)
+                            : undefined
+                        }
+                        deleteIcon={
+                          <Tooltip title={`Advance to ${getOrderStatusLabel(getNextStatus(order.order_status || "pending") || "")}`}>
+                            <NextStatusIcon />
+                          </Tooltip>
+                        }
+                      />
+                    )}
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title={t("orderManagement.viewDetails", "View Details")}>

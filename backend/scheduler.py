@@ -26,14 +26,15 @@ def midnight_refresh_job():
         from datetime import date
         db = get_supabase()
         today = date.today().isoformat()
-        logger.info(f"[SCHEDULER] Deleting pending assignments older than {today}...")
+        logger.info(f"[SCHEDULER] Deleting OLD PENDING distributor assignments older than {today} (sales manager assignments reset each midnight)...")
         res = db.table("calling_assignments") \
             .lt("assigned_date", today) \
             .eq("status", "Pending") \
+            .eq("entity_type", "distributor") \
             .delete() \
             .execute()
         deleted = len(res.data or [])
-        logger.info(f"[SCHEDULER] Cleared {deleted} old pending assignments.")
+        logger.info(f"[SCHEDULER] Cleared {deleted} old pending distributor assignments. (Customer/sabhsad assignments preserved and roll over.)")
     except Exception as e:
         logger.error(f"[SCHEDULER] ❌ midnight_refresh_job FAILED: {e}", exc_info=True)
 
