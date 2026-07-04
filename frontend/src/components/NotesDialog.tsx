@@ -388,36 +388,6 @@ export default function NotesDialog({
           sx={{ mb: 2 }}
         />
 
-
-        <Box sx={{ mb: 3 }}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={form.requires_pickup}
-                onChange={(e) => setForm((f) => ({ ...f, requires_pickup: e.target.checked }))}
-                color="primary"
-              />
-            }
-            label={
-              <Typography variant="body2" fontWeight={600}>
-                Requires Physical Pickup (Reverse Logistics)
-              </Typography>
-            }
-          />
-          {form.requires_pickup && (
-            <TextField
-              label="Items to Pickup (Required for Returns)"
-              fullWidth
-              size="small"
-              value={form.pickup_items}
-              onChange={(e) => setForm((f) => ({ ...f, pickup_items: e.target.value }))}
-              error={!!formErrors.pickup_items}
-              helperText={formErrors.pickup_items || "e.g., 2x 5L Cans, 1x Box"}
-              sx={{ mt: 1.5, ml: 4, width: 'calc(100% - 32px)' }}
-            />
-          )}
-        </Box>
-
         <Button
           variant="contained"
           color="error"
