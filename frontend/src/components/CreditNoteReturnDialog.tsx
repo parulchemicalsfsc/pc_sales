@@ -93,7 +93,8 @@ export default function CreditNoteReturnDialog({
   const [amountOverride, setAmountOverride] = useState<string>("");
   const [amountEdited, setAmountEdited] = useState(false);
   const [requiresPickup, setRequiresPickup] = useState(false);
-  const [pickupItems, setPickupItems] = useState("");
+  const [pickupItemsOverride, setPickupItemsOverride] = useState("");
+  const [pickupItemsEdited, setPickupItemsEdited] = useState(false);
 
   // ── Load sale items on open ─────────────────────────────────────────────────
   useEffect(() => {
@@ -107,7 +108,8 @@ export default function CreditNoteReturnDialog({
     setSaleInfo(null);
     setSaleItems([]);
     setRequiresPickup(false);
-    setPickupItems("");
+    setPickupItemsOverride("");
+    setPickupItemsEdited(false);
 
     notesAPI.getSaleItems(saleId)
       .then((data) => {
@@ -134,6 +136,14 @@ export default function CreditNoteReturnDialog({
 
   const displayAmount = amountEdited ? Number(amountOverride) : autoCalculatedAmount;
 
+  // ── Auto-generate pickup items text from selected return qtys ───────────────
+  const autoPickupItems = saleItems
+    .filter((item) => (returnQtys[item.product_id] ?? 0) > 0)
+    .map((item) => `${returnQtys[item.product_id]}x ${item.product_name}`)
+    .join(", ");
+
+  const displayPickupItems = pickupItemsEdited ? pickupItemsOverride : autoPickupItems;
+
   // ── Build return_items payload ──────────────────────────────────────────────
   const buildReturnItems = (): ReturnItem[] =>
     saleItems
@@ -155,7 +165,7 @@ export default function CreditNoteReturnDialog({
     totalReturnQty > 0 &&
     reason.trim().length > 0 &&
     displayAmount > 0 &&
-    (!requiresPickup || pickupItems.trim().length > 0);
+    (!requiresPickup || displayPickupItems.trim().length > 0);
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -172,7 +182,7 @@ export default function CreditNoteReturnDialog({
         issue_date: issueDate,
         return_items: returnItems,
         requires_pickup: requiresPickup,
-        pickup_items: requiresPickup ? pickupItems.trim() : undefined,
+        pickup_items: requiresPickup ? displayPickupItems.trim() : undefined,
       });
       onSuccess?.();
       onClose();
@@ -193,6 +203,11 @@ export default function CreditNoteReturnDialog({
     if (amountEdited) {
       setAmountEdited(false);
       setAmountOverride("");
+    }
+    // Reset pickup items override when qty changes (re-auto-calculate)
+    if (pickupItemsEdited) {
+      setPickupItemsEdited(false);
+      setPickupItemsOverride("");
     }
   };
 
@@ -412,13 +427,20 @@ export default function CreditNoteReturnDialog({
               />
               {requiresPickup && (
                 <TextField
-                  label="Items to Pickup (required)"
+                  label="Items to Pickup"
                   fullWidth
                   size="small"
-                  value={pickupItems}
-                  onChange={(e) => setPickupItems(e.target.value)}
-                  helperText={pickupItems.trim() ? "" : "e.g. 2x 5L Cans, 1x Box"}
-                  error={requiresPickup && pickupItems.trim().length === 0}
+                  value={displayPickupItems}
+                  onChange={(e) => {
+                    setPickupItemsOverride(e.target.value);
+                    setPickupItemsEdited(true);
+                  }}
+                  helperText={
+                    pickupItemsEdited
+                      ? "⚠ Items list edited manually"
+                      : "Auto-filled from selected return items — edit if needed"
+                  }
+                  error={requiresPickup && displayPickupItems.trim().length === 0}
                   sx={{ mt: 1.5, ml: 4, width: "calc(100% - 32px)" }}
                 />
               )}
