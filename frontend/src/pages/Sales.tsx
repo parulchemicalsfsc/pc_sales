@@ -218,7 +218,8 @@ export default function Sales() {
       }
 
       if (customersResult.status === "fulfilled") {
-        setCustomers(customersResult.value.data || []);
+        const cd = customersResult.value;
+        setCustomers(Array.isArray(cd) ? cd : (cd?.data || []));
       } else {
         console.warn("Could not load customers:", customersResult.reason?.message);
       }
@@ -323,7 +324,8 @@ export default function Sales() {
         apiClient.get("/api/products/config/regions"),
       ]);
       if (customersResult.status === "fulfilled") {
-        setCustomers(customersResult.value.data || []);
+        const cd = customersResult.value;
+        setCustomers(Array.isArray(cd) ? cd : (cd?.data || []));
       }
       if (distributorsResult.status === "fulfilled") {
         const distData = distributorsResult.value;
@@ -821,7 +823,7 @@ export default function Sales() {
               const newCustomer = await customerAPI.create(newCustomerData as Customer);
               customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
               const customersData = await customerAPI.getAll({ limit: 1000 });
-              setCustomers(customersData.data || []);
+              setCustomers(Array.isArray(customersData) ? customersData : (customersData?.data || []));
             }
           }
         } catch (err: any) {

@@ -184,7 +184,9 @@ export const attendanceAPI = {
 export const customerAPI = {
   getAll: async (params?: any) => {
     const response = await apiClient.get("/api/customers", { params });
-    return response.data;
+    // Backend returns { data: [...], total: N } — unwrap to plain array
+    const payload = response.data;
+    return Array.isArray(payload) ? payload : (payload?.data ?? []);
   },
   getById: async (id: number) => {
     const response = await apiClient.get(`/api/customers/${id}`);

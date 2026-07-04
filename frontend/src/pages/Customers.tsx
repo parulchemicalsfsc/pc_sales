@@ -96,7 +96,7 @@ export default function Customers() {
       ]);
 
       if (custResult.status === "fulfilled") {
-        setCustomers(custResult.value.data || []);
+        setCustomers(Array.isArray(custResult.value) ? custResult.value : (custResult.value?.data || []));
       } else {
         setError(custResult.reason instanceof Error ? custResult.reason.message : t("customers.loadError", "Failed to load Sabhasad"));
         console.error("Error loading Sabhasad:", custResult.reason);
