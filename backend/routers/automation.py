@@ -1477,10 +1477,10 @@ def get_locations(db: SupabaseClient = Depends(get_db)):
         hierarchy = {}
         
         for r in all_rows:
-            s = r.get("state") or "Unknown"
-            d = r.get("district") or "Unknown"
-            t = r.get("taluka") or "Unknown"
-            v = r.get("village") or "Unknown"
+            s = (r.get("state") or "Unknown").strip().upper()
+            d = (r.get("district") or "Unknown").strip().upper()
+            t = (r.get("taluka") or "Unknown").strip().upper()
+            v = (r.get("village") or "Unknown").strip().upper()
             
             if s not in hierarchy:
                 hierarchy[s] = {}
