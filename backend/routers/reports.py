@@ -129,7 +129,7 @@ def get_analytics_summary(
         # FIX-10: Fetch only rows within the date range with minimal columns
         sales_resp = (
             db.table("sales")
-            .select("sale_id, total_amount, total_liters, customer_id")
+            .select("sale_id, total_amount, total_liters, customer_id, buyer_type, doctor_id, shopkeeper_id, distributor_id")
             .gte("sale_date", start_date)
             .lte("sale_date", end_date)
             .execute()
@@ -149,13 +149,59 @@ def get_analytics_summary(
             )
             customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
 
+        # Fetch other buyer types to resolve district properly
+        districts_map = {}
+        villages_map = {}
+        
+        doctor_ids = list({s["doctor_id"] for s in all_sales if s.get("doctor_id")})
+        if doctor_ids:
+            docs = db.table("doctors").select("doctor_id, district, village").in_("doctor_id", doctor_ids).execute().data or []
+            for d in docs: 
+                districts_map[f"doctor_{d['doctor_id']}"] = d.get("district")
+                villages_map[f"doctor_{d['doctor_id']}"] = d.get("village")
+            
+        shopkeeper_ids = list({s["shopkeeper_id"] for s in all_sales if s.get("shopkeeper_id")})
+        if shopkeeper_ids:
+            sks = db.table("shopkeepers").select("shopkeeper_id, district, village").in_("shopkeeper_id", shopkeeper_ids).execute().data or []
+            for sk in sks: 
+                districts_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("district")
+                villages_map[f"shopkeeper_{sk['shopkeeper_id']}"] = sk.get("village")
+            
+        distributor_ids = list({s["distributor_id"] for s in all_sales if s.get("distributor_id")})
+        if distributor_ids:
+            dists = db.table("distributors").select("distributor_id, district, village").in_("distributor_id", distributor_ids).execute().data or []
+            for d in dists: 
+                districts_map[f"distributor_{d['distributor_id']}"] = d.get("district")
+                villages_map[f"distributor_{d['distributor_id']}"] = d.get("village")
+
         # Apply district/village filters in Python (small dataset now)
         filtered_sales = []
         for sale in all_sales:
             customer = customers_dict.get(sale.get("customer_id"), {})
-            if district and customer.get("district", "").strip() != district.strip():
+            
+            # Resolve district and village based on buyer_type
+            sale_district = customer.get("district")
+            sale_village = customer.get("village")
+            buyer_type = sale.get("buyer_type")
+            
+            if not sale_district and buyer_type:
+                if buyer_type == "doctor":
+                    sale_district = districts_map.get(f"doctor_{sale.get('doctor_id')}")
+                    sale_village = villages_map.get(f"doctor_{sale.get('doctor_id')}")
+                elif buyer_type == "shopkeeper":
+                    sale_district = districts_map.get(f"shopkeeper_{sale.get('shopkeeper_id')}")
+                    sale_village = villages_map.get(f"shopkeeper_{sale.get('shopkeeper_id')}")
+                elif buyer_type in ("distributor", "mantri"):
+                    sale_district = districts_map.get(f"distributor_{sale.get('distributor_id')}")
+                    sale_village = villages_map.get(f"distributor_{sale.get('distributor_id')}")
+            
+            # Store on the sale for KPIs
+            sale["resolved_district"] = sale_district
+            sale["resolved_village"] = sale_village
+
+            if district and (sale_district or "").strip() != district.strip():
                 continue
-            if village and customer.get("village", "").strip() != village.strip():
+            if village and (sale_village or "").strip() != village.strip():
                 continue
             filtered_sales.append({**sale, "customer": customer})
 
@@ -182,7 +228,7 @@ def get_analytics_summary(
         # Top district
         district_revenue: dict = {}
         for s in filtered_sales:
-            d = s["customer"].get("district") or "Unknown"
+            d = s.get("resolved_district") or "Unknown"
             district_revenue[d] = district_revenue.get(d, 0) + (s.get("total_amount") or 0)
         top_district = max(district_revenue, key=district_revenue.get) if district_revenue else None
         top_district_amount = district_revenue.get(top_district, 0) if top_district else 0
