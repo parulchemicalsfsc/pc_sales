@@ -493,20 +493,19 @@ def get_my_assignments(
             else:
                 query = query.eq("user_email", user_email)
                 count_query = count_query.eq("user_email", user_email)
-        elif role == "sales_manager":
-            query = query.eq("user_email", user_email).eq("entity_type", "distributor")
-            count_query = count_query.eq("user_email", user_email).eq("entity_type", "distributor")
-        else: # Telecaller or others
-            query = query.eq("user_email", user_email).eq("entity_type", "customer")
-            count_query = count_query.eq("user_email", user_email).eq("entity_type", "customer")
+        else:
+            query = query.eq("user_email", user_email)
+            count_query = count_query.eq("user_email", user_email)
 
         query = query.order("assignment_id")
 
         if status:
             if status == "completed":
                 query = query.neq("status", "Pending")
+                count_query = count_query.neq("status", "Pending")
             else:
                 query = query.eq("status", status)
+                count_query = count_query.eq("status", status)
 
         query = query.limit(limit).offset(offset)
         res = query.execute()
@@ -514,16 +513,8 @@ def get_my_assignments(
         logger.info(f"[MY-ASSIGN] Raw assignments fetched: {len(assignments)} rows")
 
         # Total count
-        count_query = db.table("calling_assignments") \
-            .select("assignment_id") \
-            .eq("user_email", user_email)
-        if status:
-            if status == "completed":
-                count_query = count_query.neq("status", "Pending")
-            else:
-                count_query = count_query.eq("status", status)
         count_res = count_query.execute()
-        total = len(count_res.data or [])
+        total = count_res.count if hasattr(count_res, "count") and count_res.count is not None else len(count_res.data or [])
         logger.info(f"[MY-ASSIGN] Total count for pagination: {total}")
 
         # Enrich with details based on entity_type
@@ -1214,22 +1205,34 @@ def get_admin_assignments(
 
         # Count total for date
         count_res = db.table("calling_assignments") \
-            .select("assignment_id") \
+            .select("assignment_id", count="exact") \
             .eq("assigned_date", d) \
             .execute()
-        total = len(count_res.data or [])
+        total = count_res.count if hasattr(count_res, "count") and count_res.count is not None else len(count_res.data or [])
 
         # Fetch user info
         users_res = db.table("app_users").select("email, name, role").execute()
         users_map = {u["email"]: u for u in (users_res.data or [])}
 
-        # Per-telecaller summary
-        all_res = db.table("calling_assignments") \
-            .select("user_email, status") \
-            .eq("assigned_date", d) \
-            .execute()
+        # Per-telecaller summary (fetch all to avoid 1000 limit)
+        all_assignments_for_day = []
+        batch = 1000
+        summ_offset = 0
+        while True:
+            all_res = db.table("calling_assignments") \
+                .select("user_email, status") \
+                .eq("assigned_date", d) \
+                .range(summ_offset, summ_offset + batch - 1) \
+                .execute()
+            if not all_res.data:
+                break
+            all_assignments_for_day.extend(all_res.data)
+            if len(all_res.data) < batch:
+                break
+            summ_offset += batch
+
         telecaller_summary = {}
-        for row in (all_res.data or []):
+        for row in all_assignments_for_day:
             email = row["user_email"]
             if email not in telecaller_summary:
                 u_info = users_map.get(email, {})
