@@ -1357,28 +1357,40 @@ def distribute_sabhsads(
         raise HTTPException(status_code=400, detail="Must provide at least one telecaller email")
 
     try:
-        # Fetch unassigned customers in this location
-        # Get all customers in location
-        query = db.table("customers").select("customer_id")
-        if payload.state: query = query.eq("state", payload.state)
-        if payload.district: query = query.eq("district", payload.district)
-        if payload.taluka: query = query.eq("taluka", payload.taluka)
-        if payload.village: query = query.eq("village", payload.village)
-        
-        cust_res = query.execute()
-        all_cust_ids = [c["customer_id"] for c in (cust_res.data or [])]
+        # Fetch unassigned customers in this location (paginated)
+        all_cust_ids = []
+        batch = 1000
+        offset = 0
+        while True:
+            query = db.table("customers").select("customer_id")
+            if payload.state: query = query.eq("state", payload.state)
+            if payload.district: query = query.eq("district", payload.district)
+            if payload.taluka: query = query.eq("taluka", payload.taluka)
+            if payload.village: query = query.eq("village", payload.village)
+            query = query.range(offset, offset + batch - 1)
+            cust_res = query.execute()
+            if not cust_res.data:
+                break
+            all_cust_ids.extend([c["customer_id"] for c in cust_res.data])
+            if len(cust_res.data) < batch:
+                break
+            offset += batch
 
         if not all_cust_ids:
             return {"message": "No sabhsads found in this location", "assigned": 0}
 
-        # Find which of these are already assigned
-        assigned_res = db.table("calling_assignments") \
-            .select("customer_id") \
-            .eq("entity_type", "customer") \
-            .in_("customer_id", all_cust_ids) \
-            .execute()
+        # Find which of these are already assigned (paginate in chunks of 100 for IN query)
+        assigned_ids = set()
+        for i in range(0, len(all_cust_ids), 100):
+            chunk = all_cust_ids[i:i+100]
+            assigned_res = db.table("calling_assignments") \
+                .select("customer_id") \
+                .eq("entity_type", "customer") \
+                .in_("customer_id", chunk) \
+                .execute()
+            for a in (assigned_res.data or []):
+                assigned_ids.add(a["customer_id"])
             
-        assigned_ids = set([a["customer_id"] for a in (assigned_res.data or [])])
         unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
 
         if not unassigned_ids:
@@ -1403,8 +1415,12 @@ def distribute_sabhsads(
                 "notes": "",
             })
 
+        # Bulk insert in batches of 50
         if assignments:
-            db.table("calling_assignments").insert(assignments).execute()
+            for i in range(0, len(assignments), 50):
+                batch_chunk = assignments[i:i+50]
+                db.table("calling_assignments").insert(batch_chunk).execute()
+
 
         # Notify telecallers
         notifications_map = {}
@@ -1439,17 +1455,28 @@ def distribute_sabhsads(
 def get_locations(db: SupabaseClient = Depends(get_db)):
     """Fetch distinct states, districts, talukas, and villages from customers table."""
     try:
-        # Note: Supabase JS client doesn't have a simple DISTINCT query.
-        # We fetch a subset or use a view if available. Since we need it for dropdowns,
-        # we will fetch and group in memory (not ideal for huge datasets, but a simple workaround).
-        # Better: use an RPC if defined, or just fetch necessary columns.
-        res = db.table("customers").select("state, district, taluka, village").execute()
-        
-        locations = {"states": {}, "districts": {}, "talukas": {}, "villages": {}}
+        # Paginate to bypass Supabase's 1000-row server cap
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            res = db.table("customers") \
+                .select("state, district, taluka, village") \
+                .range(offset, offset + batch - 1) \
+                .execute()
+            if not res.data:
+                break
+            all_rows.extend(res.data)
+            if len(res.data) < batch:
+                break
+            offset += batch
+
+        logger.info(f"[LOCATIONS] Fetched {len(all_rows)} customer rows for location hierarchy")
+
         # Group to build a hierarchical map
         hierarchy = {}
         
-        for r in (res.data or []):
+        for r in all_rows:
             s = r.get("state") or "Unknown"
             d = r.get("district") or "Unknown"
             t = r.get("taluka") or "Unknown"
@@ -1467,12 +1494,13 @@ def get_locations(db: SupabaseClient = Depends(get_db)):
         for s in hierarchy:
             for d in hierarchy[s]:
                 for t in hierarchy[s][d]:
-                    hierarchy[s][d][t] = list(hierarchy[s][d][t])
+                    hierarchy[s][d][t] = sorted(hierarchy[s][d][t])
 
         return hierarchy
     except Exception as e:
         logger.error(f"[LOCATIONS] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch locations")
+
 
 
 @router.post("/admin/reassign")

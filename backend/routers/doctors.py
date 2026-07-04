@@ -13,17 +13,26 @@ router = APIRouter()
 def get_doctors(db: SupabaseClient = Depends(get_supabase)):
     """Get all doctors"""
     try:
-        response = (
-            db.table("doctors")
-            .select("*")
-            .order("created_at", desc=True)
-            .execute()
-        )
+        # Paginate to bypass Supabase's 1000-row server cap
+        all_rows = []
+        batch = 1000
+        offset = 0
+        while True:
+            response = (
+                db.table("doctors")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            if not response.data:
+                break
+            all_rows.extend(response.data)
+            if len(response.data) < batch:
+                break
+            offset += batch
 
-        if not response.data:
-            return []
-
-        return response.data
+        return all_rows
     except Exception as e:
         print("❌ GET ERROR:", str(e))
         # If the table doesn't exist yet, return empty list gracefully
