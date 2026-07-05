@@ -1278,12 +1278,15 @@ def get_admin_assignments(
         users_map = {u["email"]: u for u in (users_res.data or [])}
 
         # Per-telecaller summary (fetch all to avoid 1000 limit)
+        # Also fetch entity_type so we can properly count by role:
+        # - Sales managers: only count distributor assignments
+        # - Telecallers: only count customer assignments
         all_assignments_for_day = []
         batch = 1000
         summ_offset = 0
         while True:
             all_res = db.table("calling_assignments") \
-                .select("user_email, status") \
+                .select("user_email, status, entity_type") \
                 .eq("assigned_date", d) \
                 .range(summ_offset, summ_offset + batch - 1) \
                 .execute()
@@ -1297,8 +1300,24 @@ def get_admin_assignments(
         telecaller_summary = {}
         for row in all_assignments_for_day:
             email = row["user_email"]
+            e_type = row.get("entity_type")  # 'customer' or 'distributor'
+            u_info = users_map.get(email, {})
+            u_role = u_info.get("role", "unknown").lower()
+
+            # Determine which entity_type this user should be counted for:
+            # - admin: count all
+            # - sales_manager: only count distributor assignments
+            # - everyone else (telecaller): only count customer assignments
+            if u_role == "admin" or u_role == "developer":
+                pass  # count all entity types
+            elif u_role == "sales_manager":
+                if e_type != "distributor":
+                    continue  # skip non-distributor rows for sales managers
+            else:
+                if e_type != "customer":
+                    continue  # skip non-customer rows for telecallers
+
             if email not in telecaller_summary:
-                u_info = users_map.get(email, {})
                 telecaller_summary[email] = {
                     "total": 0, 
                     "pending": 0, 
