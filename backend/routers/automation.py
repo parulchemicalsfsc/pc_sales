@@ -866,17 +866,33 @@ def update_call_status(
 
         # 5. If callback is selected with a date, schedule new assignment + send notifications
         if body.call_outcome == "callback" and body.callback_date:
-            new_assign_res = db.table("calling_assignments").insert({
-                "user_email": user_email,  # Affinity: stay with same telecaller
-                "customer_id": assignment["customer_id"],
-                "priority": assignment.get("priority", "Medium"),
-                "reason": "Scheduled Callback",
-                "assigned_date": body.callback_date,
-                "status": "Pending",
-                "notes": body.notes or "",
-                "entity_type": assignment.get("entity_type", "distributor"),
-            }).execute()
-            new_assignment_id = (new_assign_res.data or [{}])[0].get("assignment_id")
+            # Check if a pending callback assignment already exists for this
+            # customer + user + date to avoid creating duplicates
+            existing_cb = db.table("calling_assignments") \
+                .select("assignment_id") \
+                .eq("user_email", user_email) \
+                .eq("customer_id", assignment["customer_id"]) \
+                .eq("assigned_date", body.callback_date) \
+                .eq("status", "Pending") \
+                .limit(1) \
+                .execute()
+
+            if existing_cb.data:
+                # Reuse the existing pending assignment
+                new_assignment_id = existing_cb.data[0]["assignment_id"]
+                logger.info(f"[CALLBACK] Reusing existing pending assignment {new_assignment_id} for customer {assignment['customer_id']}")
+            else:
+                new_assign_res = db.table("calling_assignments").insert({
+                    "user_email": user_email,  # Affinity: stay with same telecaller
+                    "customer_id": assignment["customer_id"],
+                    "priority": assignment.get("priority", "Medium"),
+                    "reason": "Scheduled Callback",
+                    "assigned_date": body.callback_date,
+                    "status": "Pending",
+                    "notes": body.notes or "",
+                    "entity_type": assignment.get("entity_type", "distributor"),
+                }).execute()
+                new_assignment_id = (new_assign_res.data or [{}])[0].get("assignment_id")
 
             # Resolve the entity name for the notification message
             entity_name = "Unknown"
