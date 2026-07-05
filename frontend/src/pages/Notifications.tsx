@@ -246,11 +246,12 @@ export default function Notifications() {
   const handleShowDetails = (notification: Notification) => {
     setSelectedNotification(notification);
     setDetailsOpen(true);
-    handleMenuClose();
+    setAnchorEl(null); // Just close the context menu visually, don't clear the selected item
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const dateStr = dateString.endsWith('Z') || dateString.includes('+') ? dateString : dateString + 'Z';
+    const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);

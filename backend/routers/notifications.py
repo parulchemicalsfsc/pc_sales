@@ -171,6 +171,34 @@ def create_notification(
         )
 
 
+@router.put("/mark-all-read")
+def mark_all_read(
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Mark all notifications as read for a user"""
+    try:
+        # Update all unread notifications for this user
+        query = db.table("notifications").eq("is_read", False).update({"is_read": True})
+
+        if user_email:
+            query = query.eq("user_email", user_email)
+
+        response = query.execute()
+
+        count = len(response.data) if response.data else 0
+
+        return {
+            "message": f"Marked {count} notifications as read",
+            "count": count,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error marking all as read: {str(e)}"
+        )
+
+
 @router.put("/{notification_id}/mark-read")
 def mark_notification_read(
     notification_id: int,
@@ -198,34 +226,6 @@ def mark_notification_read(
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error marking notification as read: {str(e)}"
-        )
-
-
-@router.put("/mark-all-read")
-def mark_all_read(
-    user_email: Optional[str] = Header(None, alias="x-user-email"),
-    db: SupabaseClient = Depends(get_supabase),
-):
-    """Mark all notifications as read for a user"""
-    try:
-        # Update all unread notifications for this user
-        query = db.table("notifications").eq("is_read", False).update({"is_read": True})
-
-        if user_email:
-            query = query.eq("user_email", user_email)
-
-        response = query.execute()
-
-        count = len(response.data) if response.data else 0
-
-        return {
-            "message": f"Marked {count} notifications as read",
-            "count": count,
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error marking all as read: {str(e)}"
         )
 
 

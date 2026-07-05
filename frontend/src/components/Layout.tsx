@@ -607,8 +607,18 @@ export default function Layout({
 
   const handleCloseToast = () => setActivityToast(null);
 
-  const handleNotificationsClick = () => {
+  const handleNotificationsClick = async () => {
     navigate("/notifications");
+    
+    if (unreadCount > 0) {
+      // Optimistically clear the unread count in the UI
+      setUnreadCount(0);
+      try {
+        await notificationsAPI.markAllAsRead();
+      } catch (error) {
+        console.error("Failed to mark all as read", error);
+      }
+    }
   };
 
   const drawer = (
