@@ -283,20 +283,26 @@ def create_note(
         created_debit_sale = None
         if note.note_type == "debit":
             try:
-                # Resolve invoice number: use provided or auto-generate via RPC (same as normal sales)
+                # Inherit buyer FK columns and original invoice_no from the original sale
+                orig_sale_resp = db.table("sales").select(
+                    "invoice_no, customer_id, distributor_id, doctor_id, shopkeeper_id, buyer_type"
+                ).eq("sale_id", note.sale_id).execute()
+                orig_sale = orig_sale_resp.data[0] if orig_sale_resp.data else {}
+                orig_invoice_no = orig_sale.get("invoice_no") or f"SALE{note.sale_id}"
+
+                # Resolve invoice number: use provided or auto-generate based on original sale
                 if note.debit_invoice_no and note.debit_invoice_no.strip():
                     debit_invoice_no = note.debit_invoice_no.strip()
                 else:
-                    # Use the same RPC function that normal sales use — generates e.g. INV000042
-                    debit_invoice_no = db.rpc("get_next_invoice_no", {})
-                    if not debit_invoice_no or not isinstance(debit_invoice_no, str):
-                        raise ValueError(f"Unexpected RPC response: {debit_invoice_no!r}")
-
-                # Inherit buyer FK columns from the original sale
-                orig_sale_resp = db.table("sales").select(
-                    "customer_id, distributor_id, doctor_id, shopkeeper_id, buyer_type"
-                ).eq("sale_id", note.sale_id).execute()
-                orig_sale = orig_sale_resp.data[0] if orig_sale_resp.data else {}
+                    # Count existing debit notes for this sale to determine prefix
+                    debits_resp = db.table("credit_debit_notes").select("note_id").eq("sale_id", note.sale_id).eq("note_type", "debit").execute()
+                    debits_count = len(debits_resp.data or [])
+                    # debits_count includes the one we just created
+                    if debits_count <= 1:
+                        prefix = "DR"
+                    else:
+                        prefix = f"DR{debits_count}"
+                    debit_invoice_no = f"{prefix}{orig_invoice_no}"
 
                 debit_sale_data = {
                     "invoice_no": debit_invoice_no,
