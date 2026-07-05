@@ -34,7 +34,16 @@ def midnight_refresh_job():
             .delete() \
             .execute()
         deleted = len(res.data or [])
-        logger.info(f"[SCHEDULER] Cleared {deleted} old pending distributor assignments. (Customer/sabhsad assignments preserved and roll over.)")
+        logger.info(f"[SCHEDULER] Cleared {deleted} old pending distributor assignments.")
+
+        # Roll over the preserved ones (e.g. customer/sabhsad) to today so they appear in today's dashboard
+        res_update = db.table("calling_assignments") \
+            .lt("assigned_date", today) \
+            .eq("status", "Pending") \
+            .update({"assigned_date": today}) \
+            .execute()
+        updated = len(res_update.data or [])
+        logger.info(f"[SCHEDULER] Rolled over {updated} old pending assignments to {today}.")
     except Exception as e:
         logger.error(f"[SCHEDULER] ❌ midnight_refresh_job FAILED: {e}", exc_info=True)
 
