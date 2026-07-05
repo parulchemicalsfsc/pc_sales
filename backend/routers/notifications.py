@@ -208,8 +208,8 @@ def mark_notification_read(
     try:
         response = (
             db.table("notifications")
-            .update({"is_read": True})
             .eq("notification_id", notification_id)
+            .update({"is_read": True})
             .execute()
         )
 
@@ -238,8 +238,8 @@ def delete_notification(
     try:
         response = (
             db.table("notifications")
-            .delete()
             .eq("notification_id", notification_id)
+            .delete()
             .execute()
         )
 
