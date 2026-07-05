@@ -463,8 +463,7 @@ export default function Layout({
   const fetchUnreadCount = async () => {
     if (!user?.email) return;
     try {
-      const response = await notificationsAPI.getUnreadCount();
-      const data = response.data; // Assuming response.data is the object containing count
+      const data = await notificationsAPI.getUnreadCount();
 
       // Safety check before accessing count
       if (data && typeof data.count === "number") {
