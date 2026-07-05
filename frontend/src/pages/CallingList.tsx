@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { PERMISSIONS } from "../config/permissions";
 import {
   Box,
@@ -131,6 +131,7 @@ export default function CallingList() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [searchParams] = useSearchParams();
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
   const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, called: 0 });
   const [loading, setLoading] = useState(true);
@@ -188,6 +189,20 @@ export default function CallingList() {
   }, [tab]);
 
   useEffect(() => { load(1); }, [load]);
+
+  // Auto-open call dialog if ?open=<assignment_id> is in the URL (from notification deep-link)
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || assignments.length === 0) return;
+    const target = assignments.find(a => String(a.assignment_id) === openId);
+    if (target && !dialogOpen) {
+      setActiveItem(target);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }
+  }, [searchParams, assignments]);
 
   // Quick Call Search Debounce
   useEffect(() => {

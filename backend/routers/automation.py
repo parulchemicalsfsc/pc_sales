@@ -864,9 +864,9 @@ def update_call_status(
             else:
                 raise e
 
-        # 5. If callback is selected with a date, schedule new assignment
+        # 5. If callback is selected with a date, schedule new assignment + send notifications
         if body.call_outcome == "callback" and body.callback_date:
-            db.table("calling_assignments").insert({
+            new_assign_res = db.table("calling_assignments").insert({
                 "user_email": user_email,  # Affinity: stay with same telecaller
                 "customer_id": assignment["customer_id"],
                 "priority": assignment.get("priority", "Medium"),
@@ -874,7 +874,64 @@ def update_call_status(
                 "assigned_date": body.callback_date,
                 "status": "Pending",
                 "notes": body.notes or "",
+                "entity_type": assignment.get("entity_type", "distributor"),
             }).execute()
+            new_assignment_id = (new_assign_res.data or [{}])[0].get("assignment_id")
+
+            # Resolve the entity name for the notification message
+            entity_name = "Unknown"
+            entity_type = assignment.get("entity_type", "distributor")
+            cid = assignment["customer_id"]
+            try:
+                if entity_type == "customer":
+                    ent_res = db.table("customers").select("name").eq("customer_id", cid).execute()
+                    entity_name = (ent_res.data or [{}])[0].get("name", "Unknown")
+                else:
+                    ent_res = db.table("distributors").select("mantri_name").eq("distributor_id", cid).execute()
+                    entity_name = (ent_res.data or [{}])[0].get("mantri_name", "Unknown")
+            except Exception:
+                pass
+
+            # Get caller's display name
+            caller_name = user_email.split("@")[0]
+            try:
+                user_res = db.table("app_users").select("name").eq("email", user_email).execute()
+                caller_name = (user_res.data or [{}])[0].get("name") or caller_name
+            except Exception:
+                pass
+
+            action_url = f"/calling-list?open={new_assignment_id}" if new_assignment_id else "/calling-list"
+
+            # ── Immediate notification: to the user who scheduled ──
+            from routers.notifications import create_notification_helper
+            create_notification_helper(
+                db,
+                title="📅 Callback Scheduled",
+                message=f"You have scheduled a callback for {entity_name} on {body.callback_date}.",
+                notification_type="info",
+                user_email=user_email,
+                entity_type="calling_assignment",
+                entity_id=new_assignment_id,
+                action_url=action_url,
+            )
+
+            # ── Immediate notification: to all admins/developers ──
+            try:
+                admins_res = db.table("app_users").select("email").in_("role", ["admin", "developer"]).execute()
+                for admin in (admins_res.data or []):
+                    if admin["email"] != user_email:
+                        create_notification_helper(
+                            db,
+                            title="📅 Callback Scheduled by Agent",
+                            message=f"{caller_name} has scheduled a callback for {entity_name} on {body.callback_date}.",
+                            notification_type="info",
+                            user_email=admin["email"],
+                            entity_type="calling_assignment",
+                            entity_id=new_assignment_id,
+                            action_url="/call-distribution",
+                        )
+            except Exception as notif_err:
+                logger.warning(f"[CALLBACK] Admin notification failed: {notif_err}")
 
         # 5b. Score adjustments based on call outcome
         # NOTE: customer_id here actually stores distributor_id (schema reuse).

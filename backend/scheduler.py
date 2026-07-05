@@ -144,6 +144,101 @@ def run_nightly_scoring():
         logger.error(f"Nightly scoring failed: {e}")
 
 
+def check_callbacks_job():
+    """Daily 9:00 AM IST: send reminder notifications for callback assignments due today."""
+    try:
+        from datetime import date as _date
+        db = get_supabase()
+        today = _date.today().isoformat()
+        logger.info(f"[SCHEDULER] ⏰ check_callbacks_job — checking for callback assignments on {today}")
+
+        # Find all Pending assignments with reason='Scheduled Callback' for today
+        res = db.table("calling_assignments") \
+            .select("assignment_id, user_email, customer_id, entity_type") \
+            .eq("assigned_date", today) \
+            .eq("status", "Pending") \
+            .eq("reason", "Scheduled Callback") \
+            .execute()
+
+        callbacks = res.data or []
+        logger.info(f"[SCHEDULER] Found {len(callbacks)} callback(s) due today")
+        if not callbacks:
+            return
+
+        # Fetch all admin emails
+        admins_res = db.table("app_users").select("email, name").in_("role", ["admin", "developer"]).execute()
+        admin_emails = [a["email"] for a in (admins_res.data or [])]
+
+        for cb in callbacks:
+            assignment_id = cb["assignment_id"]
+            user_email = cb["user_email"]
+            entity_type = cb.get("entity_type") or "distributor"
+            cid = cb["customer_id"]
+
+            # Resolve entity name
+            entity_name = "Unknown"
+            try:
+                if entity_type == "customer":
+                    ent = db.table("customers").select("name").eq("customer_id", cid).execute()
+                    entity_name = (ent.data or [{}])[0].get("name", "Unknown")
+                else:
+                    ent = db.table("distributors").select("mantri_name").eq("distributor_id", cid).execute()
+                    entity_name = (ent.data or [{}])[0].get("mantri_name", "Unknown")
+            except Exception:
+                pass
+
+            # Resolve caller name
+            caller_name = user_email.split("@")[0]
+            try:
+                u_res = db.table("app_users").select("name").eq("email", user_email).execute()
+                caller_name = (u_res.data or [{}])[0].get("name") or caller_name
+            except Exception:
+                pass
+
+            action_url = f"/calling-list?open={assignment_id}"
+
+            # Dedup: skip if reminder for this assignment was already sent today
+            existing = db.table("notifications").select("notification_id") \
+                .eq("user_email", user_email) \
+                .eq("entity_type", "calling_assignment") \
+                .eq("entity_id", assignment_id) \
+                .eq("notification_type", "warning") \
+                .gte("created_at", today) \
+                .execute()
+            if existing.data:
+                continue
+
+            # Reminder to the assigned agent
+            db.table("notifications").insert({
+                "user_email": user_email,
+                "title": f"📞 Callback Reminder: {entity_name}",
+                "message": f"You have a scheduled callback with {entity_name} today! Tap to open and log your call.",
+                "notification_type": "warning",
+                "entity_type": "calling_assignment",
+                "entity_id": assignment_id,
+                "action_url": action_url,
+                "is_read": False,
+            }).execute()
+
+            # Reminder to all admins
+            for admin_email in admin_emails:
+                if admin_email != user_email:
+                    db.table("notifications").insert({
+                        "user_email": admin_email,
+                        "title": f"📞 Callback Due Today: {entity_name}",
+                        "message": f"{caller_name} has a scheduled callback with {entity_name} today.",
+                        "notification_type": "info",
+                        "entity_type": "calling_assignment",
+                        "entity_id": assignment_id,
+                        "action_url": "/call-distribution",
+                        "is_read": False,
+                    }).execute()
+
+        logger.info(f"[SCHEDULER] ✅ Callback reminder job complete")
+    except Exception as e:
+        logger.error(f"[SCHEDULER] ❌ check_callbacks_job FAILED: {e}", exc_info=True)
+
+
 def check_overdue_leads_job():
     """Daily 9:00 AM IST: create in-app notifications for leads with overdue follow-up dates."""
     try:
@@ -236,16 +331,24 @@ def start_scheduler():
             replace_existing=True,
             misfire_grace_time=None
         )
-        # 9:00 AM IST — overdue lead follow-up alerts
+        # 9:00 AM IST — callback reminders for today's scheduled callbacks
+        scheduler.add_job(
+            check_callbacks_job,
+            trigger=CronTrigger(hour=9, minute=0, timezone=ist),
+            id="callback_reminders",
+            name="Callback Reminder Notifications at 9:00 AM IST",
+            replace_existing=True
+        )
+        # 9:05 AM IST — overdue lead follow-up alerts
         scheduler.add_job(
             check_overdue_leads_job,
-            trigger=CronTrigger(hour=9, minute=0, timezone=ist),
+            trigger=CronTrigger(hour=9, minute=5, timezone=ist),
             id="overdue_leads_check",
-            name="Overdue Lead Follow-up Alerts at 9:00 AM IST",
+            name="Overdue Lead Follow-up Alerts at 9:05 AM IST",
             replace_existing=True
         )
         scheduler.start()
-        logger.info("✅ Scheduler ENABLED — midnight refresh + 9:00 AM overdue leads + 10:00 AM distribution + 11:45 PM scoring")
+        logger.info("✅ Scheduler ENABLED — midnight + 9AM callbacks + 9:05 leads + 10AM distribution + 11:45PM scoring")
     else:
         logger.info("⏸️ Scheduler DISABLED — set SCHEDULER_ENABLED=1 to enable")
 

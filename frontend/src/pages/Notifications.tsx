@@ -43,6 +43,8 @@ import {
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
+import { useNavigate } from "react-router-dom";
+import { OpenInNew as OpenInNewIcon } from "@mui/icons-material";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
@@ -77,6 +79,7 @@ const notificationColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -595,9 +598,25 @@ export default function Notifications() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDetailsOpen(false)}>{t("common.close", "Close")}</Button>
-          {selectedNotification && !selectedNotification.is_read && (
+          {selectedNotification?.action_url && (
             <Button
               variant="contained"
+              color="warning"
+              startIcon={<OpenInNewIcon />}
+              onClick={() => {
+                if (!selectedNotification.is_read) {
+                  handleMarkAsRead(selectedNotification.notification_id);
+                }
+                setDetailsOpen(false);
+                navigate(selectedNotification.action_url!);
+              }}
+            >
+              Go to Call
+            </Button>
+          )}
+          {selectedNotification && !selectedNotification.is_read && (
+            <Button
+              variant="outlined"
               onClick={() => {
                 handleMarkAsRead(selectedNotification.notification_id);
                 setDetailsOpen(false);
