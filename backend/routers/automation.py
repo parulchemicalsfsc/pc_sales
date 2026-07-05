@@ -1277,60 +1277,62 @@ def get_admin_assignments(
         users_res = db.table("app_users").select("email, name, role").execute()
         users_map = {u["email"]: u for u in (users_res.data or [])}
 
-        # Per-telecaller summary (fetch all to avoid 1000 limit)
-        # Also fetch entity_type so we can properly count by role:
-        # - Sales managers: only count distributor assignments
-        # - Telecallers: only count customer assignments
-        all_assignments_for_day = []
-        batch = 1000
-        summ_offset = 0
+        # Per-telecaller summary — must match what each user sees in their
+        # Calling List.  The Calling List endpoint (/my-assignments) counts
+        # ALL assignments (no date filter), filtered by entity_type based on
+        # the user's role.  We replicate that logic here so the admin
+        # dashboard numbers are identical.
+        #
+        # Step 1: get the set of emails that have assignments TODAY so we
+        #         know which telecallers to show cards for.
+        today_emails = set()
+        te_offset = 0
         while True:
-            all_res = db.table("calling_assignments") \
-                .select("user_email, status, entity_type") \
+            te_res = db.table("calling_assignments") \
+                .select("user_email") \
                 .eq("assigned_date", d) \
-                .range(summ_offset, summ_offset + batch - 1) \
+                .range(te_offset, te_offset + 999) \
                 .execute()
-            if not all_res.data:
+            if not te_res.data:
                 break
-            all_assignments_for_day.extend(all_res.data)
-            if len(all_res.data) < batch:
+            for r in te_res.data:
+                today_emails.add(r["user_email"])
+            if len(te_res.data) < 1000:
                 break
-            summ_offset += batch
+            te_offset += 1000
 
+        # Step 2: for each email that has assignments today, fetch ALL their
+        #         assignments (across all dates) — same as the calling list.
         telecaller_summary = {}
-        for row in all_assignments_for_day:
-            email = row["user_email"]
-            e_type = row.get("entity_type")  # 'customer' or 'distributor'
+        for email in today_emails:
             u_info = users_map.get(email, {})
             u_role = u_info.get("role", "unknown").lower()
 
-            # Determine which entity_type this user should be counted for:
-            # - admin: count all
-            # - sales_manager: only count distributor assignments
-            # - everyone else (telecaller): only count customer assignments
-            if u_role == "admin" or u_role == "developer":
-                pass  # count all entity types
-            elif u_role == "sales_manager":
-                if e_type != "distributor":
-                    continue  # skip non-distributor rows for sales managers
-            else:
-                if e_type != "customer":
-                    continue  # skip non-customer rows for telecallers
+            # Build query matching the calling list summary logic
+            q = db.table("calling_assignments").select("status")
+            q = q.eq("user_email", email)
 
-            if email not in telecaller_summary:
-                telecaller_summary[email] = {
-                    "total": 0, 
-                    "pending": 0, 
-                    "called": 0, 
-                    "conversions": 0,
-                    "name": u_info.get("name", email.split("@")[0]),
-                    "role": u_info.get("role", "unknown")
-                }
-            telecaller_summary[email]["total"] += 1
-            if row["status"] == "Pending":
-                telecaller_summary[email]["pending"] += 1
-            else:
-                telecaller_summary[email]["called"] += 1
+            # Filter by entity_type based on role (mirrors /my-assignments)
+            if u_role == "sales_manager":
+                q = q.eq("entity_type", "distributor")
+            elif u_role not in ("admin", "developer"):
+                q = q.eq("entity_type", "customer")
+
+            q_res = q.execute()
+            rows = q_res.data or []
+
+            total = len(rows)
+            pending = sum(1 for x in rows if x["status"] == "Pending")
+            called = total - pending
+
+            telecaller_summary[email] = {
+                "total": total,
+                "pending": pending,
+                "called": called,
+                "conversions": 0,
+                "name": u_info.get("name", email.split("@")[0]),
+                "role": u_info.get("role", "unknown"),
+            }
 
         # Conversions: count sales created today for distributors assigned to each telecaller
         try:
