@@ -838,6 +838,31 @@ export default function CallDistribution() {
                               sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700 }}
                             />
                           </Stack>
+
+                          {/* Village Breakdown */}
+                          {d.villages && d.villages.length > 0 && (
+                            <Box sx={{ mt: 2, pt: 1.5, borderTop: `1px dashed ${theme.palette.divider}` }}>
+                              <Typography variant="caption" sx={{ display: "block", color: "text.secondary", fontWeight: 600, mb: 1, textTransform: "uppercase", fontSize: "0.65rem" }}>
+                                {t("callDistribution.villageBreakdown", "Pending by Village")}
+                              </Typography>
+                              <Stack direction="row" flexWrap="wrap" gap={0.5}>
+                                {d.villages.map((v: any, idx: number) => (
+                                  <Chip
+                                    key={idx}
+                                    size="small"
+                                    label={`${v.name}: ${v.count}`}
+                                    sx={{ 
+                                      height: 20, 
+                                      fontSize: "0.65rem", 
+                                      bgcolor: alpha(theme.palette.secondary.main, 0.08), 
+                                      color: "secondary.dark",
+                                      border: `1px solid ${alpha(theme.palette.secondary.main, 0.2)}`
+                                    }}
+                                  />
+                                ))}
+                              </Stack>
+                            </Box>
+                          )}
                         </CardContent>
                       </Card>
                     </Grid>

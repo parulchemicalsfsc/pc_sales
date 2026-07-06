@@ -1320,12 +1320,16 @@ def get_admin_assignments(
         # Step 2: for each email that has assignments today, fetch ALL their
         #         assignments (across all dates) — same as the calling list.
         telecaller_summary = {}
+        all_pending_cust_ids = set()
+        all_pending_dist_ids = set()
+        user_pending_ids = {}
+
         for email in today_emails:
             u_info = users_map.get(email, {})
             u_role = u_info.get("role", "unknown").lower()
 
             # Build query matching the calling list summary logic
-            q = db.table("calling_assignments").select("status")
+            q = db.table("calling_assignments").select("status, customer_id")
             q = q.eq("user_email", email)
 
             # Filter by entity_type based on role (mirrors /my-assignments)
@@ -1338,7 +1342,8 @@ def get_admin_assignments(
             rows = q_res.data or []
 
             total = len(rows)
-            pending = sum(1 for x in rows if x["status"] == "Pending")
+            pending_rows = [x for x in rows if x["status"] == "Pending"]
+            pending = len(pending_rows)
             called = total - pending
 
             telecaller_summary[email] = {
@@ -1348,7 +1353,55 @@ def get_admin_assignments(
                 "conversions": 0,
                 "name": u_info.get("name", email.split("@")[0]),
                 "role": u_info.get("role", "unknown"),
+                "villages": [], # Will populate below
             }
+            
+            # Collect pending IDs for village lookup
+            user_pending_ids[email] = []
+            for r in pending_rows:
+                cid = r.get("customer_id")
+                if not cid: continue
+                # Determine entity type for this row
+                e_type = "distributor" if u_role == "sales_manager" else "customer"
+                user_pending_ids[email].append((e_type, cid))
+                if e_type == "distributor":
+                    all_pending_dist_ids.add(cid)
+                else:
+                    all_pending_cust_ids.add(cid)
+
+        # Batch fetch villages
+        village_map = {}
+        
+        if all_pending_dist_ids:
+            dist_ids_list = list(all_pending_dist_ids)
+            for i in range(0, len(dist_ids_list), 100):
+                chunk = dist_ids_list[i:i+100]
+                res = db.table("distributors").select("distributor_id, village").in_("distributor_id", chunk).execute()
+                for d in (res.data or []):
+                    village_map[("distributor", d["distributor_id"])] = d.get("village") or "Unknown"
+                    
+        if all_pending_cust_ids:
+            cust_ids_list = list(all_pending_cust_ids)
+            for i in range(0, len(cust_ids_list), 100):
+                chunk = cust_ids_list[i:i+100]
+                res = db.table("customers").select("customer_id, village").in_("customer_id", chunk).execute()
+                for c in (res.data or []):
+                    village_map[("customer", c["customer_id"])] = c.get("village") or "Unknown"
+
+        # Populate villages breakdown in summary
+        for email, pending_items in user_pending_ids.items():
+            v_counts = {}
+            for e_type, cid in pending_items:
+                v = village_map.get((e_type, cid), "Unknown")
+                # Normalize blank/null villages
+                if not v or not str(v).strip():
+                    v = "Unknown"
+                v_counts[v] = v_counts.get(v, 0) + 1
+            
+            # Convert to list of dicts and sort by count descending
+            v_list = [{"name": k, "count": v} for k, v in v_counts.items()]
+            v_list.sort(key=lambda x: x["count"], reverse=True)
+            telecaller_summary[email]["villages"] = v_list
 
         # Conversions: count sales created today for distributors assigned to each telecaller
         try:
