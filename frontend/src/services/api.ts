@@ -647,6 +647,14 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
+  getMyCallbacks: async () => {
+    const response = await apiClient.get("/api/automation/my-callbacks");
+    return response.data;
+  },
+  getCallingSummary: async () => {
+    const response = await apiClient.get("/api/automation/calling-summary");
+    return response.data;
+  },
   startCallTimer: async (assignmentId: number) => {
     const response = await apiClient.post("/api/automation/start-call-timer", { assignment_id: assignmentId });
     return response.data;
@@ -1108,6 +1116,11 @@ export const telecallerOrderAPI = {
   },
   getById: async (orderId: number) => {
     const response = await apiClient.get(`/api/telecaller-orders/${orderId}`);
+    return response.data;
+  },
+  getMyConfirmationCalls: async (date?: string) => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get("/api/telecaller-orders/my-confirmation-calls", { params });
     return response.data;
   },
 };

@@ -472,6 +472,22 @@ def debug_state(db: SupabaseClient = Depends(get_db)):
     }
 
 
+import time
+ROLE_CACHE_TTL = 60  # 1 minute, best-effort per-worker
+_ROLE_CACHE = {}  # email -> (role, expires_at)
+
+def get_user_role_cached(email: str, db: SupabaseClient) -> str:
+    cached = _ROLE_CACHE.get(email)
+    if cached and time.time() < cached[1]:
+        return cached[0]
+    
+    role_res = db.table("app_users").select("role").eq("email", email).execute()
+    role = role_res.data[0].get("role", "").lower() if role_res.data else ""
+    _ROLE_CACHE[email] = (role, time.time() + ROLE_CACHE_TTL)
+    return role
+
+
+
 @router.get("/my-assignments", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_assignments(
     status: Optional[str] = Query(None),
@@ -486,7 +502,8 @@ def get_my_assignments(
     logger.info(f"[MY-ASSIGN] Request: user={user_email}, role={user_role}, target={target_email}, status={status}, page={page}, limit={limit}")
     try:
         offset = (page - 1) * limit
-        role = (user_role or "").lower()
+        # Fallback to header if cache/DB fails, but trust DB first
+        role = get_user_role_cached(user_email, db) or (user_role or "").lower()
 
         # Determine filtering
         query = db.table("calling_assignments").select("*")
@@ -502,6 +519,11 @@ def get_my_assignments(
         else:
             query = query.eq("user_email", user_email)
             count_query = count_query.eq("user_email", user_email)
+            
+        # Telecaller Tab 0 specifically excludes Scheduled Callbacks (they go to Tab 2)
+        if role == "telecaller" and status == "Pending":
+            query = query.neq("reason", "Scheduled Callback")
+            count_query = count_query.neq("reason", "Scheduled Callback")
 
         query = query.order("assignment_id", desc=True)
 
@@ -651,6 +673,90 @@ def get_my_assignments(
     except Exception as e:
         logger.error(f"[MY-ASSIGN] ❌ Unhandled exception: {e}", exc_info=True)
         return {"assignments": [], "error": str(e), "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 1}, "summary": {"total": 0, "pending": 0, "called": 0}}
+
+
+@router.get("/my-callbacks", dependencies=[Depends(verify_permission("view_calling_list"))])
+def get_my_callbacks(
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    try:
+        IST = pytz.timezone("Asia/Kolkata")
+        today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+
+        q = db.table("calling_assignments").select("*") \
+            .eq("user_email", user_email) \
+            .eq("status", "Pending") \
+            .eq("reason", "Scheduled Callback") \
+            .eq("assigned_date", today_ist) \
+            .order("assignment_id", desc=True)
+
+        res = q.execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"[MY-CALLBACKS] ❌ Exception: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calling-summary", dependencies=[Depends(verify_permission("view_calling_list"))])
+def get_calling_summary(
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    try:
+        role = get_user_role_cached(user_email, db)
+        
+        # Standard counts
+        all_query = db.table("calling_assignments").select("status, reason, assigned_date")
+        if role == "sales_manager":
+            all_query = all_query.eq("user_email", user_email).eq("entity_type", "distributor")
+        else:
+            all_query = all_query.eq("user_email", user_email).eq("entity_type", "customer")
+            
+        all_res = all_query.execute()
+        all_assignments = all_res.data or []
+        
+        pending_assignments = [x for x in all_assignments if x["status"] == "Pending"]
+        
+        if role == "telecaller":
+            pending = sum(1 for x in pending_assignments if x.get("reason") != "Scheduled Callback")
+        else:
+            pending = len(pending_assignments)
+            
+        called = sum(1 for x in all_assignments if x["status"] != "Pending")
+        
+        summary = {
+            "to_call": pending,
+            "called": called,
+        }
+        
+        if role == "telecaller":
+            # Add callbacks count
+            IST = pytz.timezone("Asia/Kolkata")
+            today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+            callbacks = sum(1 for x in pending_assignments if x.get("reason") == "Scheduled Callback" and x.get("assigned_date") == today_ist)
+            
+            # Add confirmation calls count
+            start_ist = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_ist = start_ist + timedelta(days=1)
+            start_utc = start_ist.astimezone(pytz.utc).isoformat()
+            end_utc = end_ist.astimezone(pytz.utc).isoformat()
+            
+            conf_res = db.table("telecaller_orders").select("*", count="exact") \
+                .eq("telecaller_email", user_email) \
+                .eq("status", "pending") \
+                .gte("confirmation_date", start_utc) \
+                .lt("confirmation_date", end_utc) \
+                .execute()
+                
+            summary["callbacks"] = callbacks
+            summary["confirmation_calls"] = conf_res.count if conf_res.count is not None else 0
+            
+        return summary
+    except Exception as e:
+        logger.error(f"[CALLING-SUMMARY] ❌ Exception: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # In-memory dictionary to store call timers without needing SQL migrations right away.

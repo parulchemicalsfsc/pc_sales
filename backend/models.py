@@ -353,6 +353,7 @@ class TelecallerOrderCreate(BaseModel):
     customer_mobile: Optional[str] = None
     customer_village: Optional[str] = None
     products: List[TelecallerOrderItem]
+    confirmation_date: Optional[str] = None
     notes: Optional[str] = None
 
 

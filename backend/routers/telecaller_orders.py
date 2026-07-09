@@ -5,13 +5,16 @@ Handles pending orders from telecallers that require sales manager approval.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+import pytz
+
 from models import TelecallerOrderCreate, TelecallerOrderApprove, TelecallerOrderReject
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
+from activity_logger import ActivityLogger
 
 from routers.notifications import create_notification_helper
 
@@ -52,6 +55,12 @@ def create_telecaller_order(
 
         products_json = json.dumps([p.dict() for p in order.products])
 
+        if order.confirmation_date:
+            try:
+                datetime.fromisoformat(order.confirmation_date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid confirmation_date format")
+
         data = {
             "telecaller_email": user_email,
             "customer_type": order.customer_type,
@@ -60,6 +69,7 @@ def create_telecaller_order(
             "customer_mobile": order.customer_mobile,
             "customer_village": order.customer_village,
             "products_json": products_json,
+            "confirmation_date": order.confirmation_date,
             "status": "pending",
             "notes": order.notes,
         }
@@ -135,7 +145,7 @@ def get_pending_telecaller_orders(db: SupabaseClient = Depends(get_supabase)):
     return get_telecaller_orders(status="pending", db=db)
 
 
-@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("create_sale"))])
+@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
 def approve_telecaller_order(
     order_id: int,
     body: TelecallerOrderApprove,
@@ -203,6 +213,7 @@ def approve_telecaller_order(
             "payment_status": "Pending",
             "notes": order.get("notes") or None,
             "buyer_type": customer_type,
+            "sale_stage": "confirmed",
         }
 
         if customer_type in ("mantri", "distributor"):
@@ -257,6 +268,17 @@ def approve_telecaller_order(
             "updated_at": datetime.now().isoformat(),
         }).execute()
 
+        ActivityLogger.log_action(
+            db=db,
+            user_email=user_email,
+            action="UPDATE",
+            entity_type="telecaller_order",
+            entity_id=order_id,
+            details=f"Approved order (Invoice: {invoice_no})",
+            before_data={"status": "pending"},
+            after_data={"status": "approved", "sale_id": sale_id, "invoice_no": invoice_no}
+        )
+
         try:
             create_notification_helper(
                 db,
@@ -283,7 +305,7 @@ def approve_telecaller_order(
         raise HTTPException(status_code=500, detail=f"Error approving order: {str(e)}")
 
 
-@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("create_sale"))])
+@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
 def reject_telecaller_order(
     order_id: int,
     body: TelecallerOrderReject,
@@ -309,6 +331,17 @@ def reject_telecaller_order(
             "approved_by": user_email,
             "updated_at": datetime.now().isoformat(),
         }).execute()
+
+        ActivityLogger.log_action(
+            db=db,
+            user_email=user_email,
+            action="UPDATE",
+            entity_type="telecaller_order",
+            entity_id=order_id,
+            details=f"Rejected order. Reason: {body.reason}",
+            before_data={"status": "pending"},
+            after_data={"status": "rejected", "rejected_reason": body.reason}
+        )
 
         try:
             create_notification_helper(
@@ -343,3 +376,38 @@ def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabas
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
+
+
+@router.get("/my-confirmation-calls", dependencies=[Depends(verify_permission("view_calling_list"))])
+def get_my_confirmation_calls(
+    date: Optional[str] = None,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: str = Header(..., alias="x-user-email"),
+):
+    """Get pending telecaller orders for the logged-in user scheduled for a specific date (defaults to today IST)."""
+    try:
+        IST = pytz.timezone("Asia/Kolkata")
+        if not date:
+            today_ist = datetime.now(IST)
+        else:
+            today_ist = IST.localize(datetime.strptime(date, "%Y-%m-%d"))
+
+        start_ist = today_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_ist = start_ist + timedelta(days=1)
+
+        start_utc = start_ist.astimezone(pytz.utc).isoformat()
+        end_utc = end_ist.astimezone(pytz.utc).isoformat()
+
+        q = db.table("telecaller_orders").select("*") \
+            .eq("telecaller_email", user_email) \
+            .eq("status", "pending") \
+            .gte("confirmation_date", start_utc) \
+            .lt("confirmation_date", end_utc) \
+            .order("created_at", desc=True)
+            
+        resp = q.execute()
+        return resp.data or []
+    except Exception as e:
+        logger.error(f"Error fetching confirmation calls: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching confirmation calls: {str(e)}")
+

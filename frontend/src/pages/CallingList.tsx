@@ -86,7 +86,7 @@ interface Assignment {
 }
 
 interface Pagination { page: number; limit: number; total: number; total_pages: number; }
-interface Summary { total: number; pending: number; called: number; }
+interface Summary { total?: number; to_call: number; called: number; callbacks?: number; confirmation_calls?: number; }
 interface Telecaller { email: string; name: string; role: string; }
 
 // ── Constants ──────────────────────────────────────────
@@ -133,7 +133,13 @@ export default function CallingList() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [searchParams] = useSearchParams();
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
-  const [summary, setSummary] = useState<Summary>({ total: 0, pending: 0, called: 0 });
+    const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
+  const [callbacks, setCallbacks] = useState<any[]>([]);
+  const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
+  const [tab3Loading, setTab3Loading] = useState(false);
+  const [processingOrder, setProcessingOrder] = useState<number | null>(null);
+  
+  const [orderDate, setOrderDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
@@ -173,6 +179,7 @@ export default function CallingList() {
 
   // ── Data ────────────────────────────────────────────────
   const load = useCallback(async (page = 1) => {
+    if (tab === 2 || tab === 3) return;
     try {
       setLoading(true);
       setError(null);
@@ -180,13 +187,86 @@ export default function CallingList() {
       const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
       setAssignments(res.assignments || []);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
-      setSummary(res.summary || { total: 0, pending: 0, called: 0 });
     } catch (e: any) {
       setError(e?.message || "Failed to load");
     } finally {
       setLoading(false);
     }
   }, [tab]);
+  const fetchSummary = useCallback(async () => {
+    try {
+      const s = await automationAPI.getCallingSummary();
+      setSummary(s);
+    } catch (e) {
+      console.error("Failed to fetch summary");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSummary();
+    const interval = setInterval(fetchSummary, 30000);
+    return () => clearInterval(interval);
+  }, [fetchSummary]);
+
+  const loadCallbacks = useCallback(async () => {
+    try {
+      const res = await automationAPI.getMyCallbacks();
+      setCallbacks(res);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const loadConfirmationOrders = useCallback(async () => {
+    try {
+      setTab3Loading(true);
+      const res = await telecallerOrderAPI.getMyConfirmationCalls();
+      setConfirmationOrders(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTab3Loading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === 2 && role === "telecaller") loadCallbacks();
+    if (tab === 3 && role === "telecaller") loadConfirmationOrders();
+  }, [tab, role, loadCallbacks, loadConfirmationOrders]);
+
+  useEffect(() => {
+    if (tab !== 3 || role !== "telecaller") return;
+    const interval = setInterval(loadConfirmationOrders, 30000);
+    return () => clearInterval(interval);
+  }, [tab, role, loadConfirmationOrders]);
+  
+  const handleApproveOrder = async (orderId: number) => {
+    try {
+      setProcessingOrder(orderId);
+      await telecallerOrderAPI.approve(orderId);
+      setToast({ msg: "Order Approved", sev: "success" });
+      loadConfirmationOrders();
+      fetchSummary();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to approve", sev: "error" });
+    } finally {
+      setProcessingOrder(null);
+    }
+  };
+
+  const handleRejectOrder = async (orderId: number) => {
+    try {
+      setProcessingOrder(orderId);
+      await telecallerOrderAPI.reject(orderId, "Rejected from Calling List");
+      setToast({ msg: "Order Rejected", sev: "success" });
+      loadConfirmationOrders();
+      fetchSummary();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to reject", sev: "error" });
+    } finally {
+      setProcessingOrder(null);
+    }
+  };
 
   useEffect(() => { load(1); }, [load]);
 
@@ -381,6 +461,7 @@ export default function CallingList() {
 
       setOrderItems([{ product_id: 0, product_name: "", quantity: 1, rate: 0, amount: 0 }]);
       setOrderNotes("");
+      setOrderDate("");
       setOrderDialogOpen(true);
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed to log call before taking order.", sev: "error" });
@@ -389,13 +470,25 @@ export default function CallingList() {
     }
   };
 
-  const submitTelecallerOrder = async () => {
+    const submitTelecallerOrder = async () => {
     if (!activeItem) return;
     const validItems = orderItems.filter(i => i.product_id && i.quantity > 0 && i.rate > 0);
     if (validItems.length === 0) {
       setToast({ msg: "Please add at least one valid product", sev: "error" });
       return;
     }
+    if (!orderDate) {
+      setToast({ msg: "Please select a confirmation date", sev: "error" });
+      return;
+    }
+    const selectedDate = new Date(orderDate);
+    const minDate = new Date(Date.now() - 30 * 60 * 1000);
+    if (selectedDate < minDate) {
+      setToast({ msg: "Confirmation date cannot be older than 30 minutes", sev: "error" });
+      return;
+    }
+    const finalConfirmationDate = `${orderDate.substring(0, 16)}+05:30`;
+
     try {
       setOrderLoading(true);
       const orderData = {
@@ -411,12 +504,14 @@ export default function CallingList() {
           rate: i.rate,
           amount: i.amount,
         })),
-        notes: orderNotes || undefined,
+        notes: orderNotes ? `${orderNotes} [Order Confirmation Call]` : "[Order Confirmation Call]",
+        confirmation_date: finalConfirmationDate,
       };
       await telecallerOrderAPI.create(orderData);
       setToast({ msg: "Order submitted for approval!", sev: "success" });
       setOrderDialogOpen(false);
       load(pagination.page);
+      fetchSummary();
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed to submit order", sev: "error" });
     } finally {
@@ -485,7 +580,7 @@ export default function CallingList() {
       <Stack direction="row" spacing={2} sx={{ mb: 2.5 }}>
         {([
           { label: t("callingList.total", "Total"), value: summary.total, color: "#2563eb", icon: <AssignmentIcon sx={{ fontSize: 18 }} /> },
-          { label: t("callingList.pending", "Pending"), value: summary.pending, color: "#ea580c", icon: <PhoneIcon sx={{ fontSize: 18 }} /> },
+          { label: t("callingList.pending", "Pending"), value: summary.to_call, color: "#ea580c", icon: <PhoneIcon sx={{ fontSize: 18 }} /> },
           { label: t("callingList.completed", "Completed"), value: summary.called, color: "#16a34a", icon: <CheckIcon sx={{ fontSize: 18 }} /> },
         ] as const).map(s => (
           <Paper
@@ -599,8 +694,10 @@ export default function CallingList() {
             "& .MuiTabs-indicator": { height: 3, borderRadius: 2 },
           }}
         >
-          <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.pending}`} />
+          <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
+          {role === "telecaller" && <Tab label={`Callbacks  ·  ${summary.callbacks || 0}`} />}
+          {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
@@ -739,7 +836,115 @@ export default function CallingList() {
                   );
                 })}
               </Stack>
-              <TablePagination
+              {tab === 2 && role === "telecaller" && (
+            <Stack spacing={1} sx={{ minWidth: 0 }}>
+              {callbacks.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 8 }}>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Callbacks</Typography>
+                </Box>
+              ) : (
+                callbacks.map(item => (
+                  <Box
+                    key={item.assignment_id}
+                    onClick={() => openHistoryDialog(item)}
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      cursor: "pointer",
+                      border: `1px solid ${border}`,
+                      borderLeft: `4px solid #ea580c`,
+                      bgcolor: isDark ? alpha("#ea580c", 0.05) : alpha("#ea580c", 0.02),
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      "&:hover": { borderColor: alpha("#ea580c", 0.3) },
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{item.name || "Unknown"}</Typography>
+                      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
+                        {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
+                        {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
+                      </Stack>
+                    </Box>
+                    <Tooltip title="Call">
+                      <span>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          disabled={!item.mobile}
+                          onClick={(e) => handleCallButton(e, item)}
+                          startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
+                          sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: 12, px: 2, boxShadow: "none", bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d", boxShadow: "none" } }}
+                        >
+                          Call
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                ))
+              )}
+            </Stack>
+          )}
+
+          {tab === 3 && role === "telecaller" && (
+            <Box>
+              {tab3Loading && confirmationOrders.length === 0 ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
+              ) : confirmationOrders.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 8 }}>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Order Confirmations Today</Typography>
+                </Box>
+              ) : (
+                <Stack spacing={2}>
+                  {confirmationOrders.map(order => (
+                    <Paper key={order.order_id} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
+                        <Box>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name} ({order.customer_type})</Typography>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>{order.customer_mobile} · {order.customer_village}</Typography>
+                          <Box sx={{ mt: 1 }}>
+                            {order.products.map((p: any, i: number) => (
+                              <Typography key={i} variant="caption" display="block" sx={{ color: "text.primary" }}>
+                                • {p.product_name} - {p.quantity} x ₹{p.rate} = ₹{p.amount}
+                              </Typography>
+                            ))}
+                          </Box>
+                          <Typography variant="caption" sx={{ color: "text.secondary", mt: 1, display: "block" }}>
+                            Time: {new Date(order.confirmation_date).toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            disabled={processingOrder === order.order_id}
+                            onClick={() => handleRejectOrder(order.order_id)}
+                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600 }}
+                          >
+                            {processingOrder === order.order_id ? <CircularProgress size={16} color="inherit" /> : "Reject"}
+                          </Button>
+                          <Button
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            disabled={processingOrder === order.order_id}
+                            onClick={() => handleApproveOrder(order.order_id)}
+                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, boxShadow: "none" }}
+                          >
+                            {processingOrder === order.order_id ? <CircularProgress size={16} color="inherit" /> : "Approve"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+          )}
+              {tab === 0 || tab === 1 ? (
+                <TablePagination
                 component="div"
                 count={pagination.total}
                 page={pagination.page - 1}
@@ -748,6 +953,7 @@ export default function CallingList() {
                 rowsPerPageOptions={[20]}
                 sx={{ borderTop: `1px solid ${border}`, mt: 1 }}
               />
+              ) : null}
             </>
           )}
         </Box>
@@ -1162,6 +1368,16 @@ export default function CallingList() {
             <Box sx={{ textAlign: "right", fontWeight: 700, fontSize: 16, mt: 1 }}>
               Total: ₹{orderItems.reduce((s, i) => s + i.amount, 0).toLocaleString("en-IN")}
             </Box>
+                        <TextField
+              label="Order Confirmation Date (IST)"
+              type="datetime-local"
+              fullWidth
+              required
+              value={orderDate}
+              onChange={(e) => setOrderDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+            />
             <TextField
               label="Notes (optional)"
               multiline
