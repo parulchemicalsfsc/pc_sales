@@ -503,7 +503,7 @@ def get_my_assignments(
             query = query.eq("user_email", user_email)
             count_query = count_query.eq("user_email", user_email)
 
-        query = query.order("assignment_id")
+        query = query.order("assignment_id", desc=True)
 
         if status:
             if status == "completed":
@@ -1079,21 +1079,28 @@ def get_telecaller_profile(
 
         total_assigned = len(all_assignments)
         total_called = sum(1 for a in all_assignments if a.get("status") != "Pending")
-        
-        # All distributor IDs ever assigned to this telecaller
-        assigned_dist_ids = list(set(a["customer_id"] for a in all_assignments if a.get("customer_id")))
+        # Determine role to know whether to fetch distributors or customers
+        user_res = db.table("app_users").select("role").eq("email", email).execute()
+        role = user_res.data[0]["role"] if (user_res.data and len(user_res.data) > 0) else "telecaller"
 
-        # 2. Find all sales made for those distributor IDs (all-time conversions)
+        # All entity IDs ever assigned to this telecaller
+        assigned_entity_ids = list(set(a["customer_id"] for a in all_assignments if a.get("customer_id")))
+
+        # 2. Find all sales made for those entity IDs (all-time conversions)
         converted_mantris = []
-        if assigned_dist_ids:
+        if assigned_entity_ids:
             # Fetch sales in chunks to avoid URL length limits
             chunk_size = 50
             all_sales = []
-            for i in range(0, len(assigned_dist_ids), chunk_size):
-                chunk = assigned_dist_ids[i:i+chunk_size]
+            buyer_type = "mantri" if role == "sales_manager" else "customer"
+            id_field = "distributor_id" if role == "sales_manager" else "customer_id"
+
+            for i in range(0, len(assigned_entity_ids), chunk_size):
+                chunk = assigned_entity_ids[i:i+chunk_size]
                 sales_res = db.table("sales") \
-                    .select("sale_id, distributor_id, sale_date, total_amount, invoice_no, buyer_type") \
-                    .in_("distributor_id", chunk) \
+                    .select(f"sale_id, {id_field}, sale_date, total_amount, invoice_no, buyer_type") \
+                    .eq("buyer_type", buyer_type) \
+                    .in_(id_field, chunk) \
                     .order("sale_date", desc=True) \
                     .execute()
                 all_sales.extend(sales_res.data or [])
@@ -1131,12 +1138,20 @@ def get_telecaller_profile(
                 if log_dist_ids:
                     for i in range(0, len(log_dist_ids), 50):
                         dchunk = log_dist_ids[i:i+50]
-                        dist_res = db.table("distributors") \
-                            .select("distributor_id, mantri_name") \
-                            .in_("distributor_id", dchunk) \
-                            .execute()
-                        for d in (dist_res.data or []):
-                            dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
+                        if role == "sales_manager":
+                            dist_res = db.table("distributors") \
+                                .select("distributor_id, mantri_name") \
+                                .in_("distributor_id", dchunk) \
+                                .execute()
+                            for d in (dist_res.data or []):
+                                dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
+                        else:
+                            cust_res = db.table("customers") \
+                                .select("customer_id, name") \
+                                .in_("customer_id", dchunk) \
+                                .execute()
+                            for c in (cust_res.data or []):
+                                dist_map[c["customer_id"]] = c.get("name", "Unknown")
 
                 import re
                 for log in log_data:
@@ -1153,34 +1168,54 @@ def get_telecaller_profile(
                         "time_taken": tt,  # may be None if no timer was captured
                     })
 
-            # Get distributor details for all sold-to distributors
-            sold_dist_ids = list(set(s["distributor_id"] for s in all_sales if s.get("distributor_id")))
-            distributors_map = {}
-            if sold_dist_ids:
-                for i in range(0, len(sold_dist_ids), chunk_size):
-                    chunk = sold_dist_ids[i:i+chunk_size]
-                    dist_res = db.table("distributors") \
-                        .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile") \
-                        .in_("distributor_id", chunk) \
-                        .execute()
-                    for d in (dist_res.data or []):
-                        distributors_map[d["distributor_id"]] = d
+            # Get entity details for all sold-to entities
+            sold_entity_ids = list(set(s[id_field] for s in all_sales if s.get(id_field)))
+            entities_map = {}
+            if sold_entity_ids:
+                for i in range(0, len(sold_entity_ids), chunk_size):
+                    chunk = sold_entity_ids[i:i+chunk_size]
+                    if role == "sales_manager":
+                        entity_res = db.table("distributors") \
+                            .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile") \
+                            .in_("distributor_id", chunk) \
+                            .execute()
+                        for d in (entity_res.data or []):
+                            entities_map[d["distributor_id"]] = {
+                                "name": d.get("mantri_name"),
+                                "village": d.get("village"),
+                                "taluka": d.get("taluka"),
+                                "district": d.get("district"),
+                                "mobile": d.get("mantri_mobile")
+                            }
+                    else:
+                        entity_res = db.table("customers") \
+                            .select("customer_id, name, village, taluka, district, mobile") \
+                            .in_("customer_id", chunk) \
+                            .execute()
+                        for c in (entity_res.data or []):
+                            entities_map[c["customer_id"]] = {
+                                "name": c.get("name"),
+                                "village": c.get("village"),
+                                "taluka": c.get("taluka"),
+                                "district": c.get("district"),
+                                "mobile": c.get("mobile")
+                            }
 
             # Build converted mantri rows
             for sale in all_sales:
-                dist_id = sale.get("distributor_id")
-                dist = distributors_map.get(dist_id, {})
+                e_id = sale.get(id_field)
+                ent = entities_map.get(e_id, {})
                 converted_mantris.append({
                     "sale_id": sale.get("sale_id"),
                     "invoice_no": sale.get("invoice_no"),
                     "sale_date": sale.get("sale_date"),
                     "total_amount": sale.get("total_amount", 0),
-                    "distributor_id": dist_id,
-                    "mantri_name": dist.get("mantri_name", "Unknown"),
-                    "village": dist.get("village", ""),
-                    "taluka": dist.get("taluka", ""),
-                    "district": dist.get("district", ""),
-                    "mantri_mobile": dist.get("mantri_mobile", ""),
+                    "distributor_id": e_id,
+                    "mantri_name": ent.get("name", "Unknown"),
+                    "village": ent.get("village", ""),
+                    "taluka": ent.get("taluka", ""),
+                    "district": ent.get("district", ""),
+                    "mantri_mobile": ent.get("mobile", ""),
                 })
 
         total_conversions = len(converted_mantris)
@@ -1821,9 +1856,12 @@ def get_available_counts(
         counts = {"High": 0, "Medium": 0, "Low": 0, "Any": len(rows)}
         for r in rows:
             p = r.get("priority")
-            # If no priority is set, it won't increment High/Medium/Low but will be in Any
-            if p in counts:
-                counts[p] += 1
+            if p:
+                p_cap = p.capitalize()
+                if p_cap == "Urgent":
+                    p_cap = "High"
+                if p_cap in counts:
+                    counts[p_cap] += 1
 
         return counts
 
@@ -1869,7 +1907,15 @@ def admin_bulk_reassign(
             .neq("user_email", body.target_email)
 
         if body.priority != "Any":
-            avail_query = avail_query.eq("priority", body.priority)
+            p_cap = body.priority.capitalize()
+            if p_cap == "High":
+                avail_query = avail_query.in_("priority", ["High", "HIGH", "Urgent", "URGENT"])
+            elif p_cap == "Medium":
+                avail_query = avail_query.in_("priority", ["Medium", "MEDIUM"])
+            elif p_cap == "Low":
+                avail_query = avail_query.in_("priority", ["Low", "LOW"])
+            else:
+                avail_query = avail_query.ilike("priority", body.priority)
 
         avail_res = avail_query.execute()
         available = len(avail_res.data or [])
