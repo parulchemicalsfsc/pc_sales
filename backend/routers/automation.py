@@ -7,7 +7,7 @@ and load-aware auto-distribution with APScheduler.
 import os
 import math
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import pytz
 from typing import Optional
 
@@ -209,7 +209,6 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     try:
         ghost_res = db.table("calling_assignments") \
             .select("assignment_id, user_email") \
-            .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
             .execute()
         ghost_rows = [r for r in (ghost_res.data or []) if r.get("user_email") not in valid_emails]
@@ -924,7 +923,7 @@ def update_call_status(
             .update({
                 "status": new_status,
                 "notes": body.notes or "",
-            }).execute()  # BUG FIX: was missing .execute()
+            }).execute()
 
         # Calculate time_taken
         time_taken = None
@@ -1825,7 +1824,7 @@ def admin_reassign(
         # 2. Update assignment
         db.table("calling_assignments") \
             .eq("assignment_id", body.assignment_id) \
-            .update({"user_email": body.new_user_email}).execute()  # BUG FIX: was missing .execute()
+            .update({"user_email": body.new_user_email}).execute()
 
         # 3. Notify new telecaller
         db.table("notifications").insert({
@@ -1903,7 +1902,7 @@ def admin_refresh_distribution(
             db.table("calling_assignments") \
                 .eq("assignment_id", p["assignment_id"]) \
                 .delete() \
-                .execute()  # BUG FIX: was missing .execute()
+                .execute()
 
         # 3. Re-run distribution with force=True since we already cleared
         result = distribute_calls(db, admin_email or "admin", force=True)
@@ -1935,8 +1934,6 @@ def get_available_counts(
     Returns: { "High": N, "Medium": N, "Low": N, "Any": N }
     """
     try:
-        today_str = get_today_ist()
-
         # Determine target user's role to filter the correct entity_type
         user_res = db.table("app_users").select("role").eq("email", target_email).execute()
         role = user_res.data[0]["role"] if user_res.data else "telecaller"
@@ -1951,7 +1948,6 @@ def get_available_counts(
 
         res = db.table("calling_assignments") \
             .select("priority") \
-            .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
             .eq("entity_type", target_entity) \
             .in_("user_email", same_role_emails) \
@@ -1989,8 +1985,6 @@ def admin_bulk_reassign(
         raise HTTPException(status_code=400, detail="Count must be at least 1")
 
     try:
-        today_str = get_today_ist()
-
         # Determine target user's role to filter the correct entity_type
         user_res = db.table("app_users").select("role").eq("email", body.target_email).execute()
         role = user_res.data[0]["role"] if user_res.data else "telecaller"
@@ -2006,7 +2000,6 @@ def admin_bulk_reassign(
         # Server-side validation: check how many are actually available
         avail_query = db.table("calling_assignments") \
             .select("assignment_id") \
-            .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
             .eq("entity_type", target_entity) \
             .in_("user_email", same_role_emails) \
@@ -2035,7 +2028,6 @@ def admin_bulk_reassign(
         # Get pending assignments of this priority NOT already assigned to target
         res_query = db.table("calling_assignments") \
             .select("assignment_id, user_email") \
-            .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
             .eq("entity_type", target_entity) \
             .in_("user_email", same_role_emails) \
@@ -2058,7 +2050,7 @@ def admin_bulk_reassign(
             db.table("calling_assignments") \
                 .eq("assignment_id", a["assignment_id"]) \
                 .update({"user_email": body.target_email}) \
-                .execute()  # BUG FIX: was missing .execute()
+                .execute()
             reassigned += 1
 
         # Notify the telecaller
@@ -2096,12 +2088,9 @@ def admin_transfer_pending(
         raise HTTPException(status_code=400, detail="Cannot transfer to the same user")
 
     try:
-        today_str = get_today_ist()
-
         # Get all pending calls for the from_user
         res = db.table("calling_assignments") \
             .select("assignment_id") \
-            .eq("assigned_date", today_str) \
             .eq("status", "Pending") \
             .eq("user_email", body.from_user_email) \
             .execute()

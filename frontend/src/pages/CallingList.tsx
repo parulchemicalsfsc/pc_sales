@@ -579,7 +579,7 @@ export default function CallingList() {
       {/* ── Stats ── */}
       <Stack direction="row" spacing={2} sx={{ mb: 2.5 }}>
         {([
-          { label: t("callingList.total", "Total"), value: summary.total, color: "#2563eb", icon: <AssignmentIcon sx={{ fontSize: 18 }} /> },
+          { label: t("callingList.total", "Total"), value: (summary.to_call || 0) + (summary.called || 0), color: "#2563eb", icon: <AssignmentIcon sx={{ fontSize: 18 }} /> },
           { label: t("callingList.pending", "Pending"), value: summary.to_call, color: "#ea580c", icon: <PhoneIcon sx={{ fontSize: 18 }} /> },
           { label: t("callingList.completed", "Completed"), value: summary.called, color: "#16a34a", icon: <CheckIcon sx={{ fontSize: 18 }} /> },
         ] as const).map(s => (
