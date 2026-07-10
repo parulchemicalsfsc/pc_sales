@@ -527,12 +527,20 @@ export default function CallingList() {
       };
       await telecallerOrderAPI.create(orderData);
 
-      // Log the call to remove it from the Pending list
-      await automationAPI.updateCallStatus(
-        activeItem.assignment_id,
-        "connected",
-        orderNotes ? `${orderNotes} [Order Placed]` : "[Order Placed]"
-      );
+      // The assignment was already marked "connected" by handleTakeOrder.
+      // Append the "[Order Placed]" note to the call log via ad-hoc call (idempotent),
+      // which writes a fresh call_logs entry without re-touching the now-completed assignment.
+      try {
+        await automationAPI.logAdhocCall({
+          entity_id: activeItem.customer_id,
+          entity_type: "distributor",
+          call_outcome: "connected",
+          notes: orderNotes ? `${orderNotes} [Order Placed]` : "[Order Placed]",
+        });
+      } catch (logErr: any) {
+        // Non-fatal: order was created successfully; failure to log an extra note shouldn't block
+        console.warn("Ad-hoc log for placed order failed (non-fatal):", logErr?.message);
+      }
 
       setToast({ msg: "Order submitted for approval!", sev: "success" });
       setOrderDialogOpen(false);
