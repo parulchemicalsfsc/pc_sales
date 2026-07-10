@@ -268,15 +268,15 @@ def approve_telecaller_order(
             "updated_at": datetime.now().isoformat(),
         }).execute()
 
-        ActivityLogger.log_action(
-            db=db,
+        logger_instance = ActivityLogger(db)
+        logger_instance.log_update_with_diff(
             user_email=user_email,
-            action="UPDATE",
             entity_type="telecaller_order",
+            entity_name=f"Order {order_id}",
             entity_id=order_id,
-            details=f"Approved order (Invoice: {invoice_no})",
-            before_data={"status": "pending"},
-            after_data={"status": "approved", "sale_id": sale_id, "invoice_no": invoice_no}
+            extra_metadata={"details": f"Approved order (Invoice: {invoice_no})"},
+            before={"status": "pending"},
+            after={"status": "approved", "sale_id": sale_id, "invoice_no": invoice_no}
         )
 
         try:
@@ -332,15 +332,15 @@ def reject_telecaller_order(
             "updated_at": datetime.now().isoformat(),
         }).execute()
 
-        ActivityLogger.log_action(
-            db=db,
+        logger_instance = ActivityLogger(db)
+        logger_instance.log_update_with_diff(
             user_email=user_email,
-            action="UPDATE",
             entity_type="telecaller_order",
+            entity_name=f"Order {order_id}",
             entity_id=order_id,
-            details=f"Rejected order. Reason: {body.reason}",
-            before_data={"status": "pending"},
-            after_data={"status": "rejected", "rejected_reason": body.reason}
+            extra_metadata={"details": f"Rejected order. Reason: {body.reason}"},
+            before={"status": "pending"},
+            after={"status": "rejected", "rejected_reason": body.reason}
         )
 
         try:
