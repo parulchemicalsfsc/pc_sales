@@ -800,7 +800,7 @@ export default function CallingList() {
           {/* ── Tab 3: Order Confirmations (telecaller only) ── */}
           {tab === 3 && role === "telecaller" && (
             <Box>
-              <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end", gap: 1 }}>
                 <TextField
                   type="date"
                   size="small"
@@ -809,14 +809,19 @@ export default function CallingList() {
                   onChange={(e) => setConfirmationDateFilter(e.target.value)}
                   InputLabelProps={{ shrink: true }}
                 />
+                {confirmationDateFilter && (
+                  <Button variant="outlined" size="small" onClick={() => setConfirmationDateFilter("")}>
+                    Clear
+                  </Button>
+                )}
               </Box>
               {tab3Loading && confirmationOrders.length === 0 ? (
                 <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
               ) : confirmationOrders.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
-                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Order Confirmations Today</Typography>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Order Confirmations Found</Typography>
                   <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                    Orders you've placed with a confirmation date of today will appear here.
+                    There are no pending order confirmations matching your selected date. Clear the date filter to see all.
                   </Typography>
                 </Box>
               ) : (
