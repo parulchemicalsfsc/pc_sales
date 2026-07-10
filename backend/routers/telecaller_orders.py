@@ -408,6 +408,9 @@ def get_my_confirmation_calls(
             .eq("status", "pending") \
             .order("created_at", desc=True)
 
+        if date:
+            q = q.gte("confirmation_date", start_utc).lt("confirmation_date", end_utc)
+            
         resp = q.execute()
         orders = resp.data or []
 

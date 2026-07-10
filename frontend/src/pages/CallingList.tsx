@@ -151,6 +151,7 @@ export default function CallingList() {
     const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
   const [callbacks, setCallbacks] = useState<any[]>([]);
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
+  const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
   
@@ -235,14 +236,14 @@ export default function CallingList() {
   const loadConfirmationOrders = useCallback(async () => {
     try {
       setTab3Loading(true);
-      const res = await telecallerOrderAPI.getMyConfirmationCalls();
+      const res = await telecallerOrderAPI.getMyConfirmationCalls(confirmationDateFilter || undefined);
       setConfirmationOrders(res);
     } catch (e) {
       console.error(e);
     } finally {
       setTab3Loading(false);
     }
-  }, []);
+  }, [confirmationDateFilter]);
 
   useEffect(() => {
     if (tab === 2 && role === "telecaller") loadCallbacks();
@@ -799,6 +800,16 @@ export default function CallingList() {
           {/* ── Tab 3: Order Confirmations (telecaller only) ── */}
           {tab === 3 && role === "telecaller" && (
             <Box>
+              <Box sx={{ mb: 2, display: "flex", justifyContent: "flex-end" }}>
+                <TextField
+                  type="date"
+                  size="small"
+                  label="Filter by Date"
+                  value={confirmationDateFilter}
+                  onChange={(e) => setConfirmationDateFilter(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Box>
               {tab3Loading && confirmationOrders.length === 0 ? (
                 <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
               ) : confirmationOrders.length === 0 ? (
