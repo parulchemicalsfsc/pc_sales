@@ -492,17 +492,17 @@ export default function CallingList() {
     if (!activeItem) return;
     const validItems = orderItems.filter(i => i.product_id && i.quantity > 0 && i.rate > 0);
     if (validItems.length === 0) {
-      setToast({ msg: "Please add at least one valid product", sev: "warning" });
+      setToast({ msg: "Please add at least one valid product", sev: "error" });
       return;
     }
     if (!orderDate) {
-      setToast({ msg: "Please select an Order Confirmation Date", sev: "warning" });
+      setToast({ msg: "Please select an Order Confirmation Date", sev: "error" });
       return;
     }
     const selectedDate = new Date(orderDate);
     const minDate = new Date(Date.now() - 30 * 60 * 1000);
     if (selectedDate < minDate) {
-      setToast({ msg: "Confirmation date cannot be older than 30 minutes", sev: "warning" });
+      setToast({ msg: "Confirmation date cannot be older than 30 minutes", sev: "error" });
       return;
     }
     const finalConfirmationDate = `${orderDate.substring(0, 16)}+05:30`;
