@@ -470,21 +470,21 @@ export default function CallingList() {
     }
   };
 
-    const submitTelecallerOrder = async () => {
+  const submitTelecallerOrder = async () => {
     if (!activeItem) return;
     const validItems = orderItems.filter(i => i.product_id && i.quantity > 0 && i.rate > 0);
     if (validItems.length === 0) {
-      setToast({ msg: "Please add at least one valid product", sev: "error" });
+      setToast({ msg: "Please add at least one valid product", sev: "warning" });
       return;
     }
     if (!orderDate) {
-      setToast({ msg: "Please select a confirmation date", sev: "error" });
+      setToast({ msg: "Please select an Order Confirmation Date", sev: "warning" });
       return;
     }
     const selectedDate = new Date(orderDate);
     const minDate = new Date(Date.now() - 30 * 60 * 1000);
     if (selectedDate < minDate) {
-      setToast({ msg: "Confirmation date cannot be older than 30 minutes", sev: "error" });
+      setToast({ msg: "Confirmation date cannot be older than 30 minutes", sev: "warning" });
       return;
     }
     const finalConfirmationDate = `${orderDate.substring(0, 16)}+05:30`;
@@ -508,6 +508,14 @@ export default function CallingList() {
         confirmation_date: finalConfirmationDate,
       };
       await telecallerOrderAPI.create(orderData);
+
+      // Log the call to remove it from the Pending list
+      await automationAPI.updateCallStatus(
+        activeItem.assignment_id,
+        "connected",
+        orderNotes ? `${orderNotes} [Order Placed]` : "[Order Placed]"
+      );
+
       setToast({ msg: "Order submitted for approval!", sev: "success" });
       setOrderDialogOpen(false);
       load(pagination.page);

@@ -401,7 +401,6 @@ def get_my_confirmation_calls(
         q = db.table("telecaller_orders").select("*") \
             .eq("telecaller_email", user_email) \
             .eq("status", "pending") \
-            .gte("confirmation_date", start_utc) \
             .lt("confirmation_date", end_utc) \
             .order("created_at", desc=True)
             

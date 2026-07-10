@@ -687,7 +687,7 @@ def get_my_callbacks(
             .eq("user_email", user_email) \
             .eq("status", "Pending") \
             .eq("reason", "Scheduled Callback") \
-            .eq("assigned_date", today_ist) \
+            .lte("assigned_date", today_ist) \
             .order("assignment_id", desc=True)
 
         res = q.execute()
@@ -733,7 +733,7 @@ def get_calling_summary(
             # Add callbacks count
             IST = pytz.timezone("Asia/Kolkata")
             today_ist = datetime.now(IST).strftime("%Y-%m-%d")
-            callbacks = sum(1 for x in pending_assignments if x.get("reason") == "Scheduled Callback" and x.get("assigned_date") == today_ist)
+            callbacks = sum(1 for x in pending_assignments if x.get("reason") == "Scheduled Callback" and x.get("assigned_date") and x.get("assigned_date") <= today_ist)
             
             # Add confirmation calls count
             start_ist = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -744,7 +744,6 @@ def get_calling_summary(
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
                 .eq("status", "pending") \
-                .gte("confirmation_date", start_utc) \
                 .lt("confirmation_date", end_utc) \
                 .execute()
                 
