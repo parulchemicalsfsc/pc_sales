@@ -817,17 +817,9 @@ def get_calling_summary(
                 and x.get("assigned_date") <= today_ist
             )
             
-            # Add confirmation calls count
-            start_ist = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_ist = start_ist + timedelta(days=1)
-            start_utc = start_ist.astimezone(pytz.utc).isoformat()
-            end_utc = end_ist.astimezone(pytz.utc).isoformat()
-
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
                 .eq("status", "pending") \
-                .gte("confirmation_date", start_utc) \
-                .lt("confirmation_date", end_utc) \
                 .execute()
                 
             summary["callbacks"] = callbacks
