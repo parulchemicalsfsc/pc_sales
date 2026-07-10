@@ -386,6 +386,11 @@ def get_my_confirmation_calls(
 ):
     """Get pending telecaller orders for the logged-in user scheduled for a specific date (defaults to today IST)."""
     try:
+        if user_email:
+            user_email = user_email.strip()
+        if not user_email:
+            raise HTTPException(status_code=401, detail="User email required")
+
         IST = pytz.timezone("Asia/Kolkata")
         if not date:
             today_ist = datetime.now(IST)
@@ -401,11 +406,29 @@ def get_my_confirmation_calls(
         q = db.table("telecaller_orders").select("*") \
             .eq("telecaller_email", user_email) \
             .eq("status", "pending") \
+            .gte("confirmation_date", start_utc) \
             .lt("confirmation_date", end_utc) \
             .order("created_at", desc=True)
-            
+
         resp = q.execute()
-        return resp.data or []
+        orders = resp.data or []
+
+        # Parse products_json so the frontend doesn't have to
+        for o in orders:
+            pj = o.get("products_json")
+            if isinstance(pj, str):
+                try:
+                    o["products"] = json.loads(pj)
+                except Exception:
+                    o["products"] = []
+            elif isinstance(pj, list):
+                o["products"] = pj
+            else:
+                o["products"] = o.get("products") or []
+
+        return orders
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching confirmation calls: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching confirmation calls: {str(e)}")

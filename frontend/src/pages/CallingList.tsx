@@ -116,6 +116,21 @@ const PRIORITY_COLORS: Record<string, { bg: string; bgDark: string; border: stri
   LOW: { bg: "rgba(220,38,38,0.06)", bgDark: "rgba(220,38,38,0.12)", border: "#dc2626", fg: "#dc2626" },
 };
 
+// ── Helpers ─────────────────────────────────────────────
+
+/** Safely parse a telecaller order's products field into an array. */
+function parseOrderProducts(order: any): any[] {
+  if (Array.isArray(order.products)) return order.products;
+  if (Array.isArray(order.products_json)) return order.products_json;
+  if (typeof order.products_json === "string") {
+    try { return JSON.parse(order.products_json); } catch { return []; }
+  }
+  if (typeof order.products === "string") {
+    try { return JSON.parse(order.products); } catch { return []; }
+  }
+  return [];
+}
+
 // ── Live Timer Hook ────────────────────────────────────
 
 
@@ -245,6 +260,8 @@ export default function CallingList() {
       setProcessingOrder(orderId);
       await telecallerOrderAPI.approve(orderId);
       setToast({ msg: "Order Approved", sev: "success" });
+      // Optimistically remove card, then reload to keep list fresh
+      setConfirmationOrders(prev => prev.filter(o => o.order_id !== orderId));
       loadConfirmationOrders();
       fetchSummary();
     } catch (e: any) {
@@ -259,6 +276,7 @@ export default function CallingList() {
       setProcessingOrder(orderId);
       await telecallerOrderAPI.reject(orderId, "Rejected from Calling List");
       setToast({ msg: "Order Rejected", sev: "success" });
+      setConfirmationOrders(prev => prev.filter(o => o.order_id !== orderId));
       loadConfirmationOrders();
       fetchSummary();
     } catch (e: any) {
@@ -709,146 +727,16 @@ export default function CallingList() {
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
-          {loading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
-          ) : error ? (
-            <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>
-          ) : assignments.length === 0 ? (
-            <Box sx={{ textAlign: "center", py: 8 }}>
-              <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>
-                {tab === 0 ? t("callingList.noPendingCalls", "No pending calls") : t("callingList.noCompletedCalls", "No completed calls yet")}
-              </Typography>
-              <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                {tab === 0 ? t("callingList.distributionInfo", "Distribution may not have happened yet, or all calls are complete.") : t("callingList.startCalling", "Start calling from the To Call tab.")}
-              </Typography>
-            </Box>
-          ) : (
-            <>
-              <Stack spacing={1} sx={{ minWidth: 0 }}>
-                {assignments.map(item => {
-                  const chip = STATUS_CHIP[item.status] || STATUS_CHIP.Pending;
-                  const dotColor = PRIORITY_DOT[item.priority] || "#eab308";
-                  const pLabel = (item.priority_label || "LOW").toUpperCase();
-                  const pColor = PRIORITY_COLORS[pLabel] || PRIORITY_COLORS.LOW;
-                  return (
-                    <Box
-                      key={item.assignment_id}
-                      onClick={() => openHistoryDialog(item)}
-                      sx={{
-                        p: 2,
-                        borderRadius: 2,
-                        cursor: "pointer",
-                        border: `1px solid ${border}`,
-                        borderLeft: `4px solid ${pColor.border}`,
-                        bgcolor: isDark ? pColor.bgDark : pColor.bg,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                        transition: "border-color 0.15s, box-shadow 0.15s",
-                        "&:hover": { borderColor: alpha("#2563eb", 0.3), boxShadow: `0 0 0 1px ${alpha("#2563eb", 0.08)}` },
-                      }}
-                    >
-                      {/* Priority dot */}
-                      <Tooltip title={`${pLabel} Priority`}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: pColor.border, flexShrink: 0 }} />
-                      </Tooltip>
 
-                      {/* Info */}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {item.name || "Unknown"}
-                          </Typography>
-                          {/* Priority Badge */}
-                          <Chip
-                            size="small"
-                            label={pLabel}
-                            sx={{
-                              height: 20,
-                              fontSize: 10,
-                              fontWeight: 700,
-                              letterSpacing: 0.5,
-                              bgcolor: alpha(pColor.border, 0.12),
-                              color: pColor.fg,
-                              border: `1px solid ${alpha(pColor.border, 0.3)}`,
-                            }}
-                          />
-                        </Stack>
-                        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
-                          {item.mobile && (
-                            <Typography variant="caption" sx={{ color: "text.secondary", display: "flex", alignItems: "center", gap: 0.3 }}>
-                              <PhoneIcon sx={{ fontSize: 12 }} /> {item.mobile}
-                            </Typography>
-                          )}
-                          {item.village && (
-                            <Typography variant="caption" sx={{ color: "text.secondary", display: "flex", alignItems: "center", gap: 0.3 }}>
-                              <PlaceIcon sx={{ fontSize: 12 }} /> {item.village}
-                            </Typography>
-                          )}
-                        </Stack>
-                        {item.status !== "Pending" && item.notes && (
-                          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
-                            {item.notes}
-                          </Typography>
-                        )}
-                        {item.last_call && (
-                          <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
-                            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.25 }}>
-                              Last Call: {new Date(item.last_call.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                            </Typography>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Chip
-                                size="small"
-                                label={item.last_call.call_outcome.replace(/_/g, " ").toUpperCase()}
-                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700 }}
-                              />
-                            </Stack>
-                            {item.last_call.notes && (
-                              <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
-                                "{item.last_call.notes}"
-                              </Typography>
-                            )}
-                          </Box>
-                        )}
-                      </Box>
-
-                      {/* Status / Action */}
-                      {item.status !== "Pending" ? (
-                        <Chip size="small" label={item.status} sx={{ bgcolor: chip.bg, color: chip.fg, fontWeight: 600, fontSize: 11, height: 24 }} />
-                      ) : (
-                        <Tooltip title={item.mobile ? `Call ${item.mobile}` : "No number"}>
-                          <span>
-                            <Button
-                              variant="contained"
-                              size="small"
-                              disabled={!item.mobile}
-                              onClick={(e) => handleCallButton(e, item)}
-                              startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
-                              sx={{
-                                borderRadius: 2,
-                                textTransform: "none",
-                                fontWeight: 700,
-                                fontSize: 12,
-                                px: 2,
-                                boxShadow: "none",
-                                bgcolor: "#16a34a",
-                                "&:hover": { bgcolor: "#15803d", boxShadow: "none" },
-                              }}
-                            >
-                              Call
-                            </Button>
-                          </span>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  );
-                })}
-              </Stack>
-              {tab === 2 && role === "telecaller" && (
+          {/* ── Tab 2: Callbacks (telecaller only) ── */}
+          {tab === 2 && role === "telecaller" && (
             <Stack spacing={1} sx={{ minWidth: 0 }}>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Callbacks</Typography>
+                  <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
+                    Callbacks scheduled for today will appear here.
+                  </Typography>
                 </Box>
               ) : (
                 callbacks.map(item => (
@@ -874,6 +762,11 @@ export default function CallingList() {
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
                       </Stack>
+                      {item.callback_date && (
+                        <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5 }}>
+                          Callback Date: {item.callback_date}
+                        </Typography>
+                      )}
                     </Box>
                     <Tooltip title="Call">
                       <span>
@@ -895,6 +788,7 @@ export default function CallingList() {
             </Stack>
           )}
 
+          {/* ── Tab 3: Order Confirmations (telecaller only) ── */}
           {tab === 3 && role === "telecaller" && (
             <Box>
               {tab3Loading && confirmationOrders.length === 0 ? (
@@ -902,27 +796,59 @@ export default function CallingList() {
               ) : confirmationOrders.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Order Confirmations Today</Typography>
+                  <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
+                    Orders you've placed with a confirmation date of today will appear here.
+                  </Typography>
                 </Box>
               ) : (
                 <Stack spacing={2}>
-                  {confirmationOrders.map(order => (
+                  {confirmationOrders.map(order => {
+                    const products = parseOrderProducts(order);
+                    return (
                     <Paper key={order.order_id} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
                       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
                         <Box>
                           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name} ({order.customer_type})</Typography>
                           <Typography variant="caption" sx={{ color: "text.secondary" }}>{order.customer_mobile} · {order.customer_village}</Typography>
                           <Box sx={{ mt: 1 }}>
-                            {order.products.map((p: any, i: number) => (
+                            {products.map((p: any, i: number) => (
                               <Typography key={i} variant="caption" display="block" sx={{ color: "text.primary" }}>
-                                • {p.product_name} - {p.quantity} x ₹{p.rate} = ₹{p.amount}
+                                • {p.product_name || p.name || "Unknown"} - {p.quantity} x ₹{p.rate} = ₹{p.amount}
                               </Typography>
                             ))}
                           </Box>
-                          <Typography variant="caption" sx={{ color: "text.secondary", mt: 1, display: "block" }}>
-                            Time: {new Date(order.confirmation_date).toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit' })}
-                          </Typography>
+                          {order.confirmation_date && (
+                            <Typography variant="caption" sx={{ color: "text.secondary", mt: 1, display: "block" }}>
+                              Time: {(() => {
+                                try { return new Date(order.confirmation_date).toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit' }); }
+                                catch { return order.confirmation_date; }
+                              })()}
+                            </Typography>
+                          )}
                         </Box>
                         <Stack direction="row" spacing={1}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            disabled={!order.customer_mobile || processingOrder === order.order_id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (order.customer_mobile) window.open(`tel:${order.customer_mobile}`, "_self");
+                              try {
+                                await automationAPI.logAdhocCall({
+                                  entity_id: order.customer_id,
+                                  entity_type: order.customer_type === "Mantri" ? "distributor" : "customer",
+                                  call_outcome: "connected",
+                                  notes: `${order.notes || ""} [Order Confirmation Call]`.trim(),
+                                });
+                                setToast({ msg: "Ad-hoc call logged", sev: "info" });
+                              } catch { setToast({ msg: "Failed to log ad-hoc call", sev: "error" }); }
+                            }}
+                            startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
+                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 12 }}
+                          >
+                            Call
+                          </Button>
                           <Button
                             variant="outlined"
                             color="error"
@@ -946,13 +872,152 @@ export default function CallingList() {
                         </Stack>
                       </Stack>
                     </Paper>
-                  ))}
+                    );
+                  })}
                 </Stack>
               )}
             </Box>
           )}
-              {tab === 0 || tab === 1 ? (
-                <TablePagination
+
+          {/* ── Tab 0 & 1: To Call / Called (with pagination) ── */}
+          {(tab === 0 || tab === 1) && (
+            <>
+              {loading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
+              ) : error ? (
+                <Alert severity="error" sx={{ borderRadius: 2 }}>{error}</Alert>
+              ) : assignments.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 8 }}>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>
+                    {tab === 0 ? t("callingList.noPendingCalls", "No pending calls") : t("callingList.noCompletedCalls", "No completed calls yet")}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
+                    {tab === 0 ? t("callingList.distributionInfo", "Distribution may not have happened yet, or all calls are complete.") : t("callingList.startCalling", "Start calling from the To Call tab.")}
+                  </Typography>
+                </Box>
+              ) : (
+                <Stack spacing={1} sx={{ minWidth: 0 }}>
+                  {assignments.map(item => {
+                    const chip = STATUS_CHIP[item.status] || STATUS_CHIP.Pending;
+                    const dotColor = PRIORITY_DOT[item.priority] || "#eab308";
+                    const pLabel = (item.priority_label || "LOW").toUpperCase();
+                    const pColor = PRIORITY_COLORS[pLabel] || PRIORITY_COLORS.LOW;
+                    return (
+                      <Box
+                        key={item.assignment_id}
+                        onClick={() => openHistoryDialog(item)}
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          cursor: "pointer",
+                          border: `1px solid ${border}`,
+                          borderLeft: `4px solid ${pColor.border}`,
+                          bgcolor: isDark ? pColor.bgDark : pColor.bg,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          transition: "border-color 0.15s, box-shadow 0.15s",
+                          "&:hover": { borderColor: alpha("#2563eb", 0.3), boxShadow: `0 0 0 1px ${alpha("#2563eb", 0.08)}` },
+                        }}
+                      >
+                        {/* Priority dot */}
+                        <Tooltip title={`${pLabel} Priority`}>
+                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: pColor.border, flexShrink: 0 }} />
+                        </Tooltip>
+
+                        {/* Info */}
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {item.name || "Unknown"}
+                            </Typography>
+                            {/* Priority Badge */}
+                            <Chip
+                              size="small"
+                              label={pLabel}
+                              sx={{
+                                height: 20,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: 0.5,
+                                bgcolor: alpha(pColor.border, 0.12),
+                                color: pColor.fg,
+                                border: `1px solid ${alpha(pColor.border, 0.3)}`,
+                              }}
+                            />
+                          </Stack>
+                          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
+                            {item.mobile && (
+                              <Typography variant="caption" sx={{ color: "text.secondary", display: "flex", alignItems: "center", gap: 0.3 }}>
+                                <PhoneIcon sx={{ fontSize: 12 }} /> {item.mobile}
+                              </Typography>
+                            )}
+                            {item.village && (
+                              <Typography variant="caption" sx={{ color: "text.secondary", display: "flex", alignItems: "center", gap: 0.3 }}>
+                                <PlaceIcon sx={{ fontSize: 12 }} /> {item.village}
+                              </Typography>
+                            )}
+                          </Stack>
+                          {item.status !== "Pending" && item.notes && (
+                            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                              {item.notes}
+                            </Typography>
+                          )}
+                          {item.last_call && (
+                            <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
+                              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 0.25 }}>
+                                Last Call: {new Date(item.last_call.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </Typography>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Chip
+                                  size="small"
+                                  label={item.last_call.call_outcome.replace(/_/g, " ").toUpperCase()}
+                                  sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700 }}
+                                />
+                              </Stack>
+                              {item.last_call.notes && (
+                                <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
+                                  "{item.last_call.notes}"
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+                        </Box>
+
+                        {/* Status / Action */}
+                        {item.status !== "Pending" ? (
+                          <Chip size="small" label={item.status} sx={{ bgcolor: chip.bg, color: chip.fg, fontWeight: 600, fontSize: 11, height: 24 }} />
+                        ) : (
+                          <Tooltip title={item.mobile ? `Call ${item.mobile}` : "No number"}>
+                            <span>
+                              <Button
+                                variant="contained"
+                                size="small"
+                                disabled={!item.mobile}
+                                onClick={(e) => handleCallButton(e, item)}
+                                startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
+                                sx={{
+                                  borderRadius: 2,
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                  px: 2,
+                                  boxShadow: "none",
+                                  bgcolor: "#16a34a",
+                                  "&:hover": { bgcolor: "#15803d", boxShadow: "none" },
+                                }}
+                              >
+                                Call
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              )}
+              <TablePagination
                 component="div"
                 count={pagination.total}
                 page={pagination.page - 1}
@@ -961,7 +1026,6 @@ export default function CallingList() {
                 rowsPerPageOptions={[20]}
                 sx={{ borderTop: `1px solid ${border}`, mt: 1 }}
               />
-              ) : null}
             </>
           )}
         </Box>

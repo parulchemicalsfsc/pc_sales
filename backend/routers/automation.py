@@ -679,7 +679,17 @@ def get_my_callbacks(
     user_email: str = Header(..., alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
+    """
+    Get pending assignments flagged as 'Scheduled Callback' for the logged-in user,
+    where the callback is due today or earlier. Enriched with customer/distributor
+    name, mobile, and village for display.
+    """
     try:
+        if user_email:
+            user_email = user_email.strip()
+        if not user_email:
+            raise HTTPException(status_code=401, detail="User email required")
+
         IST = pytz.timezone("Asia/Kolkata")
         today_ist = datetime.now(IST).strftime("%Y-%m-%d")
 
@@ -691,7 +701,74 @@ def get_my_callbacks(
             .order("assignment_id", desc=True)
 
         res = q.execute()
-        return res.data or []
+        assignments = res.data or []
+
+        # ── Enrich with customer/distributor details ──
+        distributor_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
+        customer_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
+
+        # Fallback for old records without entity_type
+        role = get_user_role_cached(user_email, db) or ""
+        for a in assignments:
+            if not a.get("entity_type") and a.get("customer_id"):
+                if role == "sales_manager":
+                    distributor_ids.append(a["customer_id"])
+                    a["entity_type"] = "distributor"
+                else:
+                    customer_ids.append(a["customer_id"])
+                    a["entity_type"] = "customer"
+
+        customers_map = {}
+        if distributor_ids:
+            try:
+                dist_res = db.table("distributors") \
+                    .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
+                    .in_("distributor_id", distributor_ids) \
+                    .execute()
+                for d in (dist_res.data or []):
+                    customers_map[("distributor", d["distributor_id"])] = {
+                        "name": d.get("mantri_name"),
+                        "mobile": d.get("mantri_mobile"),
+                        "village": d.get("village"),
+                        "priority_score": d.get("priority_score"),
+                        "priority_label": d.get("priority_label"),
+                    }
+            except Exception as e:
+                logger.error(f"[MY-CALLBACKS] Distributor enrichment failed: {e}", exc_info=True)
+
+        if customer_ids:
+            try:
+                cust_res = db.table("customers") \
+                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .in_("customer_id", customer_ids) \
+                    .execute()
+                for c in (cust_res.data or []):
+                    customers_map[("customer", c["customer_id"])] = {
+                        "name": c.get("name"),
+                        "mobile": c.get("mobile"),
+                        "village": c.get("village"),
+                        "priority_score": 0,
+                        "priority_label": "None",
+                    }
+            except Exception as e:
+                logger.error(f"[MY-CALLBACKS] Customer enrichment failed: {e}", exc_info=True)
+
+        enhanced = []
+        for a in assignments:
+            key = (a.get("entity_type", "customer"), a.get("customer_id"))
+            c = customers_map.get(key, {})
+            enhanced.append({
+                **a,
+                "name": c.get("name", "Unknown"),
+                "mobile": c.get("mobile", ""),
+                "village": c.get("village", ""),
+                "priority_score": c.get("priority_score", 0),
+                "priority_label": c.get("priority_label", "LOW"),
+            })
+
+        return enhanced
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[MY-CALLBACKS] ❌ Exception: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -730,20 +807,26 @@ def get_calling_summary(
         }
         
         if role == "telecaller":
-            # Add callbacks count
+            # Add callbacks count (only Scheduled Callbacks due today or earlier)
             IST = pytz.timezone("Asia/Kolkata")
             today_ist = datetime.now(IST).strftime("%Y-%m-%d")
-            callbacks = sum(1 for x in pending_assignments if x.get("reason") == "Scheduled Callback" and x.get("assigned_date") and x.get("assigned_date") <= today_ist)
+            callbacks = sum(
+                1 for x in pending_assignments
+                if x.get("reason") == "Scheduled Callback"
+                and x.get("assigned_date")
+                and x.get("assigned_date") <= today_ist
+            )
             
             # Add confirmation calls count
             start_ist = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0)
             end_ist = start_ist + timedelta(days=1)
             start_utc = start_ist.astimezone(pytz.utc).isoformat()
             end_utc = end_ist.astimezone(pytz.utc).isoformat()
-            
+
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
                 .eq("status", "pending") \
+                .gte("confirmation_date", start_utc) \
                 .lt("confirmation_date", end_utc) \
                 .execute()
                 
