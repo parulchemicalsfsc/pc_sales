@@ -364,20 +364,6 @@ def reject_telecaller_order(
         raise HTTPException(status_code=500, detail=f"Error rejecting order: {str(e)}")
 
 
-@router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
-def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
-    """Get a single telecaller order by ID."""
-    try:
-        resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
-        if not resp.data:
-            raise HTTPException(status_code=404, detail="Order not found")
-        return resp.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
-
-
 @router.get("/my-confirmation-calls", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_confirmation_calls(
     date: Optional[str] = None,
@@ -433,4 +419,18 @@ def get_my_confirmation_calls(
     except Exception as e:
         logger.error(f"Error fetching confirmation calls: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching confirmation calls: {str(e)}")
+
+
+@router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
+def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
+    """Get a single telecaller order by ID."""
+    try:
+        resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
 
