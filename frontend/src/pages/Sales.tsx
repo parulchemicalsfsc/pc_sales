@@ -2107,9 +2107,16 @@ export default function Sales() {
             ) : (() => {
               // Apply filters
               const filtered = telecallerOrders.filter((order) => {
-                const orderDate = order.created_at ? order.created_at.split("T")[0] : "";
+                let orderDateStr = "";
+                if (order.created_at) {
+                  const d = new Date(order.created_at.endsWith('Z') || order.created_at.includes('+') ? order.created_at : `${order.created_at}Z`);
+                  const yyyy = d.getFullYear();
+                  const mm = String(d.getMonth() + 1).padStart(2, "0");
+                  const dd = String(d.getDate()).padStart(2, "0");
+                  orderDateStr = `${yyyy}-${mm}-${dd}`;
+                }
                 const telecallerLabel = (order.telecaller_name || order.telecaller_email || "").toLowerCase();
-                const dateMatch = !tcOrderDateFilter || orderDate === tcOrderDateFilter;
+                const dateMatch = !tcOrderDateFilter || orderDateStr === tcOrderDateFilter;
                 const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
                 return dateMatch && telecallerMatch;
               });
@@ -2132,7 +2139,7 @@ export default function Sales() {
                       orderProducts = typeof order.products_json === "string" ? JSON.parse(order.products_json) : (order.products_json || []);
                     } catch (e) {}
 
-                    const orderDate = order.created_at ? new Date(order.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+                    const orderDate = order.created_at ? new Date(order.created_at.endsWith('Z') || order.created_at.includes('+') ? order.created_at : `${order.created_at}Z`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 
                     return (
                       <Card key={order.order_id} variant="outlined">
