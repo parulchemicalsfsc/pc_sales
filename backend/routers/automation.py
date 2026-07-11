@@ -204,14 +204,19 @@ def distribute_calls(db: SupabaseClient, admin_email: str = "system", force: boo
     valid_emails = [t["email"] for t in telecallers]
     logger.info(f"[DIST] Telecallers to distribute to: {valid_emails}")
 
-    # 2. Clear ghost assignments (assignments for users no longer in telecaller list)
+    # 2. Clear ghost assignments (assignments for users no longer in the system)
     # (Removed old pending cleanup per user request - pending assignments now roll over)
     try:
+        # Get ALL valid app_users
+        users_res = db.table("app_users").select("email").execute()
+        all_user_emails = {u["email"] for u in (users_res.data or [])}
+
         ghost_res = db.table("calling_assignments") \
             .select("assignment_id, user_email") \
             .eq("status", "Pending") \
             .execute()
-        ghost_rows = [r for r in (ghost_res.data or []) if r.get("user_email") not in valid_emails]
+            
+        ghost_rows = [r for r in (ghost_res.data or []) if r.get("user_email") not in all_user_emails]
         if ghost_rows:
             ghost_ids = [r["assignment_id"] for r in ghost_rows]
             logger.warning(f"[DIST] 🗑️ Deleting {len(ghost_rows)} ghost assignments for unknown users: "

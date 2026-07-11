@@ -120,16 +120,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Initial auth check + subscriber ─────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      setRole(normalizeRole(s?.user?.user_metadata?.role));
-
-      // Set user email in localStorage for API client interceptor
       if (s?.user?.email) {
         localStorage.setItem("user_email", s.user.email);
       }
+      
+      const savedEmail = localStorage.getItem("user_email");
+      setUser(s?.user ?? (savedEmail ? { email: savedEmail } as any : null));
+      setRole(normalizeRole(s?.user?.user_metadata?.role) || localStorage.getItem("user_role"));
 
-      loadPermissions(s?.user ?? null).finally(() => setLoading(false));
+      loadPermissions(s?.user ?? (savedEmail ? { email: savedEmail } : null) as any).finally(() => setLoading(false));
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -143,9 +142,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
+        // If Supabase drops the session due to expiration but we have an active backend session (email in localStorage),
+        // we can ignore the SIGNED_OUT event unless it was an explicit user action (handled by our signOut function).
+        if (event === "SIGNED_OUT" && localStorage.getItem("user_email")) {
+            console.warn("[Auth] Supabase emitted SIGNED_OUT unexpectedly (likely token expiration). Ignoring since we have user_email.");
+            return;
+        }
+
         setSession(s);
-        setUser(s?.user ?? null);
-        setRole(normalizeRole(s?.user?.user_metadata?.role));
+        setUser(s?.user ?? { email: localStorage.getItem("user_email") } as any);
+        setRole(normalizeRole(s?.user?.user_metadata?.role) || localStorage.getItem("user_role"));
 
         if (s?.user?.email) {
           localStorage.setItem("user_email", s.user.email);
