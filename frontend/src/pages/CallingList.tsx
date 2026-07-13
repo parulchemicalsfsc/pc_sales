@@ -779,6 +779,11 @@ export default function CallingList() {
                           })()}
                         </Typography>
                       )}
+                      {item.notes && (
+                        <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                          {item.notes}
+                        </Typography>
+                      )}
                     </Box>
                     <Tooltip title="Call">
                       <span>

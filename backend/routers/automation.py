@@ -877,9 +877,6 @@ def start_call_timer(
 def log_adhoc_call(
     body: AdhocCallRequest,
     user_email: str = Header(..., alias="x-user-email"),
-    db: SupabaseClient = Depends(get_db),
-):
-    """
     Log a call outcome for any customer/distributor without needing a pre-existing assignment.
     - If a Pending assignment exists for this user+entity today → update it.
     - Otherwise → create a new assignment record with the final status.
@@ -896,7 +893,7 @@ def log_adhoc_call(
         status_map = {
             "connected": "Called",
             "not_reachable": "Not Reachable",
-            "callback": "Callback",
+            "callback": "Called",
             "wrong_number": "Wrong Number",
         }
         new_status = status_map[body.call_outcome]
@@ -992,7 +989,7 @@ def update_call_status(
         status_map = {
             "connected": "Called",
             "not_reachable": "Not Reachable",
-            "callback": "Callback",
+            "callback": "Called",
             "wrong_number": "Wrong Number",
         }
         new_status = status_map.get(body.call_outcome, "Called")
@@ -1067,6 +1064,8 @@ def update_call_status(
                 new_assignment_id = existing_cb.data[0]["assignment_id"]
                 logger.info(f"[CALLBACK] Reusing existing pending assignment {new_assignment_id} for customer {assignment['customer_id']}")
             else:
+                callback_time = body.callback_date[11:16] if len(body.callback_date) >= 16 else ""
+                time_prefix = f"[Time: {callback_time}] " if callback_time else ""
                 new_assign_res = db.table("calling_assignments").insert({
                     "user_email": user_email,  # Affinity: stay with same telecaller
                     "customer_id": assignment["customer_id"],
@@ -1074,7 +1073,7 @@ def update_call_status(
                     "reason": "Scheduled Callback",
                     "assigned_date": body.callback_date,
                     "status": "Pending",
-                    "notes": body.notes or "",
+                    "notes": f"{time_prefix}{body.notes or ''}".strip(),
                     "entity_type": assignment.get("entity_type", "distributor"),
                 }).execute()
                 new_assignment_id = (new_assign_res.data or [{}])[0].get("assignment_id")
