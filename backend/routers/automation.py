@@ -697,12 +697,13 @@ def get_my_callbacks(
 
         IST = pytz.timezone("Asia/Kolkata")
         today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+        end_of_today = f"{today_ist}T23:59:59"
 
         q = db.table("calling_assignments").select("*") \
             .eq("user_email", user_email) \
             .eq("status", "Pending") \
             .eq("reason", "Scheduled Callback") \
-            .lte("assigned_date", today_ist) \
+            .lte("assigned_date", end_of_today) \
             .order("assignment_id", desc=True)
 
         res = q.execute()

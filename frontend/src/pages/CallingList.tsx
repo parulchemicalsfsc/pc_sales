@@ -246,7 +246,7 @@ export default function CallingList() {
   }, [confirmationDateFilter]);
 
   useEffect(() => {
-    if (tab === 2 && role === "telecaller") loadCallbacks();
+    if (tab === 2) loadCallbacks();
     if (tab === 3 && role === "telecaller") loadConfirmationOrders();
   }, [tab, role, loadCallbacks, loadConfirmationOrders]);
 
@@ -731,14 +731,14 @@ export default function CallingList() {
         >
           <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
-          {role === "telecaller" && <Tab label={`Callbacks  ·  ${summary.callbacks || 0}`} />}
+          <Tab label={`Callbacks  ·  ${summary.callbacks || 0}`} />
           {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
 
-          {/* ── Tab 2: Callbacks (telecaller only) ── */}
-          {tab === 2 && role === "telecaller" && (
+          {/* ── Tab 2: Callbacks ── */}
+          {tab === 2 && (
             <Stack spacing={1} sx={{ minWidth: 0 }}>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
@@ -771,9 +771,12 @@ export default function CallingList() {
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
                       </Stack>
-                      {item.callback_date && (
+                      {item.assigned_date && (
                         <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5 }}>
-                          Callback Date: {item.callback_date}
+                          Callback Date & Time: {(() => {
+                            try { return new Date(item.assigned_date).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+                            catch { return item.assigned_date; }
+                          })()}
                         </Typography>
                       )}
                     </Box>
@@ -1269,14 +1272,14 @@ export default function CallingList() {
           />
           {outcome === "callback" && (
             <TextField
-              type="date"
-              label="Callback Date"
+              type="datetime-local"
+              label="Callback Date & Time"
               fullWidth
               required
               value={callbackDate}
               onChange={e => setCallbackDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              inputProps={{ min: new Date().toISOString().split("T")[0] }}
+              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
               sx={{ mt: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
             />
           )}
