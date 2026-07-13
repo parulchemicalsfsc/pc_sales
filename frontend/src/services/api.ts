@@ -647,8 +647,8 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
-  getMyCallbacks: async () => {
-    const response = await apiClient.get("/api/automation/my-callbacks");
+  getMyCallbacks: async (date?: string) => {
+    const response = await apiClient.get("/api/automation/my-callbacks", { params: { date } });
     return response.data;
   },
   getCallingSummary: async () => {

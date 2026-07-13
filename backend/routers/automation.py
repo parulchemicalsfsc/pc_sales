@@ -681,13 +681,14 @@ def get_my_assignments(
 
 @router.get("/my-callbacks", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_callbacks(
+    date: Optional[str] = Query(None),
     user_email: str = Header(..., alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get pending assignments flagged as 'Scheduled Callback' for the logged-in user,
-    where the callback is due today or earlier. Enriched with customer/distributor
-    name, mobile, and village for display.
+    Get pending assignments flagged as 'Scheduled Callback' for the logged-in user.
+    If 'date' is provided, returns callbacks scheduled for that specific date.
+    Otherwise, returns callbacks due today or earlier.
     """
     try:
         if user_email:
@@ -696,15 +697,22 @@ def get_my_callbacks(
             raise HTTPException(status_code=401, detail="User email required")
 
         IST = pytz.timezone("Asia/Kolkata")
-        today_ist = datetime.now(IST).strftime("%Y-%m-%d")
-        end_of_today = f"{today_ist}T23:59:59"
-
+        
         q = db.table("calling_assignments").select("*") \
             .eq("user_email", user_email) \
             .eq("status", "Pending") \
-            .eq("reason", "Scheduled Callback") \
-            .lte("assigned_date", end_of_today) \
-            .order("assignment_id", desc=True)
+            .eq("reason", "Scheduled Callback")
+            
+        if date:
+            start_of_date = f"{date}T00:00:00"
+            end_of_date = f"{date}T23:59:59"
+            q = q.gte("assigned_date", start_of_date).lte("assigned_date", end_of_date)
+        else:
+            today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+            end_of_today = f"{today_ist}T23:59:59"
+            q = q.lte("assigned_date", end_of_today)
+
+        q = q.order("assignment_id", desc=True)
 
         res = q.execute()
         assignments = res.data or []

@@ -152,6 +152,7 @@ export default function CallingList() {
   const [callbacks, setCallbacks] = useState<any[]>([]);
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
   const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
+  const [followbackDateFilter, setFollowbackDateFilter] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
   
@@ -226,12 +227,12 @@ export default function CallingList() {
 
   const loadCallbacks = useCallback(async () => {
     try {
-      const res = await automationAPI.getMyCallbacks();
+      const res = await automationAPI.getMyCallbacks(followbackDateFilter || undefined);
       setCallbacks(res);
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [followbackDateFilter]);
 
   const loadConfirmationOrders = useCallback(async () => {
     try {
@@ -741,6 +742,21 @@ export default function CallingList() {
           {/* ── Tab 2: Followbacks ── */}
           {tab === 2 && (
             <Stack spacing={1} sx={{ minWidth: 0 }}>
+              <Box sx={{ p: 2, pb: 0, display: "flex", gap: 2, alignItems: "center", justifyContent: "flex-end" }}>
+                <TextField
+                  type="date"
+                  size="small"
+                  label="Filter by Date"
+                  value={followbackDateFilter}
+                  onChange={(e) => setFollowbackDateFilter(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                {followbackDateFilter && (
+                  <Button variant="outlined" size="small" onClick={() => setFollowbackDateFilter("")}>
+                    Clear
+                  </Button>
+                )}
+              </Box>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
