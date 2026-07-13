@@ -2410,10 +2410,6 @@ export default function Sales() {
                                 </Typography>
                               )}
                             </Grid>
-                            <Grid item xs={12} sm={4} sx={{ display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "flex-end", gap: 1 }}>
-                                <Button variant="contained" color="success" size="small" onClick={() => handleTelecallerApprove(order.order_id as number)} fullWidth>Approve</Button>
-                                <Button variant="outlined" color="error" size="small" onClick={() => handleTelecallerReject(order.order_id as number)} fullWidth>Reject</Button>
-                            </Grid>
                           </Grid>
                         </CardContent>
                       </Card>
