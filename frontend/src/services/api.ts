@@ -1110,6 +1110,13 @@ export const telecallerOrderAPI = {
     const response = await apiClient.post(`/api/telecaller-orders/${orderId}/approve`, { notes });
     return response.data;
   },
+  bulkMarkApproved: async (orderIds: number[], saleId?: number) => {
+    const response = await apiClient.post(`/api/telecaller-orders/bulk-mark-approved`, {
+      order_ids: orderIds,
+      sale_id: saleId,
+    });
+    return response.data;
+  },
   reject: async (orderId: number, reason: string) => {
     const response = await apiClient.post(`/api/telecaller-orders/${orderId}/reject`, { reason });
     return response.data;

@@ -191,6 +191,7 @@ export default function Sales() {
   const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("confirmed");
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [mergedTelecallerOrderIds, setMergedTelecallerOrderIds] = useState<number[]>([]);
 
   useEffect(() => {
     loadData();
@@ -362,21 +363,88 @@ export default function Sales() {
 
   const handleBulkTelecallerApprove = async () => {
     if (selectedTelecallerOrders.size === 0) return;
-    try {
-      setTelecallerOrdersLoading(true);
-      for (const orderId of selectedTelecallerOrders) {
-        await telecallerOrderAPI.approve(orderId);
+    
+    // 1. Gather selected orders
+    const orders = telecallerOrders.filter(o => o.order_id && selectedTelecallerOrders.has(o.order_id));
+    
+    // 2. Aggregate products
+    const productMap = new Map<number, any>();
+    orders.forEach(order => {
+      let prods: any[] = [];
+      try {
+        prods = order.products_json ? JSON.parse(order.products_json as string) : (order.products || []);
+      } catch (e) {
+        prods = order.products || [];
       }
-      setToast({ msg: `${selectedTelecallerOrders.size} order(s) approved`, sev: "success" });
-      setSelectedTelecallerOrders(new Set());
-      loadTelecallerOrders();
-      loadData(true);
-    } catch (err: any) {
-      const errorMessage = err?.response?.data?.detail || err?.message || "Failed to approve orders";
-      setToast({ msg: errorMessage, sev: "error" });
-    } finally {
-      setTelecallerOrdersLoading(false);
+      prods.forEach(p => {
+        if (!p.product_id) return;
+        if (productMap.has(p.product_id)) {
+          const existing = productMap.get(p.product_id)!;
+          existing.quantity += Number(p.quantity) || 0;
+          existing.amount += Number(p.amount) || 0;
+        } else {
+          productMap.set(p.product_id, {
+            product_id: p.product_id,
+            quantity: Number(p.quantity) || 0,
+            rate: Number(p.rate) || 0,
+            amount: Number(p.amount) || 0,
+          });
+        }
+      });
+    });
+    
+    const aggregatedItems = Array.from(productMap.values());
+    if (aggregatedItems.length === 0) {
+      aggregatedItems.push({ product_id: 0, quantity: 1, rate: 0, amount: 0 });
     }
+    
+    // 3. Find if all share the same village
+    let commonVillage: string | null = null;
+    let allSameVillage = true;
+    for (const order of orders) {
+      const v = order.customer_village || "";
+      if (commonVillage === null) {
+        commonVillage = v;
+      } else if (commonVillage.toLowerCase() !== v.toLowerCase()) {
+        allSameVillage = false;
+        break;
+      }
+    }
+    
+    // 4. Try to find exactly one Mantri for that village
+    let prefilledMantriId: number = 0;
+    let prefilledEntity: any = null;
+    
+    if (allSameVillage && commonVillage) {
+      const matchingMantris = distributors.filter(d => (d.village || "").toLowerCase() === commonVillage!.toLowerCase());
+      if (matchingMantris.length === 1) {
+        const mantri = matchingMantris[0];
+        prefilledMantriId = mantri.distributor_id;
+        prefilledEntity = {
+          name: mantri.mantri_name || mantri.name || "",
+          village: mantri.village || "",
+          mobile: mantri.mantri_mobile || mantri.mobile || "",
+        };
+      }
+    }
+    
+    // 5. Open dialog and pre-fill
+    setTelecallerOrdersDialogOpen(false);
+    setSaleTab("pre_sales");
+    setCustomerCategory("Mantri");
+    setCustomerMode("existing");
+    setFormData({
+      customer_id: prefilledMantriId,
+      invoice_no: "",
+      sale_date: new Date().toISOString().split("T")[0],
+      notes: "Merged from Telecaller Orders",
+      paid_amount: 0,
+    });
+    setSelectedEntity(prefilledEntity);
+    setItems(aggregatedItems);
+    setMergedTelecallerOrderIds(Array.from(selectedTelecallerOrders));
+    setOpenDialog(true);
+    setSelectedTelecallerOrders(new Set());
   };
 
   const handleBulkTelecallerReject = async () => {
@@ -662,6 +730,7 @@ export default function Sales() {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
+    setMergedTelecallerOrderIds([]);
   };
 
   const handleAddItem = () => {
@@ -1050,6 +1119,15 @@ export default function Sales() {
         } else {
           response = await salesAPI.create(saleData);
           console.log("Sale created:", response);
+        }
+      }
+
+      if (mergedTelecallerOrderIds.length > 0 && response?.sale?.sale_id) {
+        try {
+          await telecallerOrderAPI.bulkMarkApproved(mergedTelecallerOrderIds, response.sale.sale_id);
+          loadTelecallerOrders();
+        } catch (e) {
+          console.error("Error marking telecaller orders as approved:", e);
         }
       }
 

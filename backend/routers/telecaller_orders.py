@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 import pytz
 
 from models import TelecallerOrderCreate, TelecallerOrderApprove, TelecallerOrderReject
+from pydantic import BaseModel
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
 from activity_logger import ActivityLogger
@@ -182,6 +183,41 @@ def get_telecaller_orders(
 def get_pending_telecaller_orders(db: SupabaseClient = Depends(get_supabase)):
     """Get only pending telecaller orders (convenience endpoint)."""
     return get_telecaller_orders(status="pending", db=db)
+
+
+class BulkMarkApprovedRequest(BaseModel):
+    order_ids: List[int]
+    sale_id: Optional[int] = None
+
+@router.post("/bulk-mark-approved", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+def bulk_mark_approved(
+    body: BulkMarkApprovedRequest,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Mark multiple telecaller orders as approved (used when merging into a single sale)."""
+    try:
+        if user_email:
+            user_email = user_email.strip()
+
+        if not body.order_ids:
+            return {"message": "No orders to approve"}
+
+        data = {
+            "status": "approved",
+            "approved_by": user_email,
+            "updated_at": datetime.now().isoformat()
+        }
+        if body.sale_id is not None:
+            data["sale_id"] = body.sale_id
+
+        # Update all orders in one go using in_
+        res = db.table("telecaller_orders").update(data).in_("order_id", body.order_ids).execute()
+        
+        return {"message": f"{len(body.order_ids)} orders marked as approved", "updated": len(res.data) if res.data else 0}
+    except Exception as e:
+        logger.error(f"Error in bulk mark approved: {e}")
+        raise HTTPException(status_code=500, detail=f"Error approving orders: {str(e)}")
 
 
 @router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
