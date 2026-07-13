@@ -402,7 +402,7 @@ export default function Sales() {
     let commonVillage: string | null = null;
     let allSameVillage = true;
     for (const order of orders) {
-      const v = order.customer_village || "";
+      const v = (order.customer_village || "").trim();
       if (commonVillage === null) {
         commonVillage = v;
       } else if (commonVillage.toLowerCase() !== v.toLowerCase()) {
@@ -416,7 +416,7 @@ export default function Sales() {
     let prefilledEntity: any = null;
     
     if (allSameVillage && commonVillage) {
-      const matchingMantris = distributors.filter(d => (d.village || "").toLowerCase() === commonVillage!.toLowerCase());
+      const matchingMantris = distributors.filter(d => (d.village || "").trim().toLowerCase() === commonVillage!.toLowerCase());
       if (matchingMantris.length === 1) {
         const mantri = matchingMantris[0];
         prefilledMantriId = mantri.distributor_id;
