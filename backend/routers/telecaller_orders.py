@@ -71,7 +71,7 @@ def create_telecaller_order(
             "customer_village": order.customer_village,
             "products_json": products_json,
             "confirmation_date": order.confirmation_date,
-            "status": "pending",
+            "status": "unconfirmed",
             "notes": order.notes,
         }
 
@@ -81,23 +81,9 @@ def create_telecaller_order(
 
         created = result.data[0]
 
-        try:
-            users = _fetch_all(db, "app_users", "email, role")
-            sm_emails = [u["email"] for u in users if u.get("role") == "sales_manager"]
-            for sm_email in sm_emails:
-                create_notification_helper(
-                    db,
-                    title="New Telecaller Order Pending",
-                    message=f"{user_email} submitted an order for {order.customer_name}",
-                    notification_type="info",
-                    user_email=sm_email,
-                    entity_type="telecaller_order",
-                    entity_id=created.get("order_id"),
-                )
-        except Exception as n_err:
-            logger.warning(f"Failed to send notification: {n_err}")
+        created = result.data[0]
 
-        return {"message": "Order submitted for approval", "order": created}
+        return {"message": "Order submitted for confirmation", "order": created}
     except HTTPException:
         raise
     except Exception as e:
@@ -177,6 +163,51 @@ def get_telecaller_orders(
     except Exception as e:
         logger.error(f"Error fetching telecaller orders: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching telecaller orders: {str(e)}")
+
+
+@router.post("/{order_id}/telecaller-confirm", dependencies=[Depends(verify_permission("view_calling_list"))])
+def telecaller_confirm_order(
+    order_id: int,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Telecaller confirms the order, sending it to the Sales Manager."""
+    try:
+        order_resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
+        if not order_resp.data:
+            raise HTTPException(status_code=404, detail="Order not found")
+            
+        order = order_resp.data[0]
+        if order.get("status") != "unconfirmed":
+            raise HTTPException(status_code=400, detail=f"Order is already {order.get('status')}")
+
+        db.table("telecaller_orders").eq("order_id", order_id).update({
+            "status": "pending",
+            "updated_at": datetime.now().isoformat(),
+        }).execute()
+
+        try:
+            users = _fetch_all(db, "app_users", "email, role")
+            sm_emails = [u["email"] for u in users if u.get("role") == "sales_manager"]
+            for sm_email in sm_emails:
+                create_notification_helper(
+                    db,
+                    title="New Telecaller Order Pending",
+                    message=f"{order.get('telecaller_email')} submitted an order for {order.get('customer_name')}",
+                    notification_type="info",
+                    user_email=sm_email,
+                    entity_type="telecaller_order",
+                    entity_id=order_id,
+                )
+        except Exception as n_err:
+            logger.warning(f"Failed to send notification: {n_err}")
+        
+        return {"message": "Order confirmed and sent to Sales Manager"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error confirming telecaller order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error confirming order: {str(e)}")
 
 
 @router.get("/pending", dependencies=[Depends(verify_permission("view_sales"))])
@@ -466,7 +497,7 @@ def get_my_confirmation_calls(
 
         q = db.table("telecaller_orders").select("*") \
             .eq("telecaller_email", user_email) \
-            .eq("status", "pending") \
+            .eq("status", "unconfirmed") \
             .order("created_at", desc=True)
 
         if date:

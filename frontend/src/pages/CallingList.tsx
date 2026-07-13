@@ -259,8 +259,8 @@ export default function CallingList() {
   const handleApproveOrder = async (orderId: number) => {
     try {
       setProcessingOrder(orderId);
-      await telecallerOrderAPI.approve(orderId);
-      setToast({ msg: "Order Approved", sev: "success" });
+      await telecallerOrderAPI.telecallerConfirm(orderId);
+      setToast({ msg: "Order Confirmed & Sent to Sales Manager", sev: "success" });
       // Optimistically remove card, then reload to keep list fresh
       setConfirmationOrders(prev => prev.filter(o => o.order_id !== orderId));
       loadConfirmationOrders();
