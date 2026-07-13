@@ -557,10 +557,14 @@ export interface TelecallerOrder {
   customer_name: string;
   customer_mobile?: string;
   customer_village?: string;
+  customer_taluka?: string;
+  customer_district?: string;
+  customer_state?: string;
   products_json?: string;
   products?: TelecallerOrderItem[];
   status?: "pending" | "approved" | "rejected";
   notes?: string;
+  confirmation_date?: string;
   sale_id?: number;
   approved_by?: string;
   rejected_reason?: string;
