@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -135,15 +135,72 @@ export default function Sales() {
   const [tcOrderDistrictFilter, setTcOrderDistrictFilter] = useState<string>("");
   const [tcOrderTalukaFilter, setTcOrderTalukaFilter] = useState<string>("");
   const [tcOrderVillageFilter, setTcOrderVillageFilter] = useState<string>("");
-  const [tcOrderLocations, setTcOrderLocations] = useState<{
-    states: string[];
-    districts: string[];
-    talukas: string[];
-    villages: string[];
-    stateToDistricts: Record<string, string[]>;
-    districtToTalukas: Record<string, string[]>;
-    talukaToVillages: Record<string, string[]>;
-  }>({ states: [], districts: [], talukas: [], villages: [], stateToDistricts: {}, districtToTalukas: {}, talukaToVillages: {} });
+  const tcOrderLocations = useMemo(() => {
+    const states = new Set<string>();
+    const districts = new Set<string>();
+    const talukas = new Set<string>();
+    const villages = new Set<string>();
+    
+    const stateToDistricts: Record<string, Set<string>> = {};
+    const districtToTalukas: Record<string, Set<string>> = {};
+    const talukaToVillages: Record<string, Set<string>> = {};
+    
+    const addEntityLocation = (entity: any) => {
+      if (!entity) return;
+      const state = entity.state || "Gujarat";
+      const district = entity.district || "";
+      const taluka = entity.taluka || "";
+      const village = entity.village || "";
+      
+      if (state) states.add(state);
+      if (district) districts.add(district);
+      if (taluka) talukas.add(taluka);
+      if (village) villages.add(village);
+      
+      if (state && district) {
+        if (!stateToDistricts[state]) stateToDistricts[state] = new Set();
+        stateToDistricts[state].add(district);
+      }
+      if (district && taluka) {
+        if (!districtToTalukas[district]) districtToTalukas[district] = new Set();
+        districtToTalukas[district].add(taluka);
+      }
+      if (taluka && village) {
+        if (!talukaToVillages[taluka]) talukaToVillages[taluka] = new Set();
+        talukaToVillages[taluka].add(village);
+      }
+    };
+
+    customers.forEach(addEntityLocation);
+    distributors.forEach(addEntityLocation);
+    doctors.forEach(addEntityLocation);
+    shopkeepers.forEach(addEntityLocation);
+
+    const stateToDistrictsArr: Record<string, string[]> = {};
+    Object.entries(stateToDistricts).forEach(([state, distSet]) => {
+      stateToDistrictsArr[state] = Array.from(distSet).sort();
+    });
+    
+    const districtToTalukasArr: Record<string, string[]> = {};
+    Object.entries(districtToTalukas).forEach(([district, talukaSet]) => {
+      districtToTalukasArr[district] = Array.from(talukaSet).sort();
+    });
+    
+    const talukaToVillagesArr: Record<string, string[]> = {};
+    Object.entries(talukaToVillages).forEach(([taluka, villageSet]) => {
+      talukaToVillagesArr[taluka] = Array.from(villageSet).sort();
+    });
+    
+    return {
+      states: Array.from(states).sort(),
+      districts: Array.from(districts).sort(),
+      talukas: Array.from(talukas).sort(),
+      villages: Array.from(villages).sort(),
+      stateToDistricts: stateToDistrictsArr,
+      districtToTalukas: districtToTalukasArr,
+      talukaToVillages: talukaToVillagesArr,
+    };
+  }, [customers, distributors, doctors, shopkeepers]);
 
   // Toast
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" | "warning" } | null>(null);
@@ -288,75 +345,7 @@ export default function Sales() {
       const data = await telecallerOrderAPI.getPending();
       setTelecallerOrders(data || []);
       
-      const states = new Set<string>();
-      const districts = new Set<string>();
-      const talukas = new Set<string>();
-      const villages = new Set<string>();
-      
-      // Maps for cascading
-      const stateToDistricts: Record<string, Set<string>> = {};
-      const districtToTalukas: Record<string, Set<string>> = {};
-      const talukaToVillages: Record<string, Set<string>> = {};
-      
-      (data || []).forEach((order: TelecallerOrder) => {
-        const id = Number(order.customer_id);
-        const type = order.customer_type;
-        let entity: any = null;
-        
-        if (type === "Sabhasad") entity = customers.find(c => Number(c.customer_id) === id);
-        else if (type === "Mantri" || type === "distributor") entity = distributors.find(d => Number(d.distributor_id) === id);
-        else if (type === "Doctor") entity = doctors.find(d => Number(d.doctor_id) === id);
-        else if (type === "Shopkeeper") entity = shopkeepers.find(s => Number(s.shopkeeper_id) === id);
-        
-        const state = entity?.state || "Gujarat";
-        const district = entity?.district || "";
-        const taluka = entity?.taluka || "";
-        const village = entity?.village || order.customer_village || "";
-
-        if (state) states.add(state);
-        if (district) districts.add(district);
-        if (taluka) talukas.add(taluka);
-        if (village) villages.add(village);
-        
-        if (state && district) {
-          if (!stateToDistricts[state]) stateToDistricts[state] = new Set();
-          stateToDistricts[state].add(district);
-        }
-        if (district && taluka) {
-          if (!districtToTalukas[district]) districtToTalukas[district] = new Set();
-          districtToTalukas[district].add(taluka);
-        }
-        if (taluka && village) {
-          if (!talukaToVillages[taluka]) talukaToVillages[taluka] = new Set();
-          talukaToVillages[taluka].add(village);
-        }
-      });
-      
-      // Convert sets to sorted arrays
-      const stateToDistrictsArr: Record<string, string[]> = {};
-      Object.entries(stateToDistricts).forEach(([state, distSet]) => {
-        stateToDistrictsArr[state] = Array.from(distSet).sort();
-      });
-      
-      const districtToTalukasArr: Record<string, string[]> = {};
-      Object.entries(districtToTalukas).forEach(([district, talukaSet]) => {
-        districtToTalukasArr[district] = Array.from(talukaSet).sort();
-      });
-      
-      const talukaToVillagesArr: Record<string, string[]> = {};
-      Object.entries(talukaToVillages).forEach(([taluka, villageSet]) => {
-        talukaToVillagesArr[taluka] = Array.from(villageSet).sort();
-      });
-      
-      setTcOrderLocations({
-        states: Array.from(states).sort(),
-        districts: Array.from(districts).sort(),
-        talukas: Array.from(talukas).sort(),
-        villages: Array.from(villages).sort(),
-        stateToDistricts: stateToDistrictsArr,
-        districtToTalukas: districtToTalukasArr,
-        talukaToVillages: talukaToVillagesArr,
-      });
+      // Locations are globally pre-computed using useMemo to always provide all options
     } catch (err: any) {
       console.error("Error loading telecaller orders:", err);
       const errorMessage = err?.response?.data?.detail || err?.message || "Failed to load telecaller orders";
