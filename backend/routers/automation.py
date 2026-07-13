@@ -820,7 +820,7 @@ def get_calling_summary(
                 1 for x in pending_assignments
                 if x.get("reason") == "Scheduled Callback"
                 and x.get("assigned_date")
-                and x.get("assigned_date") <= today_ist
+                and str(x.get("assigned_date"))[:10] <= today_ist
             )
             
             conf_res = db.table("telecaller_orders").select("*", count="exact") \

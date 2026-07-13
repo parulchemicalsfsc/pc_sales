@@ -93,7 +93,7 @@ interface Telecaller { email: string; name: string; role: string; }
 const CALL_OUTCOMES = [
   { value: "connected", label: "Connected", desc: "Spoke with the person", icon: <CheckIcon />, color: "#16a34a" },
   { value: "not_reachable", label: "Not Reachable", desc: "No answer / switched off", icon: <PhoneDisabledIcon />, color: "#dc2626" },
-  { value: "callback", label: "Call Back Later", desc: "Asked to call again", icon: <CallMissedIcon />, color: "#ea580c" },
+  { value: "callback", label: "Followback", desc: "Asked to follow back", icon: <CallMissedIcon />, color: "#ea580c" },
   { value: "wrong_number", label: "Wrong Number", desc: "Invalid contact", icon: <WrongIcon />, color: "#71717a" },
   { value: "take_order", label: "Take Order", desc: "Create a sale for this Sabhasad", icon: <ShoppingCartIcon />, color: "#3b82f6" },
 ];
@@ -385,7 +385,8 @@ export default function CallingList() {
       return handleTakeOrder();
     }
     if (outcome === "callback" && !callbackDate) {
-      setToast({ msg: "Please select a date for the callback.", sev: "error" });
+      setToast({ msg: "Please select a date for the followback.", sev: "error" });
+      setSubmitting(false);
       return;
     }
     try {
@@ -731,20 +732,20 @@ export default function CallingList() {
         >
           <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
-          <Tab label={`Callbacks  ·  ${summary.callbacks || 0}`} />
+          <Tab label={`Followbacks  ·  ${summary.callbacks || 0}`} />
           {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
 
-          {/* ── Tab 2: Callbacks ── */}
+          {/* ── Tab 2: Followbacks ── */}
           {tab === 2 && (
             <Stack spacing={1} sx={{ minWidth: 0 }}>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
-                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Callbacks</Typography>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
                   <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                    Callbacks scheduled for today will appear here.
+                    Followbacks scheduled for today will appear here.
                   </Typography>
                 </Box>
               ) : (
@@ -773,7 +774,7 @@ export default function CallingList() {
                       </Stack>
                       {item.assigned_date && (
                         <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5 }}>
-                          Callback Date & Time: {(() => {
+                          Followback Date & Time: {(() => {
                             try { return new Date(item.assigned_date).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
                             catch { return item.assigned_date; }
                           })()}
@@ -1278,7 +1279,7 @@ export default function CallingList() {
           {outcome === "callback" && (
             <TextField
               type="datetime-local"
-              label="Callback Date & Time"
+              label="Followback Date & Time"
               fullWidth
               required
               value={callbackDate}
@@ -1525,7 +1526,7 @@ export default function CallingList() {
               { title: "Priority Colours", desc: "Each card has a left border colour. GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
               { title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
               { title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
-              { title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date the system schedules a reminder for that day." },
+              { title: "Followback Scheduling", desc: "If you pick \"Followback\", select a date the system schedules a reminder for that day." },
               { title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
               { title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri pick a Mantri and set approx. liters per Sabhasad." },
               { title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
