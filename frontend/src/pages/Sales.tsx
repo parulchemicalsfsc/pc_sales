@@ -288,10 +288,6 @@ export default function Sales() {
       const data = await telecallerOrderAPI.getPending();
       setTelecallerOrders(data || []);
       
-      // Extract unique locations for cascading dropdowns
-      const customerIds = [...new Set(data?.filter((o: TelecallerOrder) => o.customer_type === "Sabhasad").map((o: TelecallerOrder) => o.customer_id) || [])];
-      const distributorIds = [...new Set(data?.filter((o: TelecallerOrder) => o.customer_type === "Mantri").map((o: TelecallerOrder) => o.customer_id) || [])];
-      
       const states = new Set<string>();
       const districts = new Set<string>();
       const talukas = new Set<string>();
@@ -302,53 +298,37 @@ export default function Sales() {
       const districtToTalukas: Record<string, Set<string>> = {};
       const talukaToVillages: Record<string, Set<string>> = {};
       
-      // Get locations from customers
-      customerIds.forEach(id => {
-        const cust = customers.find(c => c.customer_id === id);
-        if (cust) {
-          if (cust.state) states.add(cust.state);
-          if (cust.district) districts.add(cust.district);
-          if (cust.taluka) talukas.add(cust.taluka);
-          if (cust.village) villages.add(cust.village);
-          
-          // Build cascading maps
-          if (cust.state && cust.district) {
-            if (!stateToDistricts[cust.state]) stateToDistricts[cust.state] = new Set();
-            stateToDistricts[cust.state].add(cust.district);
-          }
-          if (cust.district && cust.taluka) {
-            if (!districtToTalukas[cust.district]) districtToTalukas[cust.district] = new Set();
-            districtToTalukas[cust.district].add(cust.taluka);
-          }
-          if (cust.taluka && cust.village) {
-            if (!talukaToVillages[cust.taluka]) talukaToVillages[cust.taluka] = new Set();
-            talukaToVillages[cust.taluka].add(cust.village);
-          }
+      (data || []).forEach((order: TelecallerOrder) => {
+        const id = Number(order.customer_id);
+        const type = order.customer_type;
+        let entity: any = null;
+        
+        if (type === "Sabhasad") entity = customers.find(c => Number(c.customer_id) === id);
+        else if (type === "Mantri" || type === "distributor") entity = distributors.find(d => Number(d.distributor_id) === id);
+        else if (type === "Doctor") entity = doctors.find(d => Number(d.doctor_id) === id);
+        else if (type === "Shopkeeper") entity = shopkeepers.find(s => Number(s.shopkeeper_id) === id);
+        
+        const state = entity?.state || "Gujarat";
+        const district = entity?.district || "";
+        const taluka = entity?.taluka || "";
+        const village = entity?.village || order.customer_village || "";
+
+        if (state) states.add(state);
+        if (district) districts.add(district);
+        if (taluka) talukas.add(taluka);
+        if (village) villages.add(village);
+        
+        if (state && district) {
+          if (!stateToDistricts[state]) stateToDistricts[state] = new Set();
+          stateToDistricts[state].add(district);
         }
-      });
-      
-      // Get locations from distributors
-      distributorIds.forEach(id => {
-        const dist = distributors.find(d => d.distributor_id === id);
-        if (dist) {
-          if (dist.state) states.add(dist.state);
-          if (dist.district) districts.add(dist.district);
-          if (dist.taluka) talukas.add(dist.taluka);
-          if (dist.village) villages.add(dist.village);
-          
-          // Build cascading maps
-          if (dist.state && dist.district) {
-            if (!stateToDistricts[dist.state]) stateToDistricts[dist.state] = new Set();
-            stateToDistricts[dist.state].add(dist.district);
-          }
-          if (dist.district && dist.taluka) {
-            if (!districtToTalukas[dist.district]) districtToTalukas[dist.district] = new Set();
-            districtToTalukas[dist.district].add(dist.taluka);
-          }
-          if (dist.taluka && dist.village) {
-            if (!talukaToVillages[dist.taluka]) talukaToVillages[dist.taluka] = new Set();
-            talukaToVillages[dist.taluka].add(dist.village);
-          }
+        if (district && taluka) {
+          if (!districtToTalukas[district]) districtToTalukas[district] = new Set();
+          districtToTalukas[district].add(taluka);
+        }
+        if (taluka && village) {
+          if (!talukaToVillages[taluka]) talukaToVillages[taluka] = new Set();
+          talukaToVillages[taluka].add(village);
         }
       });
       
@@ -2327,16 +2307,22 @@ export default function Sales() {
                 const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
 
                 // Location filters - need to get customer/distributor details
-                const cust = customers.find(c => c.customer_id === order.customer_id && order.customer_type === "Sabhasad");
-                const dist = distributors.find(d => d.distributor_id === order.customer_id && (order.customer_type === "Mantri" || order.customer_type === "distributor"));
-                const doc = doctors.find(d => d.doctor_id === order.customer_id && order.customer_type === "Doctor");
-                const shop = shopkeepers.find(s => s.shopkeeper_id === order.customer_id && order.customer_type === "Shopkeeper");
+                const id = Number(order.customer_id);
+                const cust = customers.find(c => Number(c.customer_id) === id && order.customer_type === "Sabhasad");
+                const dist = distributors.find(d => Number(d.distributor_id) === id && (order.customer_type === "Mantri" || order.customer_type === "distributor"));
+                const doc = doctors.find(d => Number(d.doctor_id) === id && order.customer_type === "Doctor");
+                const shop = shopkeepers.find(s => Number(s.shopkeeper_id) === id && order.customer_type === "Shopkeeper");
                 const entity = cust || dist || doc || shop;
 
-                const stateMatch = !tcOrderStateFilter || entity?.state === tcOrderStateFilter;
-                const districtMatch = !tcOrderDistrictFilter || entity?.district === tcOrderDistrictFilter;
-                const talukaMatch = !tcOrderTalukaFilter || entity?.taluka === tcOrderTalukaFilter;
-                const villageMatch = !tcOrderVillageFilter || entity?.village === tcOrderVillageFilter;
+                const state = entity?.state || "Gujarat";
+                const district = entity?.district || "";
+                const taluka = entity?.taluka || "";
+                const village = entity?.village || order.customer_village || "";
+
+                const stateMatch = !tcOrderStateFilter || state === tcOrderStateFilter;
+                const districtMatch = !tcOrderDistrictFilter || district === tcOrderDistrictFilter;
+                const talukaMatch = !tcOrderTalukaFilter || taluka === tcOrderTalukaFilter;
+                const villageMatch = !tcOrderVillageFilter || village === tcOrderVillageFilter;
 
                 return dateMatch && telecallerMatch && stateMatch && districtMatch && talukaMatch && villageMatch;
               });
@@ -2429,17 +2415,24 @@ export default function Sales() {
                     d = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
                   }
                   const tl = (o.telecaller_name || o.telecaller_email || "").toLowerCase();
-                  const cust = customers.find(c => c.customer_id === o.customer_id && o.customer_type === "Sabhasad");
-                  const dist = distributors.find(d => d.distributor_id === o.customer_id && (o.customer_type === "Mantri" || o.customer_type === "distributor"));
-                  const doc = doctors.find(d => d.doctor_id === o.customer_id && o.customer_type === "Doctor");
-                  const shop = shopkeepers.find(s => s.shopkeeper_id === o.customer_id && o.customer_type === "Shopkeeper");
+                  const id = Number(o.customer_id);
+                  const cust = customers.find(c => Number(c.customer_id) === id && o.customer_type === "Sabhasad");
+                  const dist = distributors.find(d => Number(d.distributor_id) === id && (o.customer_type === "Mantri" || o.customer_type === "distributor"));
+                  const doc = doctors.find(d => Number(d.doctor_id) === id && o.customer_type === "Doctor");
+                  const shop = shopkeepers.find(s => Number(s.shopkeeper_id) === id && o.customer_type === "Shopkeeper");
                   const entity = cust || dist || doc || shop;
+
+                  const state = entity?.state || "Gujarat";
+                  const district = entity?.district || "";
+                  const taluka = entity?.taluka || "";
+                  const village = entity?.village || o.customer_village || "";
+
                   return (!tcOrderDateFilter || d === tcOrderDateFilter) &&
                          (!tcOrderTelecallerFilter || tl.includes(tcOrderTelecallerFilter.toLowerCase())) &&
-                         (!tcOrderStateFilter || entity?.state === tcOrderStateFilter) &&
-                         (!tcOrderDistrictFilter || entity?.district === tcOrderDistrictFilter) &&
-                         (!tcOrderTalukaFilter || entity?.taluka === tcOrderTalukaFilter) &&
-                         (!tcOrderVillageFilter || entity?.village === tcOrderVillageFilter);
+                         (!tcOrderStateFilter || state === tcOrderStateFilter) &&
+                         (!tcOrderDistrictFilter || district === tcOrderDistrictFilter) &&
+                         (!tcOrderTalukaFilter || taluka === tcOrderTalukaFilter) &&
+                         (!tcOrderVillageFilter || village === tcOrderVillageFilter);
                 });
                 const activeFilters = [];
                 if (tcOrderDateFilter) activeFilters.push(`Date: ${tcOrderDateFilter}`);
