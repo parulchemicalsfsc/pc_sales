@@ -2360,15 +2360,15 @@ export default function Sales() {
                 const dateMatch = !tcOrderDateFilter || orderDateStr === tcOrderDateFilter;
                 const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
 
-                const orderState = order.customer_state || "Gujarat";
-                const orderDistrict = order.customer_district || "";
-                const orderTaluka = order.customer_taluka || "";
-                const orderVillage = order.customer_village || "";
+                const orderState = (order.customer_state || "Gujarat").toLowerCase();
+                const orderDistrict = (order.customer_district || "").toLowerCase();
+                const orderTaluka = (order.customer_taluka || "").toLowerCase();
+                const orderVillage = (order.customer_village || "").toLowerCase();
 
-                const stateMatch = !tcOrderStateFilter || orderState === tcOrderStateFilter;
-                const districtMatch = !tcOrderDistrictFilter || orderDistrict === tcOrderDistrictFilter;
-                const talukaMatch = !tcOrderTalukaFilter || orderTaluka === tcOrderTalukaFilter;
-                const villageMatch = !tcOrderVillageFilter || orderVillage === tcOrderVillageFilter;
+                const stateMatch = !tcOrderStateFilter || orderState === tcOrderStateFilter.toLowerCase();
+                const districtMatch = !tcOrderDistrictFilter || orderDistrict === tcOrderDistrictFilter.toLowerCase();
+                const talukaMatch = !tcOrderTalukaFilter || orderTaluka === tcOrderTalukaFilter.toLowerCase();
+                const villageMatch = !tcOrderVillageFilter || orderVillage === tcOrderVillageFilter.toLowerCase();
 
                 return dateMatch && telecallerMatch && stateMatch && districtMatch && talukaMatch && villageMatch;
               });
