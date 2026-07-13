@@ -877,6 +877,9 @@ def start_call_timer(
 def log_adhoc_call(
     body: AdhocCallRequest,
     user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
     Log a call outcome for any customer/distributor without needing a pre-existing assignment.
     - If a Pending assignment exists for this user+entity today → update it.
     - Otherwise → create a new assignment record with the final status.
