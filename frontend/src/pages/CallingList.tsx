@@ -835,7 +835,7 @@ export default function CallingList() {
                     <Paper key={order.order_id} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
                       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
                         <Box>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name} ({order.customer_type})</Typography>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name}</Typography>
                           <Typography variant="caption" sx={{ color: "text.secondary" }}>{order.customer_mobile} · {order.customer_village}</Typography>
                           <Box sx={{ mt: 1 }}>
                             {products.map((p: any, i: number) => (
