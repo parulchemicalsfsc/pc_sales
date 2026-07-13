@@ -147,10 +147,10 @@ export default function Sales() {
     
     const addEntityLocation = (entity: any) => {
       if (!entity) return;
-      const state = entity.state || "Gujarat";
-      const district = entity.district || "";
-      const taluka = entity.taluka || "";
-      const village = entity.village || "";
+      const state = entity.customer_state || "Gujarat";
+      const district = entity.customer_district || "";
+      const taluka = entity.customer_taluka || "";
+      const village = entity.customer_village || "";
       
       if (state) states.add(state);
       if (district) districts.add(district);
@@ -171,10 +171,7 @@ export default function Sales() {
       }
     };
 
-    customers.forEach(addEntityLocation);
-    distributors.forEach(addEntityLocation);
-    doctors.forEach(addEntityLocation);
-    shopkeepers.forEach(addEntityLocation);
+    telecallerOrders.forEach(addEntityLocation);
 
     const stateToDistrictsArr: Record<string, string[]> = {};
     Object.entries(stateToDistricts).forEach(([state, distSet]) => {
@@ -200,7 +197,7 @@ export default function Sales() {
       districtToTalukas: districtToTalukasArr,
       talukaToVillages: talukaToVillagesArr,
     };
-  }, [customers, distributors, doctors, shopkeepers]);
+  }, [telecallerOrders]);
 
   // Toast
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" | "warning" } | null>(null);
@@ -2295,23 +2292,15 @@ export default function Sales() {
                 const dateMatch = !tcOrderDateFilter || orderDateStr === tcOrderDateFilter;
                 const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
 
-                // Location filters - need to get customer/distributor details
-                const id = Number(order.customer_id);
-                const cust = customers.find(c => Number(c.customer_id) === id && order.customer_type === "Sabhasad");
-                const dist = distributors.find(d => Number(d.distributor_id) === id && (order.customer_type === "Mantri" || order.customer_type === "distributor"));
-                const doc = doctors.find(d => Number(d.doctor_id) === id && order.customer_type === "Doctor");
-                const shop = shopkeepers.find(s => Number(s.shopkeeper_id) === id && order.customer_type === "Shopkeeper");
-                const entity = cust || dist || doc || shop;
+                const orderState = order.customer_state || "Gujarat";
+                const orderDistrict = order.customer_district || "";
+                const orderTaluka = order.customer_taluka || "";
+                const orderVillage = order.customer_village || "";
 
-                const state = entity?.state || "Gujarat";
-                const district = entity?.district || "";
-                const taluka = entity?.taluka || "";
-                const village = entity?.village || order.customer_village || "";
-
-                const stateMatch = !tcOrderStateFilter || state === tcOrderStateFilter;
-                const districtMatch = !tcOrderDistrictFilter || district === tcOrderDistrictFilter;
-                const talukaMatch = !tcOrderTalukaFilter || taluka === tcOrderTalukaFilter;
-                const villageMatch = !tcOrderVillageFilter || village === tcOrderVillageFilter;
+                const stateMatch = !tcOrderStateFilter || orderState === tcOrderStateFilter;
+                const districtMatch = !tcOrderDistrictFilter || orderDistrict === tcOrderDistrictFilter;
+                const talukaMatch = !tcOrderTalukaFilter || orderTaluka === tcOrderTalukaFilter;
+                const villageMatch = !tcOrderVillageFilter || orderVillage === tcOrderVillageFilter;
 
                 return dateMatch && telecallerMatch && stateMatch && districtMatch && talukaMatch && villageMatch;
               });

@@ -128,8 +128,47 @@ def get_telecaller_orders(
             except Exception:
                 pass
 
+        ids_by_type = {
+            "Sabhasad": set(),
+            "Mantri": set(),
+            "Doctor": set(),
+            "Shopkeeper": set()
+        }
+        for o in orders:
+            ctype = o.get("customer_type")
+            cid = o.get("customer_id")
+            if ctype in ids_by_type and cid:
+                ids_by_type[ctype].add(cid)
+                
+        locations_map = {}
+        try:
+            if ids_by_type["Sabhasad"]:
+                res = db.table("customers").select("customer_id, state, district, taluka, village").in_("customer_id", list(ids_by_type["Sabhasad"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Sabhasad", r["customer_id"])] = r
+            if ids_by_type["Mantri"]:
+                res = db.table("distributors").select("distributor_id, state, district, taluka, village").in_("distributor_id", list(ids_by_type["Mantri"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Mantri", r["distributor_id"])] = r
+            if ids_by_type["Doctor"]:
+                res = db.table("doctors").select("doctor_id, state, district, taluka, village").in_("doctor_id", list(ids_by_type["Doctor"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Doctor", r["doctor_id"])] = r
+            if ids_by_type["Shopkeeper"]:
+                res = db.table("shopkeepers").select("shopkeeper_id, state, district, taluka, village").in_("shopkeeper_id", list(ids_by_type["Shopkeeper"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Shopkeeper", r["shopkeeper_id"])] = r
+        except Exception as e:
+            logger.error(f"Error fetching locations for orders: {e}")
+
         for o in orders:
             o["telecaller_name"] = name_map.get(o.get("telecaller_email", ""), o.get("telecaller_email", "Unknown"))
+            loc = locations_map.get((o.get("customer_type"), o.get("customer_id")), {})
+            o["customer_state"] = loc.get("state")
+            o["customer_district"] = loc.get("district")
+            o["customer_taluka"] = loc.get("taluka")
+            if not o.get("customer_village"):
+                o["customer_village"] = loc.get("village")
 
         return orders
     except HTTPException:
