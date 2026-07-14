@@ -541,7 +541,7 @@ def export_merged_excel(sale_id: int, db: SupabaseClient = Depends(get_supabase)
             try:
                 if isinstance(prods, str):
                     prods = json.loads(prods)
-                prod_str = ", ".join([f"{p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+                prod_str = ", ".join([f"{p.get('product_name') or p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
             except:
                 prod_str = str(prods)
             
@@ -600,7 +600,7 @@ def export_confirmations_excel(
             try:
                 if isinstance(prods, str):
                     prods = json.loads(prods)
-                prod_str = ", ".join([f"{p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+                prod_str = ", ".join([f"{p.get('product_name') or p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
             except:
                 prod_str = str(prods)
                 
