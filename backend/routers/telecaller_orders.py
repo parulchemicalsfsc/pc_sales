@@ -528,19 +528,6 @@ def get_my_confirmation_calls(
         raise HTTPException(status_code=500, detail=f"Error fetching confirmation calls: {str(e)}")
 
 
-@router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
-def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
-    """Get a single telecaller order by ID."""
-    try:
-        resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
-        if not resp.data:
-            raise HTTPException(status_code=404, detail="Order not found")
-        return resp.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
-
 @router.get("/export-merged-excel/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])
 def export_merged_excel(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
     """Export telecaller orders merged into a specific sale as an Excel file."""
@@ -593,7 +580,7 @@ def export_confirmations_excel(
 ):
     """Export telecaller orders to Excel, optionally filtered by date. Telecallers only see their own."""
     try:
-        user_resp = db.table("users").select("role").eq("email", user_email).execute()
+        user_resp = db.table("app_users").select("role").eq("email", user_email).execute()
         role = user_resp.data[0]["role"] if user_resp.data else None
         
         q = db.table("telecaller_orders").select("*").in_("status", ["unconfirmed", "pending", "approved", "rejected"])
@@ -644,5 +631,18 @@ def export_confirmations_excel(
     except Exception as e:
         logger.error(f"Error exporting confirmations excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
+def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
+    """Get a single telecaller order by ID."""
+    try:
+        resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
 
 
