@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -26,6 +26,7 @@ import {
   useTheme,
   Menu,
   Autocomplete,
+  Checkbox,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -127,6 +128,61 @@ export default function Sales() {
   const [tcOrderDateFilter, setTcOrderDateFilter] = useState<string>("");
   const [tcOrderTelecallerFilter, setTcOrderTelecallerFilter] = useState<string>("");
 
+  const [selectedTelecallerOrders, setSelectedTelecallerOrders] = useState<Set<number>>(new Set());
+
+  // Telecaller Order Filters - Cascading dropdowns
+  const [tcOrderStateFilter, setTcOrderStateFilter] = useState<string>("");
+  const [tcOrderDistrictFilter, setTcOrderDistrictFilter] = useState<string>("");
+  const [tcOrderTalukaFilter, setTcOrderTalukaFilter] = useState<string>("");
+  const [tcOrderVillageFilter, setTcOrderVillageFilter] = useState<string>("");
+  const [locationsHierarchy, setLocationsHierarchy] = useState<any>({});
+
+  const tcOrderLocations = useMemo(() => {
+    const states = Object.keys(locationsHierarchy || {}).sort();
+    const districts = new Set<string>();
+    const talukas = new Set<string>();
+    const villages = new Set<string>();
+    
+    const stateToDistrictsArr: Record<string, string[]> = {};
+    const districtToTalukasArr: Record<string, string[]> = {};
+    const talukaToVillagesArr: Record<string, string[]> = {};
+
+    for (const st of states) {
+      const distMap = locationsHierarchy[st] || {};
+      const distsForState = Object.keys(distMap).sort();
+      stateToDistrictsArr[st] = distsForState;
+      
+      for (const d of distsForState) {
+        districts.add(d);
+        const talukaMap = distMap[d] || {};
+        const talukasForDist = Object.keys(talukaMap).sort();
+        districtToTalukasArr[d] = talukasForDist;
+        
+        for (const t of talukasForDist) {
+          talukas.add(t);
+          const villsForTaluka = talukaMap[t] || [];
+          talukaToVillagesArr[t] = villsForTaluka;
+          
+          for (const v of villsForTaluka) {
+            villages.add(v);
+          }
+        }
+      }
+    }
+
+    return {
+      states,
+      districts: Array.from(districts).sort(),
+      talukas: Array.from(talukas).sort(),
+      villages: Array.from(villages).sort(),
+      stateToDistricts: stateToDistrictsArr,
+      districtToTalukas: districtToTalukasArr,
+      talukaToVillages: talukaToVillagesArr,
+    };
+  }, [locationsHierarchy]);
+    
+
+
   // Toast
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" | "warning" } | null>(null);
 
@@ -135,6 +191,10 @@ export default function Sales() {
   const [saleTab, setSaleTab] = useState<"pre_sales" | "confirmed">("confirmed");
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [mergedTelecallerOrderIds, setMergedTelecallerOrderIds] = useState<number[]>([]);
+  const [downloadExcelDialogOpen, setDownloadExcelDialogOpen] = useState(false);
+  const [downloadExcelSaleId, setDownloadExcelSaleId] = useState<number | null>(null);
+  const [downloadExcelOrdersData, setDownloadExcelOrdersData] = useState<TelecallerOrder[]>([]);
 
   useEffect(() => {
     loadData();
@@ -183,7 +243,7 @@ export default function Sales() {
       setError(null);
 
       // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult] = await Promise.allSettled([
+      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult, locationsResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 1000 }),
         productAPI.getAll(),
@@ -191,6 +251,7 @@ export default function Sales() {
         doctorAPI.getAll({ limit: 1000 }),
         shopkeeperAPI.getAll({ limit: 1000 }),
         apiClient.get("/api/products/config/regions"),
+        apiClient.get("/api/automation/locations"),
       ]);
 
       if (salesResult.status === "fulfilled") {
@@ -253,6 +314,11 @@ export default function Sales() {
       } else {
         console.warn("Could not load regions:", regionsResult.reason?.message);
       }
+      if (locationsResult.status === "fulfilled") {
+        setLocationsHierarchy(locationsResult.value.data || {});
+      } else {
+        console.warn("Could not load global locations:", locationsResult.reason?.message);
+      }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
       const errorMessage =
@@ -269,10 +335,136 @@ export default function Sales() {
       setTelecallerOrdersLoading(true);
       const data = await telecallerOrderAPI.getPending();
       setTelecallerOrders(data || []);
+      
+      // Locations are globally pre-computed using useMemo to always provide all options
     } catch (err: any) {
       console.error("Error loading telecaller orders:", err);
       const errorMessage = err?.response?.data?.detail || err?.message || "Failed to load telecaller orders";
       setError(errorMessage);
+    } finally {
+      setTelecallerOrdersLoading(false);
+    }
+  };
+
+  const toggleTelecallerOrderSelection = (orderId: number) => {
+    setSelectedTelecallerOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllTelecallerOrders = () => {
+    if (selectedTelecallerOrders.size === telecallerOrders.length) {
+      setSelectedTelecallerOrders(new Set());
+    } else {
+      const ids = telecallerOrders.map(o => o.order_id).filter((id): id is number => id !== undefined);
+      setSelectedTelecallerOrders(new Set(ids));
+    }
+  };
+
+  const handleBulkTelecallerApprove = async () => {
+    if (selectedTelecallerOrders.size === 0) return;
+    
+    // 1. Gather selected orders
+    const orders = telecallerOrders.filter(o => o.order_id && selectedTelecallerOrders.has(o.order_id));
+    
+    // 2. Aggregate products
+    const productMap = new Map<number, any>();
+    orders.forEach(order => {
+      let prods: any[] = [];
+      try {
+        prods = order.products_json ? JSON.parse(order.products_json as string) : (order.products || []);
+      } catch (e) {
+        prods = order.products || [];
+      }
+      prods.forEach(p => {
+        if (!p.product_id) return;
+        if (productMap.has(p.product_id)) {
+          const existing = productMap.get(p.product_id)!;
+          existing.quantity += Number(p.quantity) || 0;
+          existing.amount += Number(p.amount) || 0;
+        } else {
+          productMap.set(p.product_id, {
+            product_id: p.product_id,
+            quantity: Number(p.quantity) || 0,
+            rate: Number(p.rate) || 0,
+            amount: Number(p.amount) || 0,
+          });
+        }
+      });
+    });
+    
+    const aggregatedItems = Array.from(productMap.values());
+    if (aggregatedItems.length === 0) {
+      aggregatedItems.push({ product_id: 0, quantity: 1, rate: 0, amount: 0 });
+    }
+    
+    // 3. Find if all share the same village
+    let commonVillage: string | null = null;
+    let allSameVillage = true;
+    for (const order of orders) {
+      const v = (order.customer_village || "").trim();
+      if (commonVillage === null) {
+        commonVillage = v;
+      } else if (commonVillage.toLowerCase() !== v.toLowerCase()) {
+        allSameVillage = false;
+        break;
+      }
+    }
+    
+    // 4. Try to find exactly one Mantri for that village
+    let prefilledMantriId: number = 0;
+    let prefilledEntity: any = null;
+    
+    if (allSameVillage && commonVillage) {
+      const matchingMantris = distributors.filter(d => (d.village || "").trim().toLowerCase() === commonVillage!.toLowerCase());
+      if (matchingMantris.length === 1) {
+        const mantri = matchingMantris[0];
+        prefilledMantriId = mantri.distributor_id;
+        prefilledEntity = {
+          name: mantri.mantri_name || mantri.name || "",
+          village: mantri.village || "",
+          mobile: mantri.mantri_mobile || mantri.mobile || "",
+        };
+      }
+    }
+    
+    // 5. Open dialog and pre-fill
+    setTelecallerOrdersDialogOpen(false);
+    setSaleTab("pre_sales");
+    setCustomerCategory("Mantri");
+    setCustomerMode("existing");
+    setFormData({
+      customer_id: prefilledMantriId,
+      invoice_no: "",
+      sale_date: new Date().toISOString().split("T")[0],
+      notes: "Merged from Telecaller Orders",
+      paid_amount: 0,
+    });
+    setSelectedEntity(prefilledEntity);
+    setItems(aggregatedItems);
+    setMergedTelecallerOrderIds(Array.from(selectedTelecallerOrders));
+    setOpenDialog(true);
+    setSelectedTelecallerOrders(new Set());
+  };
+
+  const handleBulkTelecallerReject = async () => {
+    if (selectedTelecallerOrders.size === 0) return;
+    const reason = window.prompt("Enter rejection reason for all selected orders:");
+    if (!reason || !reason.trim()) return;
+    try {
+      setTelecallerOrdersLoading(true);
+      for (const orderId of selectedTelecallerOrders) {
+        await telecallerOrderAPI.reject(orderId, reason.trim());
+      }
+      setToast({ msg: `${selectedTelecallerOrders.size} order(s) rejected`, sev: "success" });
+      setSelectedTelecallerOrders(new Set());
+      loadTelecallerOrders();
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.detail || err?.message || "Failed to reject orders";
+      setToast({ msg: errorMessage, sev: "error" });
     } finally {
       setTelecallerOrdersLoading(false);
     }
@@ -541,6 +733,7 @@ export default function Sales() {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
+    setMergedTelecallerOrderIds([]);
   };
 
   const handleAddItem = () => {
@@ -929,6 +1122,21 @@ export default function Sales() {
         } else {
           response = await salesAPI.create(saleData);
           console.log("Sale created:", response);
+        }
+      }
+
+      if (mergedTelecallerOrderIds.length > 0 && response?.sale?.sale_id) {
+        try {
+          await telecallerOrderAPI.bulkMarkApproved(mergedTelecallerOrderIds, response.sale.sale_id);
+          loadTelecallerOrders();
+          
+          // Show dialog to download the merged excel
+          const ordersToDownload = telecallerOrders.filter(o => o.order_id && mergedTelecallerOrderIds.includes(o.order_id));
+          setDownloadExcelSaleId(response.sale.sale_id);
+          setDownloadExcelOrdersData(ordersToDownload);
+          setDownloadExcelDialogOpen(true);
+        } catch (e) {
+          console.error("Error marking telecaller orders as approved or exporting excel:", e);
         }
       }
 
@@ -2004,6 +2212,28 @@ export default function Sales() {
             <NoteIcon sx={{ mr: 1 }} fontSize="small" color="info" />
             Manage Notes
           </MenuItem>
+          <MenuItem onClick={async () => {
+            handleMenuClose();
+            if (selectedActionSale && selectedActionSale.sale_id !== undefined) {
+              try {
+                const res = await telecallerOrderAPI.exportMergedExcel(selectedActionSale.sale_id);
+                // If the excel has no data (not a merged sale or no telecaller orders), backend returns an empty excel. 
+                // A toast will be better, but the simplest is just downloading what the backend gives.
+                const url = window.URL.createObjectURL(new Blob([res.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `merged_orders_sale_${selectedActionSale.sale_id}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.parentNode?.removeChild(link);
+              } catch (e: any) {
+                setToast({ msg: "Failed to download Merged Orders Excel (Sale might not have merged orders)", sev: "error" });
+              }
+            }
+          }}>
+            <DownloadIcon sx={{ mr: 1 }} fontSize="small" color="primary" />
+            Download Merged Excel
+          </MenuItem>
           {hasPermission(PERMISSIONS.DELETE_SALE) && (
             <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>
               <DeleteIcon sx={{ mr: 1 }} fontSize="small" color="error" />
@@ -2061,7 +2291,22 @@ export default function Sales() {
           fullWidth
           fullScreen={isMobile}
         >
-          <DialogTitle>Pending Telecaller Orders</DialogTitle>
+          <DialogTitle>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
+              <span>Pending Telecaller Orders</span>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <Checkbox
+                  checked={telecallerOrders.length > 0 && selectedTelecallerOrders.size === telecallerOrders.length}
+                  indeterminate={selectedTelecallerOrders.size > 0 && selectedTelecallerOrders.size < telecallerOrders.length}
+                  onChange={toggleSelectAllTelecallerOrders}
+                  size="small"
+                />
+                <Typography variant="body2" sx={{ mr: 1 }}>Select All</Typography>
+                <Button variant="contained" color="success" size="small" disabled={selectedTelecallerOrders.size === 0} onClick={handleBulkTelecallerApprove}>Approve Selected</Button>
+                <Button variant="contained" color="error" size="small" disabled={selectedTelecallerOrders.size === 0} onClick={handleBulkTelecallerReject}>Reject Selected</Button>
+              </Box>
+            </Box>
+          </DialogTitle>
           <DialogContent>
             {/* Filters */}
             <Box sx={{ display: "flex", gap: 2, mt: 1, mb: 2, flexWrap: "wrap" }}>
@@ -2089,11 +2334,38 @@ export default function Sales() {
                   ),
                 }}
               />
-              {(tcOrderDateFilter || tcOrderTelecallerFilter) && (
+              <Autocomplete
+                options={tcOrderLocations.states}
+                value={tcOrderStateFilter}
+                onChange={(_, v) => { setTcOrderStateFilter(v || ""); setTcOrderDistrictFilter(""); setTcOrderTalukaFilter(""); setTcOrderVillageFilter(""); }}
+                renderInput={(params) => <TextField {...params} label="Filter by State" size="small" sx={{ minWidth: 160 }} placeholder="State" />}
+              />
+              <Autocomplete
+                options={tcOrderStateFilter ? tcOrderLocations.stateToDistricts[tcOrderStateFilter] || [] : tcOrderLocations.districts}
+                value={tcOrderDistrictFilter}
+                onChange={(_, v) => { setTcOrderDistrictFilter(v || ""); setTcOrderTalukaFilter(""); setTcOrderVillageFilter(""); }}
+                renderInput={(params) => <TextField {...params} label="Filter by District" size="small" sx={{ minWidth: 160 }} placeholder="District" />}
+                disabled={!tcOrderStateFilter && tcOrderLocations.districts.length === 0}
+              />
+              <Autocomplete
+                options={tcOrderDistrictFilter ? tcOrderLocations.districtToTalukas[tcOrderDistrictFilter] || [] : tcOrderLocations.talukas}
+                value={tcOrderTalukaFilter}
+                onChange={(_, v) => { setTcOrderTalukaFilter(v || ""); setTcOrderVillageFilter(""); }}
+                renderInput={(params) => <TextField {...params} label="Filter by Taluka" size="small" sx={{ minWidth: 160 }} placeholder="Taluka" />}
+                disabled={!tcOrderDistrictFilter && tcOrderLocations.talukas.length === 0}
+              />
+              <Autocomplete
+                options={tcOrderTalukaFilter ? tcOrderLocations.talukaToVillages[tcOrderTalukaFilter] || [] : tcOrderLocations.villages}
+                value={tcOrderVillageFilter}
+                onChange={(_, v) => setTcOrderVillageFilter(v || "")}
+                renderInput={(params) => <TextField {...params} label="Filter by Village" size="small" sx={{ minWidth: 160 }} placeholder="Village" />}
+                disabled={!tcOrderTalukaFilter && tcOrderLocations.villages.length === 0}
+              />
+              {(tcOrderDateFilter || tcOrderTelecallerFilter || tcOrderStateFilter || tcOrderDistrictFilter || tcOrderTalukaFilter || tcOrderVillageFilter) && (
                 <Button
                   size="small"
                   variant="outlined"
-                  onClick={() => { setTcOrderDateFilter(""); setTcOrderTelecallerFilter(""); }}
+                  onClick={() => { setTcOrderDateFilter(""); setTcOrderTelecallerFilter(""); setTcOrderStateFilter(""); setTcOrderDistrictFilter(""); setTcOrderTalukaFilter(""); setTcOrderVillageFilter(""); }}
                 >
                   Clear Filters
                 </Button>
@@ -2118,7 +2390,18 @@ export default function Sales() {
                 const telecallerLabel = (order.telecaller_name || order.telecaller_email || "").toLowerCase();
                 const dateMatch = !tcOrderDateFilter || orderDateStr === tcOrderDateFilter;
                 const telecallerMatch = !tcOrderTelecallerFilter || telecallerLabel.includes(tcOrderTelecallerFilter.toLowerCase());
-                return dateMatch && telecallerMatch;
+
+                const orderState = (order.customer_state || "Gujarat").toLowerCase();
+                const orderDistrict = (order.customer_district || "").toLowerCase();
+                const orderTaluka = (order.customer_taluka || "").toLowerCase();
+                const orderVillage = (order.customer_village || "").toLowerCase();
+
+                const stateMatch = !tcOrderStateFilter || orderState === tcOrderStateFilter.toLowerCase();
+                const districtMatch = !tcOrderDistrictFilter || orderDistrict === tcOrderDistrictFilter.toLowerCase();
+                const talukaMatch = !tcOrderTalukaFilter || orderTaluka === tcOrderTalukaFilter.toLowerCase();
+                const villageMatch = !tcOrderVillageFilter || orderVillage === tcOrderVillageFilter.toLowerCase();
+
+                return dateMatch && telecallerMatch && stateMatch && districtMatch && talukaMatch && villageMatch;
               });
 
               if (filtered.length === 0) {
@@ -2142,15 +2425,23 @@ export default function Sales() {
                     const orderDate = order.created_at ? new Date(order.created_at.endsWith('Z') || order.created_at.includes('+') ? order.created_at : `${order.created_at}Z`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 
                     return (
-                      <Card key={order.order_id} variant="outlined">
+                      <Card key={order.order_id} variant="outlined" sx={{ borderLeft: selectedTelecallerOrders.has(order.order_id as number) ? "4px solid #1976d2" : undefined }}>
                         <CardContent>
                           <Grid container spacing={2}>
                             <Grid item xs={12} sm={8}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-                                <Typography variant="h6" color="primary">
-                                  {order.customer_name}
-                                </Typography>
-                                <Chip size="small" label={order.customer_type} />
+                              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 0.5 }}>
+                                <Checkbox 
+                                  checked={selectedTelecallerOrders.has(order.order_id as number)}
+                                  onChange={() => toggleTelecallerOrderSelection(order.order_id as number)}
+                                  size="small"
+                                  sx={{ mt: -0.5, ml: -1 }}
+                                />
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Typography variant="h6" color="primary">
+                                    {order.customer_name}
+                                  </Typography>
+                                  <Chip size="small" label={order.customer_type} />
+                                </Box>
                               </Box>
                               <Typography variant="body2" color="text.secondary">
                                 <strong>Telecaller:</strong> {order.telecaller_name || order.telecaller_email}
@@ -2182,22 +2473,6 @@ export default function Sales() {
                                 </Typography>
                               )}
                             </Grid>
-                            <Grid item xs={12} sm={4} sx={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
-                              <Button
-                                variant="contained"
-                                color="success"
-                                onClick={() => handleTelecallerApprove(order.order_id!)}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                variant="outlined"
-                                color="error"
-                                onClick={() => handleTelecallerReject(order.order_id!)}
-                              >
-                                Reject
-                              </Button>
-                            </Grid>
                           </Grid>
                         </CardContent>
                       </Card>
@@ -2209,16 +2484,104 @@ export default function Sales() {
           </DialogContent>
           <DialogActions>
             <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pl: 1 }}>
-              Showing {telecallerOrders.filter((o) => {
-                const d = o.created_at ? o.created_at.split("T")[0] : "";
-                const tl = (o.telecaller_name || o.telecaller_email || "").toLowerCase();
-                return (!tcOrderDateFilter || d === tcOrderDateFilter) && (!tcOrderTelecallerFilter || tl.includes(tcOrderTelecallerFilter.toLowerCase()));
-              }).length} of {telecallerOrders.length} orders
+              {(() => {
+                const filtered = telecallerOrders.filter((o) => {
+                  let d = "";
+                  if (o.created_at) {
+                    const dt = new Date(o.created_at.endsWith('Z') || o.created_at.includes('+') ? o.created_at : `${o.created_at}Z`);
+                    d = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+                  }
+                  const tl = (o.telecaller_name || o.telecaller_email || "").toLowerCase();
+                  const id = Number(o.customer_id);
+                  const cust = customers.find(c => Number(c.customer_id) === id && o.customer_type === "Sabhasad");
+                  const dist = distributors.find(d => Number(d.distributor_id) === id && (o.customer_type === "Mantri" || o.customer_type === "distributor"));
+                  const doc = doctors.find(d => Number(d.doctor_id) === id && o.customer_type === "Doctor");
+                  const shop = shopkeepers.find(s => Number(s.shopkeeper_id) === id && o.customer_type === "Shopkeeper");
+                  const entity = cust || dist || doc || shop;
+
+                  const state = entity?.state || "Gujarat";
+                  const district = entity?.district || "";
+                  const taluka = entity?.taluka || "";
+                  const village = entity?.village || o.customer_village || "";
+
+                  return (!tcOrderDateFilter || d === tcOrderDateFilter) &&
+                         (!tcOrderTelecallerFilter || tl.includes(tcOrderTelecallerFilter.toLowerCase())) &&
+                         (!tcOrderStateFilter || state === tcOrderStateFilter) &&
+                         (!tcOrderDistrictFilter || district === tcOrderDistrictFilter) &&
+                         (!tcOrderTalukaFilter || taluka === tcOrderTalukaFilter) &&
+                         (!tcOrderVillageFilter || village === tcOrderVillageFilter);
+                });
+                const activeFilters = [];
+                if (tcOrderDateFilter) activeFilters.push(`Date: ${tcOrderDateFilter}`);
+                if (tcOrderTelecallerFilter) activeFilters.push(`Telecaller: ${tcOrderTelecallerFilter}`);
+                if (tcOrderStateFilter) activeFilters.push(`State: ${tcOrderStateFilter}`);
+                if (tcOrderDistrictFilter) activeFilters.push(`District: ${tcOrderDistrictFilter}`);
+                if (tcOrderTalukaFilter) activeFilters.push(`Taluka: ${tcOrderTalukaFilter}`);
+                if (tcOrderVillageFilter) activeFilters.push(`Village: ${tcOrderVillageFilter}`);
+                const filterText = activeFilters.length > 0 ? ` (${activeFilters.join(", ")})` : "";
+                return `Showing ${filtered.length} of ${telecallerOrders.length} orders${filterText}`;
+              })()}
             </Typography>
             <Button onClick={() => setTelecallerOrdersDialogOpen(false)}>Close</Button>
           </DialogActions>
         </Dialog>
-
+        
+        {/* Merged Excel Download Dialog */}
+        <Dialog open={downloadExcelDialogOpen} onClose={() => setDownloadExcelDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Sale Created Successfully</DialogTitle>
+          <DialogContent>
+            <Typography variant="body1" gutterBottom>
+              A sale was successfully created from the selected {downloadExcelOrdersData.length} telecaller order(s).
+            </Typography>
+            <Box sx={{ mt: 2, mb: 2, maxHeight: 200, overflowY: 'auto', p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+              {downloadExcelOrdersData.map((order, idx) => {
+                let productsCount = 0;
+                try {
+                  const prods = typeof order.products_json === 'string' ? JSON.parse(order.products_json) : (order.products_json || []);
+                  productsCount = prods.length;
+                } catch(e) {}
+                
+                return (
+                  <Typography key={idx} variant="body2" sx={{ mb: 1 }}>
+                    • <strong>{order.customer_name}</strong> ({order.customer_village || 'No village'}) - {productsCount} product(s)
+                  </Typography>
+                );
+              })}
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Would you like to download the Excel report containing the details of these merged orders?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDownloadExcelDialogOpen(false)} color="inherit">
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (downloadExcelSaleId) {
+                  try {
+                    const res = await telecallerOrderAPI.exportMergedExcel(downloadExcelSaleId);
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `merged_orders_sale_${downloadExcelSaleId}.xlsx`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.parentNode?.removeChild(link);
+                  } catch (e) {
+                    setToast({ msg: "Failed to download excel", sev: "error" });
+                  }
+                }
+                setDownloadExcelDialogOpen(false);
+              }}
+              variant="contained"
+              color="primary"
+              startIcon={<DownloadIcon />}
+            >
+              Download Excel File
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </PermissionGate>
   );

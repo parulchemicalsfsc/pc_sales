@@ -681,13 +681,14 @@ def get_my_assignments(
 
 @router.get("/my-callbacks", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_callbacks(
+    date: Optional[str] = Query(None),
     user_email: str = Header(..., alias="x-user-email"),
     db: SupabaseClient = Depends(get_db),
 ):
     """
-    Get pending assignments flagged as 'Scheduled Callback' for the logged-in user,
-    where the callback is due today or earlier. Enriched with customer/distributor
-    name, mobile, and village for display.
+    Get pending assignments flagged as 'Scheduled Callback' for the logged-in user.
+    If 'date' is provided, returns callbacks scheduled for that specific date.
+    Otherwise, returns callbacks due today or earlier.
     """
     try:
         if user_email:
@@ -696,14 +697,22 @@ def get_my_callbacks(
             raise HTTPException(status_code=401, detail="User email required")
 
         IST = pytz.timezone("Asia/Kolkata")
-        today_ist = datetime.now(IST).strftime("%Y-%m-%d")
-
+        
         q = db.table("calling_assignments").select("*") \
             .eq("user_email", user_email) \
             .eq("status", "Pending") \
-            .eq("reason", "Scheduled Callback") \
-            .lte("assigned_date", today_ist) \
-            .order("assignment_id", desc=True)
+            .eq("reason", "Scheduled Callback")
+            
+        if date:
+            start_of_date = f"{date}T00:00:00"
+            end_of_date = f"{date}T23:59:59"
+            q = q.gte("assigned_date", start_of_date).lte("assigned_date", end_of_date)
+        else:
+            today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+            end_of_today = f"{today_ist}T23:59:59"
+            q = q.lte("assigned_date", end_of_today)
+
+        q = q.order("assignment_id", desc=True)
 
         res = q.execute()
         assignments = res.data or []
@@ -819,12 +828,12 @@ def get_calling_summary(
                 1 for x in pending_assignments
                 if x.get("reason") == "Scheduled Callback"
                 and x.get("assigned_date")
-                and x.get("assigned_date") <= today_ist
+                and str(x.get("assigned_date"))[:10] <= today_ist
             )
             
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
-                .eq("status", "pending") \
+                .eq("status", "unconfirmed") \
                 .execute()
                 
             summary["callbacks"] = callbacks
@@ -895,7 +904,7 @@ def log_adhoc_call(
         status_map = {
             "connected": "Called",
             "not_reachable": "Not Reachable",
-            "callback": "Callback",
+            "callback": "Called",
             "wrong_number": "Wrong Number",
         }
         new_status = status_map[body.call_outcome]
@@ -950,6 +959,48 @@ def log_adhoc_call(
             log_row["callback_date"] = body.callback_date
         db.table("call_logs").insert(log_row).execute()
 
+        # Log activity with resolved entity name
+        try:
+            logger_service = get_activity_logger(db)
+            entity_name_str = "Unknown"
+            etype = body.entity_type or ""
+            eid = body.entity_id
+            try:
+                def _cust_name(i):
+                    r = db.table("customers").select("name, village").eq("customer_id", i).execute()
+                    if r.data:
+                        nm = r.data[0].get("name") or ""
+                        vl = r.data[0].get("village") or ""
+                        return f"{nm} ({vl})" if vl else nm
+                    return None
+
+                def _dist_name(i):
+                    r = db.table("distributors").select("mantri_name, village").eq("distributor_id", i).execute()
+                    if r.data:
+                        nm = r.data[0].get("mantri_name") or ""
+                        vl = r.data[0].get("village") or ""
+                        return f"{nm} ({vl})" if vl else nm
+                    return None
+
+                if etype == "customer":
+                    found = _cust_name(eid) or _dist_name(eid)
+                else:
+                    found = _dist_name(eid) or _cust_name(eid)
+                if found:
+                    entity_name_str = found
+            except Exception as _le:
+                logger.warning(f"[ADHOC-CALL] Name lookup failed: {_le}")
+            logger_service.log_activity(
+                user_email=user_email,
+                action_type="CALL",
+                action_description=f"Logged call ({new_status}) for {entity_name_str}",
+                entity_type=etype or "distributor",
+                entity_id=eid,
+                entity_name=entity_name_str,
+            )
+        except Exception as log_err:
+            logger.warning(f"[ADHOC-CALL] Activity log failed (non-fatal): {log_err}")
+
         return {"message": f"Call logged: {new_status}", "status": new_status, "assignment_id": assignment_id}
 
     except HTTPException:
@@ -991,7 +1042,7 @@ def update_call_status(
         status_map = {
             "connected": "Called",
             "not_reachable": "Not Reachable",
-            "callback": "Callback",
+            "callback": "Called",
             "wrong_number": "Wrong Number",
         }
         new_status = status_map.get(body.call_outcome, "Called")
@@ -1066,6 +1117,8 @@ def update_call_status(
                 new_assignment_id = existing_cb.data[0]["assignment_id"]
                 logger.info(f"[CALLBACK] Reusing existing pending assignment {new_assignment_id} for customer {assignment['customer_id']}")
             else:
+                callback_time = body.callback_date[11:16] if len(body.callback_date) >= 16 else ""
+                time_prefix = f"[Time: {callback_time}] " if callback_time else ""
                 new_assign_res = db.table("calling_assignments").insert({
                     "user_email": user_email,  # Affinity: stay with same telecaller
                     "customer_id": assignment["customer_id"],
@@ -1073,7 +1126,7 @@ def update_call_status(
                     "reason": "Scheduled Callback",
                     "assigned_date": body.callback_date,
                     "status": "Pending",
-                    "notes": body.notes or "",
+                    "notes": f"{time_prefix}{body.notes or ''}".strip(),
                     "entity_type": assignment.get("entity_type", "distributor"),
                 }).execute()
                 new_assignment_id = (new_assign_res.data or [{}])[0].get("assignment_id")
@@ -1195,23 +1248,65 @@ def update_call_status(
         try:
             logger_service = get_activity_logger(db)
             customer_name_str = "Unknown"
+            entity_type_for_log = assignment.get("entity_type") or ""
+            entity_id = assignment["customer_id"]
+
+            def _try_customer(eid):
+                """Lookup name from customers table."""
+                r = db.table("customers").select("name, village").eq("customer_id", eid).execute()
+                if r.data:
+                    nm = r.data[0].get("name") or ""
+                    vl = r.data[0].get("village") or ""
+                    return f"{nm} ({vl})" if vl else nm
+                return None
+
+            def _try_distributor(eid):
+                """Lookup name from distributors table."""
+                r = db.table("distributors").select("mantri_name, village").eq("distributor_id", eid).execute()
+                if r.data:
+                    nm = r.data[0].get("mantri_name") or ""
+                    vl = r.data[0].get("village") or ""
+                    return f"{nm} ({vl})" if vl else nm
+                return None
+
             try:
-                # customer_id in calling_assignments actually stores distributor_id
-                dist_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", assignment["customer_id"]).execute()
-                if dist_res.data:
-                    customer_name_str = dist_res.data[0].get("mantri_name") or "Unknown"
-                    village = dist_res.data[0].get("village") or ""
-                    if village:
-                        customer_name_str = f"{customer_name_str} ({village})"
-            except:
-                pass
-            
+                if entity_type_for_log == "customer":
+                    # Explicitly customer — look in customers table first
+                    found = _try_customer(entity_id)
+                    if not found:
+                        found = _try_distributor(entity_id)  # safety fallback
+                    if found:
+                        customer_name_str = found
+                        entity_type_for_log = "customer"
+                elif entity_type_for_log == "distributor":
+                    # Explicitly distributor — look in distributors table first
+                    found = _try_distributor(entity_id)
+                    if not found:
+                        found = _try_customer(entity_id)  # safety fallback
+                    if found:
+                        customer_name_str = found
+                        entity_type_for_log = "distributor"
+                else:
+                    # entity_type is NULL / missing (legacy records)
+                    # Use user's role as hint: telecallers call customers, sales_managers call distributors
+                    caller_role = get_user_role_cached(user_email, db) or ""
+                    if caller_role in ("telecaller", "staff", "telecaller1", "telecaller2"):
+                        found = _try_customer(entity_id) or _try_distributor(entity_id)
+                        entity_type_for_log = "customer"
+                    else:
+                        found = _try_distributor(entity_id) or _try_customer(entity_id)
+                        entity_type_for_log = "distributor"
+                    if found:
+                        customer_name_str = found
+            except Exception as lookup_err:
+                logger.warning(f"[ACTIVITY] Entity name lookup failed: {lookup_err}")
+
             logger_service.log_activity(
                 user_email=user_email,
                 action_type="CALL",
                 action_description=f"Logged call ({new_status}) for {customer_name_str}",
-                entity_type="distributor",
-                entity_id=assignment["customer_id"],
+                entity_type=entity_type_for_log or "distributor",
+                entity_id=entity_id,
                 entity_name=customer_name_str,
             )
         except Exception as e:

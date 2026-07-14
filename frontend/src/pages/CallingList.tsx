@@ -56,6 +56,7 @@ import {
   Calculate as CalculateIcon,
   HelpOutline as HelpIcon,
   Search as SearchIcon,
+  Download as DownloadIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -93,7 +94,7 @@ interface Telecaller { email: string; name: string; role: string; }
 const CALL_OUTCOMES = [
   { value: "connected", label: "Connected", desc: "Spoke with the person", icon: <CheckIcon />, color: "#16a34a" },
   { value: "not_reachable", label: "Not Reachable", desc: "No answer / switched off", icon: <PhoneDisabledIcon />, color: "#dc2626" },
-  { value: "callback", label: "Call Back Later", desc: "Asked to call again", icon: <CallMissedIcon />, color: "#ea580c" },
+  { value: "callback", label: "Followback", desc: "Asked to follow back", icon: <CallMissedIcon />, color: "#ea580c" },
   { value: "wrong_number", label: "Wrong Number", desc: "Invalid contact", icon: <WrongIcon />, color: "#71717a" },
   { value: "take_order", label: "Take Order", desc: "Create a sale for this Sabhasad", icon: <ShoppingCartIcon />, color: "#3b82f6" },
 ];
@@ -148,12 +149,16 @@ export default function CallingList() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [searchParams] = useSearchParams();
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
-    const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
+  const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
   const [callbacks, setCallbacks] = useState<any[]>([]);
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
   const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
+  const [followbackDateFilter, setFollowbackDateFilter] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
+  // State for followup/order confirmation call dialog
+  const [callbackCallItem, setCallbackCallItem] = useState<any | null>(null); // item from followups tab
+  const [orderCallItem, setOrderCallItem] = useState<any | null>(null);       // order from confirmations tab
   
   const [orderDate, setOrderDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -201,7 +206,12 @@ export default function CallingList() {
       setError(null);
       const status = tab === 0 ? "Pending" : "completed";
       const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
-      setAssignments(res.assignments || []);
+      let fetched = res.assignments || [];
+      // Tab 0 (To Call): exclude Scheduled Callback entries — those belong in Follow-ups
+      if (tab === 0) {
+        fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
+      }
+      setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
     } catch (e: any) {
       setError(e?.message || "Failed to load");
@@ -226,12 +236,12 @@ export default function CallingList() {
 
   const loadCallbacks = useCallback(async () => {
     try {
-      const res = await automationAPI.getMyCallbacks();
+      const res = await automationAPI.getMyCallbacks(followbackDateFilter || undefined);
       setCallbacks(res);
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [followbackDateFilter]);
 
   const loadConfirmationOrders = useCallback(async () => {
     try {
@@ -246,7 +256,7 @@ export default function CallingList() {
   }, [confirmationDateFilter]);
 
   useEffect(() => {
-    if (tab === 2 && role === "telecaller") loadCallbacks();
+    if (tab === 2) loadCallbacks();
     if (tab === 3 && role === "telecaller") loadConfirmationOrders();
   }, [tab, role, loadCallbacks, loadConfirmationOrders]);
 
@@ -259,8 +269,8 @@ export default function CallingList() {
   const handleApproveOrder = async (orderId: number) => {
     try {
       setProcessingOrder(orderId);
-      await telecallerOrderAPI.approve(orderId);
-      setToast({ msg: "Order Approved", sev: "success" });
+      await telecallerOrderAPI.telecallerConfirm(orderId);
+      setToast({ msg: "Order Confirmed & Sent to Sales Manager", sev: "success" });
       // Optimistically remove card, then reload to keep list fresh
       setConfirmationOrders(prev => prev.filter(o => o.order_id !== orderId));
       loadConfirmationOrders();
@@ -370,6 +380,8 @@ export default function CallingList() {
 
     setTimeout(() => {
       setActiveItem(a);
+      setCallbackCallItem(null);
+      setOrderCallItem(null);
       setOutcome("");
       setNotes("");
       setCallbackDate("");
@@ -377,15 +389,84 @@ export default function CallingList() {
     }, 400);
   };
 
+  // Open call dialog for a follow-up item (it IS a regular assignment, just flagged as Scheduled Callback)
+  const handleFollowupCallButton = async (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    if (item.mobile) window.open(`tel:${item.mobile}`, "_self");
+    try {
+      await automationAPI.startCallTimer(item.assignment_id);
+    } catch (err) {
+      console.error("Failed to start call timer", err);
+    }
+    setTimeout(() => {
+      setActiveItem(item as Assignment);
+      setCallbackCallItem(item);
+      setOrderCallItem(null);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }, 400);
+  };
+
+  // Open call dialog for an order confirmation item
+  const handleOrderConfirmationCallButton = (e: React.MouseEvent, order: any) => {
+    e.stopPropagation();
+    if (order.customer_mobile) window.open(`tel:${order.customer_mobile}`, "_self");
+    setTimeout(() => {
+      setOrderCallItem(order);
+      setCallbackCallItem(null);
+      setActiveItem(null);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }, 400);
+  };
+
+  // Submit outcome for order confirmation calls (log adhoc then optionally reload)
+  const submitOrderCallOutcome = async () => {
+    if (!orderCallItem || !outcome) return;
+    if (outcome === "callback" && !callbackDate) {
+      setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const entityType = orderCallItem.customer_type?.toLowerCase() === "mantri" ? "distributor" : "customer";
+      await automationAPI.logAdhocCall({
+        entity_id: orderCallItem.customer_id,
+        entity_type: entityType,
+        call_outcome: outcome,
+        notes: notes || "",
+        callback_date: outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
+      });
+      setToast({ msg: "Call logged successfully", sev: "success" });
+      setDialogOpen(false);
+      setOrderCallItem(null);
+      loadConfirmationOrders();
+      fetchSummary();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to log call", sev: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const submitOutcome = async () => {
     if (!outcome) return;
+
+    // Route to correct handler based on which dialog context is active
+    if (orderCallItem) return submitOrderCallOutcome();
+
     if (!isQuickCall && !activeItem) return;
 
     if (outcome === "take_order") {
       return handleTakeOrder();
     }
     if (outcome === "callback" && !callbackDate) {
-      setToast({ msg: "Please select a date for the callback.", sev: "error" });
+      setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
+      setSubmitting(false);
       return;
     }
     try {
@@ -400,7 +481,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: outcome,
           notes: notes,
-          callback_date: outcome === "callback" ? callbackDate : undefined,
+          callback_date: outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -420,10 +501,16 @@ export default function CallingList() {
           load(pagination.page);
         }
       } else {
-        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
+        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined);
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
+        setCallbackCallItem(null);
+        // If this was a followup call, reload the followups list too
+        if (callbackCallItem) {
+          loadCallbacks();
+        }
         load(pagination.page);
+        fetchSummary();
       }
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" });
@@ -731,20 +818,35 @@ export default function CallingList() {
         >
           <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
-          {role === "telecaller" && <Tab label={`Callbacks  ·  ${summary.callbacks || 0}`} />}
+          <Tab label={`Follow-ups  ·  ${summary.callbacks || 0}`} />
           {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
 
-          {/* ── Tab 2: Callbacks (telecaller only) ── */}
-          {tab === 2 && role === "telecaller" && (
+          {/* ── Tab 2: Followbacks ── */}
+          {tab === 2 && (
             <Stack spacing={1} sx={{ minWidth: 0 }}>
+              <Box sx={{ p: 2, pb: 0, display: "flex", gap: 2, alignItems: "center", justifyContent: "flex-end" }}>
+                <TextField
+                  type="date"
+                  size="small"
+                  label="Filter by Date"
+                  value={followbackDateFilter}
+                  onChange={(e) => setFollowbackDateFilter(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                {followbackDateFilter && (
+                  <Button variant="outlined" size="small" onClick={() => setFollowbackDateFilter("")}>
+                    Clear
+                  </Button>
+                )}
+              </Box>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
-                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Callbacks</Typography>
+                  <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
                   <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                    Callbacks scheduled for today will appear here.
+                    Followbacks scheduled for today will appear here.
                   </Typography>
                 </Box>
               ) : (
@@ -771,19 +873,38 @@ export default function CallingList() {
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
                       </Stack>
-                      {item.callback_date && (
-                        <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5 }}>
-                          Callback Date: {item.callback_date}
-                        </Typography>
-                      )}
+                      {item.assigned_date && (() => {
+                        // Parse IST-stored datetime — append +05:30 so browser doesn't treat it as UTC
+                        const rawDate = item.assigned_date;
+                        const istDate = rawDate.includes("+") || rawDate.endsWith("Z")
+                          ? new Date(rawDate)
+                          : new Date(rawDate + "+05:30");
+                        const scheduledLabel = isNaN(istDate.getTime())
+                          ? rawDate
+                          : istDate.toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+                        return (
+                          <Typography variant="caption" sx={{ color: "#ea580c", fontWeight: 600, display: "block", mt: 0.5 }}>
+                            📅 Follow-up scheduled: {scheduledLabel}
+                          </Typography>
+                        );
+                      })()}
+                      {item.notes && (() => {
+                        // Strip the [Time: HH:MM] prefix that the backend embeds in notes — it's already shown above
+                        const cleaned = item.notes.replace(/^\[Time:\s*\d{1,2}:\d{2}\]\s*/, "").trim();
+                        return cleaned ? (
+                          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                            {cleaned}
+                          </Typography>
+                        ) : null;
+                      })()}
                     </Box>
-                    <Tooltip title="Call">
+                    <Tooltip title="Call &amp; Log Outcome">
                       <span>
                         <Button
                           variant="contained"
                           size="small"
                           disabled={!item.mobile}
-                          onClick={(e) => handleCallButton(e, item)}
+                          onClick={(e) => handleFollowupCallButton(e, item)}
                           startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
                           sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: 12, px: 2, boxShadow: "none", bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d", boxShadow: "none" } }}
                         >
@@ -814,6 +935,28 @@ export default function CallingList() {
                     Clear
                   </Button>
                 )}
+                <Button 
+                  variant="contained" 
+                  size="small" 
+                  startIcon={<DownloadIcon />} 
+                  onClick={async () => {
+                    try {
+                      const res = await telecallerOrderAPI.exportConfirmationsExcel(confirmationDateFilter || undefined);
+                      const url = window.URL.createObjectURL(new Blob([res.data]));
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', `telecaller_orders_${confirmationDateFilter || "all"}.xlsx`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.parentNode?.removeChild(link);
+                    } catch (e: any) {
+                      setToast({ msg: "Failed to download Excel", sev: "error" });
+                    }
+                  }}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, ml: 1 }}
+                >
+                  Excel
+                </Button>
               </Box>
               {tab3Loading && confirmationOrders.length === 0 ? (
                 <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
@@ -832,7 +975,7 @@ export default function CallingList() {
                     <Paper key={order.order_id} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
                       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
                         <Box>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name} ({order.customer_type})</Typography>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{order.customer_name}</Typography>
                           <Typography variant="caption" sx={{ color: "text.secondary" }}>{order.customer_mobile} · {order.customer_village}</Typography>
                           <Box sx={{ mt: 1 }}>
                             {products.map((p: any, i: number) => (
@@ -855,19 +998,7 @@ export default function CallingList() {
                             variant="outlined"
                             size="small"
                             disabled={!order.customer_mobile || processingOrder === order.order_id}
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (order.customer_mobile) window.open(`tel:${order.customer_mobile}`, "_self");
-                              try {
-                                await automationAPI.logAdhocCall({
-                                  entity_id: order.customer_id,
-                                  entity_type: order.customer_type === "Mantri" ? "distributor" : "customer",
-                                  call_outcome: "connected",
-                                  notes: `${order.notes || ""} [Order Confirmation Call]`.trim(),
-                                });
-                                setToast({ msg: "Ad-hoc call logged", sev: "info" });
-                              } catch { setToast({ msg: "Failed to log ad-hoc call", sev: "error" }); }
-                            }}
+                            onClick={(e) => handleOrderConfirmationCallButton(e, order)}
                             startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
                             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 12 }}
                           >
@@ -1217,11 +1348,13 @@ export default function CallingList() {
       </Dialog>
 
       {/* ── Post-Call Dialog ── */}
-      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
+      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
           {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
-          {(activeItem || isQuickCall) && (() => {
-            const item = isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
+          {(activeItem || isQuickCall || orderCallItem) && (() => {
+            const item = orderCallItem
+              ? { name: orderCallItem.customer_name, mobile: orderCallItem.customer_mobile, village: orderCallItem.customer_village }
+              : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
             return (
               <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
                 {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
@@ -1269,20 +1402,20 @@ export default function CallingList() {
           />
           {outcome === "callback" && (
             <TextField
-              type="date"
-              label="Callback Date"
+              type="datetime-local"
+              label="Followback Date & Time"
               fullWidth
               required
               value={callbackDate}
               onChange={e => setCallbackDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              inputProps={{ min: new Date().toISOString().split("T")[0] }}
+              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
               sx={{ mt: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
             />
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
-          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitOutcome}
@@ -1517,7 +1650,7 @@ export default function CallingList() {
               { title: "Priority Colours", desc: "Each card has a left border colour. GREEN (Urgent/High) = call first, YELLOW (Medium) = normal, RED (Low) = call last." },
               { title: "Making a Call", desc: "Tap the green Call button. Your phone will open automatically. After the call, an outcome dialog appears." },
               { title: "Logging Call Outcome", desc: "Choose: Connected, Not Reachable, Call Back Later, Wrong Number, or Take Order. Add notes and tap Submit." },
-              { title: "Callback Scheduling", desc: "If you pick \"Call Back Later\", select a date the system schedules a reminder for that day." },
+              { title: "Followback Scheduling", desc: "If you pick \"Followback\", select a date the system schedules a reminder for that day." },
               { title: "Take Order", desc: "Selecting \"Take Order\" logs the call and takes you to the New Sale screen pre-filled with this contact's details." },
               { title: "Estimation Calculator", desc: "Use the Calculator button to estimate total product need for a Mantri pick a Mantri and set approx. liters per Sabhasad." },
               { title: "Customer History", desc: "Tap anywhere on a card (not the Call button) to see that contact's full purchase history, paid/pending amounts." },
