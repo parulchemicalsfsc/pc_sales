@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 import pytz
 
 from models import TelecallerOrderCreate, TelecallerOrderApprove, TelecallerOrderReject
@@ -539,4 +540,109 @@ def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabas
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
+
+@router.get("/export-merged-excel/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])
+def export_merged_excel(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
+    """Export telecaller orders merged into a specific sale as an Excel file."""
+    try:
+        resp = db.table("telecaller_orders").select("*").eq("sale_id", sale_id).execute()
+        orders = resp.data or []
+        
+        data = []
+        for o in orders:
+            prods = o.get("products_json") or "[]"
+            try:
+                if isinstance(prods, str):
+                    prods = json.loads(prods)
+                prod_str = ", ".join([f"{p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+            except:
+                prod_str = str(prods)
+            
+            data.append({
+                "Date": o.get("created_at", "")[:10],
+                "Telecaller Email": o.get("telecaller_email", ""),
+                "Customer Name": o.get("customer_name", ""),
+                "Village": o.get("customer_village", ""),
+                "Mobile": o.get("customer_mobile", ""),
+                "Products": prod_str,
+                "Notes": o.get("notes", ""),
+                "Status": o.get("status", "")
+            })
+            
+        import pandas as pd
+        import io
+        df = pd.DataFrame(data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Merged Orders')
+        output.seek(0)
+        
+        headers = {
+            'Content-Disposition': f'attachment; filename="merged_orders_sale_{sale_id}.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        logger.error(f"Error exporting merged excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export-confirmations-excel", dependencies=[Depends(verify_permission("view_calling_list"))])
+def export_confirmations_excel(
+    date: Optional[str] = None,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Export telecaller orders to Excel, optionally filtered by date. Telecallers only see their own."""
+    try:
+        from rbac_utils import get_user_role_cached
+        role = get_user_role_cached(user_email, db)
+        
+        q = db.table("telecaller_orders").select("*")
+        
+        if role in ["telecaller", "telecaller1", "telecaller2"]:
+            q = q.eq("telecaller_email", user_email)
+            
+        if date:
+            q = q.like("created_at", f"{date}%")
+            
+        resp = q.execute()
+        orders = resp.data or []
+        
+        data = []
+        for o in orders:
+            prods = o.get("products_json") or "[]"
+            try:
+                if isinstance(prods, str):
+                    prods = json.loads(prods)
+                prod_str = ", ".join([f"{p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+            except:
+                prod_str = str(prods)
+                
+            data.append({
+                "Date": o.get("created_at", "")[:10],
+                "Time": o.get("created_at", "")[11:16] if len(o.get("created_at", "")) > 16 else "",
+                "Customer Name": o.get("customer_name", ""),
+                "Village": o.get("customer_village", ""),
+                "Mobile": o.get("customer_mobile", ""),
+                "Products": prod_str,
+                "Status": o.get("status", ""),
+                "Notes": o.get("notes", ""),
+            })
+            
+        import pandas as pd
+        import io
+        df = pd.DataFrame(data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Telecaller Orders')
+        output.seek(0)
+        
+        filename_date = date if date else "all"
+        headers = {
+            'Content-Disposition': f'attachment; filename="telecaller_orders_{filename_date}.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        logger.error(f"Error exporting confirmations excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 

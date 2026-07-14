@@ -1126,8 +1126,20 @@ export default function Sales() {
         try {
           await telecallerOrderAPI.bulkMarkApproved(mergedTelecallerOrderIds, response.sale.sale_id);
           loadTelecallerOrders();
+          
+          // Ask if they want to download the merged excel
+          if (window.confirm("Sale created successfully. Do you want to download the Excel report for these merged orders?")) {
+            const res = await telecallerOrderAPI.exportMergedExcel(response.sale.sale_id);
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `merged_orders_sale_${response.sale.sale_id}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode?.removeChild(link);
+          }
         } catch (e) {
-          console.error("Error marking telecaller orders as approved:", e);
+          console.error("Error marking telecaller orders as approved or exporting excel:", e);
         }
       }
 

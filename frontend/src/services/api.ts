@@ -1134,6 +1134,20 @@ export const telecallerOrderAPI = {
     const response = await apiClient.get("/api/telecaller-orders/my-confirmation-calls", { params });
     return response.data;
   },
+  exportMergedExcel: async (saleId: number) => {
+    const response = await apiClient.get(`/api/telecaller-orders/export-merged-excel/${saleId}`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
+  exportConfirmationsExcel: async (date?: string) => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get("/api/telecaller-orders/export-confirmations-excel", {
+      params,
+      responseType: 'blob',
+    });
+    return response;
+  },
 };
 
 /**

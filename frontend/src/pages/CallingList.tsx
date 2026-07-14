@@ -56,6 +56,7 @@ import {
   Calculate as CalculateIcon,
   HelpOutline as HelpIcon,
   Search as SearchIcon,
+  Download as DownloadIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -934,6 +935,28 @@ export default function CallingList() {
                     Clear
                   </Button>
                 )}
+                <Button 
+                  variant="contained" 
+                  size="small" 
+                  startIcon={<DownloadIcon />} 
+                  onClick={async () => {
+                    try {
+                      const res = await telecallerOrderAPI.exportConfirmationsExcel(confirmationDateFilter || undefined);
+                      const url = window.URL.createObjectURL(new Blob([res.data]));
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', `telecaller_orders_${confirmationDateFilter || "all"}.xlsx`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.parentNode?.removeChild(link);
+                    } catch (e: any) {
+                      setToast({ msg: "Failed to download Excel", sev: "error" });
+                    }
+                  }}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, ml: 1 }}
+                >
+                  Excel
+                </Button>
               </Box>
               {tab3Loading && confirmationOrders.length === 0 ? (
                 <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
