@@ -963,29 +963,39 @@ def log_adhoc_call(
         try:
             logger_service = get_activity_logger(db)
             entity_name_str = "Unknown"
+            etype = body.entity_type or ""
+            eid = body.entity_id
             try:
-                if body.entity_type == "customer":
-                    ent_res = db.table("customers").select("name, village").eq("customer_id", body.entity_id).execute()
-                    if ent_res.data:
-                        entity_name_str = ent_res.data[0].get("name") or "Unknown"
-                        village = ent_res.data[0].get("village") or ""
-                        if village:
-                            entity_name_str = f"{entity_name_str} ({village})"
+                def _cust_name(i):
+                    r = db.table("customers").select("name, village").eq("customer_id", i).execute()
+                    if r.data:
+                        nm = r.data[0].get("name") or ""
+                        vl = r.data[0].get("village") or ""
+                        return f"{nm} ({vl})" if vl else nm
+                    return None
+
+                def _dist_name(i):
+                    r = db.table("distributors").select("mantri_name, village").eq("distributor_id", i).execute()
+                    if r.data:
+                        nm = r.data[0].get("mantri_name") or ""
+                        vl = r.data[0].get("village") or ""
+                        return f"{nm} ({vl})" if vl else nm
+                    return None
+
+                if etype == "customer":
+                    found = _cust_name(eid) or _dist_name(eid)
                 else:
-                    ent_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", body.entity_id).execute()
-                    if ent_res.data:
-                        entity_name_str = ent_res.data[0].get("mantri_name") or "Unknown"
-                        village = ent_res.data[0].get("village") or ""
-                        if village:
-                            entity_name_str = f"{entity_name_str} ({village})"
-            except Exception:
-                pass
+                    found = _dist_name(eid) or _cust_name(eid)
+                if found:
+                    entity_name_str = found
+            except Exception as _le:
+                logger.warning(f"[ADHOC-CALL] Name lookup failed: {_le}")
             logger_service.log_activity(
                 user_email=user_email,
                 action_type="CALL",
                 action_description=f"Logged call ({new_status}) for {entity_name_str}",
-                entity_type=body.entity_type,
-                entity_id=body.entity_id,
+                entity_type=etype or "distributor",
+                entity_id=eid,
                 entity_name=entity_name_str,
             )
         except Exception as log_err:
@@ -1238,31 +1248,65 @@ def update_call_status(
         try:
             logger_service = get_activity_logger(db)
             customer_name_str = "Unknown"
-            entity_type_for_log = assignment.get("entity_type", "distributor")
+            entity_type_for_log = assignment.get("entity_type") or ""
+            entity_id = assignment["customer_id"]
+
+            def _try_customer(eid):
+                """Lookup name from customers table."""
+                r = db.table("customers").select("name, village").eq("customer_id", eid).execute()
+                if r.data:
+                    nm = r.data[0].get("name") or ""
+                    vl = r.data[0].get("village") or ""
+                    return f"{nm} ({vl})" if vl else nm
+                return None
+
+            def _try_distributor(eid):
+                """Lookup name from distributors table."""
+                r = db.table("distributors").select("mantri_name, village").eq("distributor_id", eid).execute()
+                if r.data:
+                    nm = r.data[0].get("mantri_name") or ""
+                    vl = r.data[0].get("village") or ""
+                    return f"{nm} ({vl})" if vl else nm
+                return None
+
             try:
                 if entity_type_for_log == "customer":
-                    cust_res = db.table("customers").select("name, village").eq("customer_id", assignment["customer_id"]).execute()
-                    if cust_res.data:
-                        customer_name_str = cust_res.data[0].get("name") or "Unknown"
-                        village = cust_res.data[0].get("village") or ""
-                        if village:
-                            customer_name_str = f"{customer_name_str} ({village})"
+                    # Explicitly customer — look in customers table first
+                    found = _try_customer(entity_id)
+                    if not found:
+                        found = _try_distributor(entity_id)  # safety fallback
+                    if found:
+                        customer_name_str = found
+                        entity_type_for_log = "customer"
+                elif entity_type_for_log == "distributor":
+                    # Explicitly distributor — look in distributors table first
+                    found = _try_distributor(entity_id)
+                    if not found:
+                        found = _try_customer(entity_id)  # safety fallback
+                    if found:
+                        customer_name_str = found
+                        entity_type_for_log = "distributor"
                 else:
-                    dist_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", assignment["customer_id"]).execute()
-                    if dist_res.data:
-                        customer_name_str = dist_res.data[0].get("mantri_name") or "Unknown"
-                        village = dist_res.data[0].get("village") or ""
-                        if village:
-                            customer_name_str = f"{customer_name_str} ({village})"
-            except:
-                pass
-            
+                    # entity_type is NULL / missing (legacy records)
+                    # Use user's role as hint: telecallers call customers, sales_managers call distributors
+                    caller_role = get_user_role_cached(user_email, db) or ""
+                    if caller_role in ("telecaller", "staff", "telecaller1", "telecaller2"):
+                        found = _try_customer(entity_id) or _try_distributor(entity_id)
+                        entity_type_for_log = "customer"
+                    else:
+                        found = _try_distributor(entity_id) or _try_customer(entity_id)
+                        entity_type_for_log = "distributor"
+                    if found:
+                        customer_name_str = found
+            except Exception as lookup_err:
+                logger.warning(f"[ACTIVITY] Entity name lookup failed: {lookup_err}")
+
             logger_service.log_activity(
                 user_email=user_email,
                 action_type="CALL",
                 action_description=f"Logged call ({new_status}) for {customer_name_str}",
-                entity_type=entity_type_for_log,
-                entity_id=assignment["customer_id"],
+                entity_type=entity_type_for_log or "distributor",
+                entity_id=entity_id,
                 entity_name=customer_name_str,
             )
         except Exception as e:
