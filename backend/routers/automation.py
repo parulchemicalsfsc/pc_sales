@@ -833,7 +833,7 @@ def get_calling_summary(
             
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
-                .eq("status", "pending") \
+                .eq("status", "unconfirmed") \
                 .execute()
                 
             summary["callbacks"] = callbacks
@@ -958,6 +958,38 @@ def log_adhoc_call(
         if body.call_outcome == "callback" and body.callback_date:
             log_row["callback_date"] = body.callback_date
         db.table("call_logs").insert(log_row).execute()
+
+        # Log activity with resolved entity name
+        try:
+            logger_service = get_activity_logger(db)
+            entity_name_str = "Unknown"
+            try:
+                if body.entity_type == "customer":
+                    ent_res = db.table("customers").select("name, village").eq("customer_id", body.entity_id).execute()
+                    if ent_res.data:
+                        entity_name_str = ent_res.data[0].get("name") or "Unknown"
+                        village = ent_res.data[0].get("village") or ""
+                        if village:
+                            entity_name_str = f"{entity_name_str} ({village})"
+                else:
+                    ent_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", body.entity_id).execute()
+                    if ent_res.data:
+                        entity_name_str = ent_res.data[0].get("mantri_name") or "Unknown"
+                        village = ent_res.data[0].get("village") or ""
+                        if village:
+                            entity_name_str = f"{entity_name_str} ({village})"
+            except Exception:
+                pass
+            logger_service.log_activity(
+                user_email=user_email,
+                action_type="CALL",
+                action_description=f"Logged call ({new_status}) for {entity_name_str}",
+                entity_type=body.entity_type,
+                entity_id=body.entity_id,
+                entity_name=entity_name_str,
+            )
+        except Exception as log_err:
+            logger.warning(f"[ADHOC-CALL] Activity log failed (non-fatal): {log_err}")
 
         return {"message": f"Call logged: {new_status}", "status": new_status, "assignment_id": assignment_id}
 
@@ -1206,14 +1238,22 @@ def update_call_status(
         try:
             logger_service = get_activity_logger(db)
             customer_name_str = "Unknown"
+            entity_type_for_log = assignment.get("entity_type", "distributor")
             try:
-                # customer_id in calling_assignments actually stores distributor_id
-                dist_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", assignment["customer_id"]).execute()
-                if dist_res.data:
-                    customer_name_str = dist_res.data[0].get("mantri_name") or "Unknown"
-                    village = dist_res.data[0].get("village") or ""
-                    if village:
-                        customer_name_str = f"{customer_name_str} ({village})"
+                if entity_type_for_log == "customer":
+                    cust_res = db.table("customers").select("name, village").eq("customer_id", assignment["customer_id"]).execute()
+                    if cust_res.data:
+                        customer_name_str = cust_res.data[0].get("name") or "Unknown"
+                        village = cust_res.data[0].get("village") or ""
+                        if village:
+                            customer_name_str = f"{customer_name_str} ({village})"
+                else:
+                    dist_res = db.table("distributors").select("mantri_name, village").eq("distributor_id", assignment["customer_id"]).execute()
+                    if dist_res.data:
+                        customer_name_str = dist_res.data[0].get("mantri_name") or "Unknown"
+                        village = dist_res.data[0].get("village") or ""
+                        if village:
+                            customer_name_str = f"{customer_name_str} ({village})"
             except:
                 pass
             
@@ -1221,7 +1261,7 @@ def update_call_status(
                 user_email=user_email,
                 action_type="CALL",
                 action_description=f"Logged call ({new_status}) for {customer_name_str}",
-                entity_type="distributor",
+                entity_type=entity_type_for_log,
                 entity_id=assignment["customer_id"],
                 entity_name=customer_name_str,
             )

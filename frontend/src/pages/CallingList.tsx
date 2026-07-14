@@ -148,13 +148,16 @@ export default function CallingList() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [searchParams] = useSearchParams();
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, total_pages: 1 });
-    const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
+  const [summary, setSummary] = useState<Summary>({ to_call: 0, called: 0 });
   const [callbacks, setCallbacks] = useState<any[]>([]);
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
   const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
   const [followbackDateFilter, setFollowbackDateFilter] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
+  // State for followup/order confirmation call dialog
+  const [callbackCallItem, setCallbackCallItem] = useState<any | null>(null); // item from followups tab
+  const [orderCallItem, setOrderCallItem] = useState<any | null>(null);       // order from confirmations tab
   
   const [orderDate, setOrderDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -202,7 +205,12 @@ export default function CallingList() {
       setError(null);
       const status = tab === 0 ? "Pending" : "completed";
       const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
-      setAssignments(res.assignments || []);
+      let fetched = res.assignments || [];
+      // Tab 0 (To Call): exclude Scheduled Callback entries — those belong in Follow-ups
+      if (tab === 0) {
+        fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
+      }
+      setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
     } catch (e: any) {
       setError(e?.message || "Failed to load");
@@ -371,6 +379,8 @@ export default function CallingList() {
 
     setTimeout(() => {
       setActiveItem(a);
+      setCallbackCallItem(null);
+      setOrderCallItem(null);
       setOutcome("");
       setNotes("");
       setCallbackDate("");
@@ -378,15 +388,83 @@ export default function CallingList() {
     }, 400);
   };
 
+  // Open call dialog for a follow-up item (it IS a regular assignment, just flagged as Scheduled Callback)
+  const handleFollowupCallButton = async (e: React.MouseEvent, item: any) => {
+    e.stopPropagation();
+    if (item.mobile) window.open(`tel:${item.mobile}`, "_self");
+    try {
+      await automationAPI.startCallTimer(item.assignment_id);
+    } catch (err) {
+      console.error("Failed to start call timer", err);
+    }
+    setTimeout(() => {
+      setActiveItem(item as Assignment);
+      setCallbackCallItem(item);
+      setOrderCallItem(null);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }, 400);
+  };
+
+  // Open call dialog for an order confirmation item
+  const handleOrderConfirmationCallButton = (e: React.MouseEvent, order: any) => {
+    e.stopPropagation();
+    if (order.customer_mobile) window.open(`tel:${order.customer_mobile}`, "_self");
+    setTimeout(() => {
+      setOrderCallItem(order);
+      setCallbackCallItem(null);
+      setActiveItem(null);
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }, 400);
+  };
+
+  // Submit outcome for order confirmation calls (log adhoc then optionally reload)
+  const submitOrderCallOutcome = async () => {
+    if (!orderCallItem || !outcome) return;
+    if (outcome === "callback" && !callbackDate) {
+      setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const entityType = orderCallItem.customer_type?.toLowerCase() === "mantri" ? "distributor" : "customer";
+      await automationAPI.logAdhocCall({
+        entity_id: orderCallItem.customer_id,
+        entity_type: entityType,
+        call_outcome: outcome,
+        notes: notes || "",
+        callback_date: outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
+      });
+      setToast({ msg: "Call logged successfully", sev: "success" });
+      setDialogOpen(false);
+      setOrderCallItem(null);
+      loadConfirmationOrders();
+      fetchSummary();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Failed to log call", sev: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const submitOutcome = async () => {
     if (!outcome) return;
+
+    // Route to correct handler based on which dialog context is active
+    if (orderCallItem) return submitOrderCallOutcome();
+
     if (!isQuickCall && !activeItem) return;
 
     if (outcome === "take_order") {
       return handleTakeOrder();
     }
     if (outcome === "callback" && !callbackDate) {
-      setToast({ msg: "Please select a date for the followback.", sev: "error" });
+      setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       setSubmitting(false);
       return;
     }
@@ -402,7 +480,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: outcome,
           notes: notes,
-          callback_date: outcome === "callback" ? callbackDate : undefined,
+          callback_date: outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -422,10 +500,16 @@ export default function CallingList() {
           load(pagination.page);
         }
       } else {
-        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? callbackDate : undefined);
+        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined);
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
+        setCallbackCallItem(null);
+        // If this was a followup call, reload the followups list too
+        if (callbackCallItem) {
+          loadCallbacks();
+        }
         load(pagination.page);
+        fetchSummary();
       }
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed", sev: "error" });
@@ -733,7 +817,7 @@ export default function CallingList() {
         >
           <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
           <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
-          <Tab label={`Followbacks  ·  ${summary.callbacks || 0}`} />
+          <Tab label={`Follow-ups  ·  ${summary.callbacks || 0}`} />
           {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
         </Tabs>
 
@@ -788,27 +872,38 @@ export default function CallingList() {
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
                       </Stack>
-                      {item.assigned_date && (
-                        <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5 }}>
-                          Followback Date & Time: {(() => {
-                            try { return new Date(item.assigned_date).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-                            catch { return item.assigned_date; }
-                          })()}
-                        </Typography>
-                      )}
-                      {item.notes && (
-                        <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
-                          {item.notes}
-                        </Typography>
-                      )}
+                      {item.assigned_date && (() => {
+                        // Parse IST-stored datetime — append +05:30 so browser doesn't treat it as UTC
+                        const rawDate = item.assigned_date;
+                        const istDate = rawDate.includes("+") || rawDate.endsWith("Z")
+                          ? new Date(rawDate)
+                          : new Date(rawDate + "+05:30");
+                        const scheduledLabel = isNaN(istDate.getTime())
+                          ? rawDate
+                          : istDate.toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+                        return (
+                          <Typography variant="caption" sx={{ color: "#ea580c", fontWeight: 600, display: "block", mt: 0.5 }}>
+                            📅 Follow-up scheduled: {scheduledLabel}
+                          </Typography>
+                        );
+                      })()}
+                      {item.notes && (() => {
+                        // Strip the [Time: HH:MM] prefix that the backend embeds in notes — it's already shown above
+                        const cleaned = item.notes.replace(/^\[Time:\s*\d{1,2}:\d{2}\]\s*/, "").trim();
+                        return cleaned ? (
+                          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                            {cleaned}
+                          </Typography>
+                        ) : null;
+                      })()}
                     </Box>
-                    <Tooltip title="Call">
+                    <Tooltip title="Call &amp; Log Outcome">
                       <span>
                         <Button
                           variant="contained"
                           size="small"
                           disabled={!item.mobile}
-                          onClick={(e) => handleCallButton(e, item)}
+                          onClick={(e) => handleFollowupCallButton(e, item)}
                           startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
                           sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, fontSize: 12, px: 2, boxShadow: "none", bgcolor: "#16a34a", "&:hover": { bgcolor: "#15803d", boxShadow: "none" } }}
                         >
@@ -880,19 +975,7 @@ export default function CallingList() {
                             variant="outlined"
                             size="small"
                             disabled={!order.customer_mobile || processingOrder === order.order_id}
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (order.customer_mobile) window.open(`tel:${order.customer_mobile}`, "_self");
-                              try {
-                                await automationAPI.logAdhocCall({
-                                  entity_id: order.customer_id,
-                                  entity_type: order.customer_type === "Mantri" ? "distributor" : "customer",
-                                  call_outcome: "connected",
-                                  notes: `${order.notes || ""} [Order Confirmation Call]`.trim(),
-                                });
-                                setToast({ msg: "Ad-hoc call logged", sev: "info" });
-                              } catch { setToast({ msg: "Failed to log ad-hoc call", sev: "error" }); }
-                            }}
+                            onClick={(e) => handleOrderConfirmationCallButton(e, order)}
                             startIcon={<PhoneIcon sx={{ fontSize: 16 }} />}
                             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, fontSize: 12 }}
                           >
@@ -1242,11 +1325,13 @@ export default function CallingList() {
       </Dialog>
 
       {/* ── Post-Call Dialog ── */}
-      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
+      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
           {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
-          {(activeItem || isQuickCall) && (() => {
-            const item = isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
+          {(activeItem || isQuickCall || orderCallItem) && (() => {
+            const item = orderCallItem
+              ? { name: orderCallItem.customer_name, mobile: orderCallItem.customer_mobile, village: orderCallItem.customer_village }
+              : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
             return (
               <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
                 {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
@@ -1307,7 +1392,7 @@ export default function CallingList() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
-          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={submitOutcome}
