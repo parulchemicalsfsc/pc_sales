@@ -2,6 +2,7 @@ import os
 from typing import Any, Dict, Generator, List, Optional, Union
 
 import requests
+import httpx
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -339,8 +340,44 @@ class SupabaseTableResult:
         return self
 
 
+# ======================
+# Async Supabase Client
+# Used by async FastAPI endpoints to avoid blocking the event loop.
+# Keeps a persistent httpx.AsyncClient (reuses TLS, same benefit as requests.Session).
+# Only used for RPC calls on the dashboard /metrics endpoint (Option A scope).
+# ======================
+
+class AsyncSupabaseClient:
+    """Async Supabase REST client using httpx — non-blocking RPC calls."""
+
+    def __init__(self, url: str, key: str):
+        self.rest_url = f"{url}/rest/v1"
+        _headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
+        # Persistent async client — reuses TCP/TLS connection across requests.
+        self._client = httpx.AsyncClient(headers=_headers, timeout=30.0)
+
+    async def rpc(self, function_name: str, params: dict = None) -> dict:
+        """POST to /rpc/<function_name> asynchronously."""
+        url = f"{self.rest_url}/rpc/{function_name}"
+        response = await self._client.post(url, json=params or {})
+        response.raise_for_status()
+        return response.json()
+
+    async def close(self):
+        """Gracefully close the underlying httpx client."""
+        await self._client.aclose()
+
+
 # Global Supabase client instance
 supabase_client = SupabaseClient(SUPABASE_URL, SUPABASE_KEY)
+
+# Global async client instance (shared across all async route calls)
+async_supabase_client = AsyncSupabaseClient(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ======================
@@ -366,6 +403,14 @@ def get_db() -> Generator[SupabaseClient, None, None]:
     finally:
         # Supabase REST API doesn't need explicit closing
         pass
+
+
+async def get_async_supabase() -> AsyncSupabaseClient:
+    """
+    FastAPI dependency for the async Supabase client.
+    Returns the global shared AsyncSupabaseClient instance.
+    """
+    return async_supabase_client
 
 
 # ======================

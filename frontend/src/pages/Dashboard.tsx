@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
     Box,
     Grid,
@@ -40,6 +40,7 @@ import {
     Legend,
     ResponsiveContainer,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "../hooks/useTranslation";
 import { dashboardAPI, reportsAPI } from "../services/api";
@@ -136,17 +137,6 @@ export default function Dashboard() {
     const { t } = useTranslation();
     const { hasPermission } = useAuth();
 
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-    const [salesTrend, setSalesTrend] = useState<SalesTrendData[]>([]);
-    const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
-    const [upcomingDemos, setUpcomingDemos] = useState<UpcomingDemo[]>([]);
-    const [chartKey, setChartKey] = useState(0);
-    const [loadingChart, setLoadingChart] = useState(false);
-    const [collectedAmount, setCollectedAmount] = useState(0);
-    const [loadingCollected, setLoadingCollected] = useState(false);
-
     const getLocalISODate = (d: Date) => {
         const offset = d.getTimezoneOffset() * 60000;
         return new Date(d.getTime() - offset).toISOString().split("T")[0];
@@ -162,99 +152,114 @@ export default function Dashboard() {
         end: getLocalISODate(new Date()),
     });
 
-    useEffect(() => {
-        const fetchStartDate = async () => {
-            try {
-                const data = await dashboardAPI.getSystemStartDate();
-                const startDate = data?.start_date || "2024-01-01";
-                setSalesDateRange(prev => ({ ...prev, start: startDate }));
-                setCollectedPaymentRange(prev => ({ ...prev, start: startDate }));
-            } catch (err) {
-                console.error("Failed to fetch system start date", err);
-                const fallback = "2024-01-01";
-                setSalesDateRange(prev => ({ ...prev, start: fallback }));
-                setCollectedPaymentRange(prev => ({ ...prev, start: fallback }));
-            }
-        };
-        fetchStartDate();
-    }, []);
-
-    // Fetch collected payments — only if user has permission (skip API, not UI)
-    useEffect(() => {
-        if (!hasPermission(PERMISSIONS.VIEW_PAYMENTS)) return;
-        const fetchCollectedPayments = async () => {
-            try {
-                setLoadingCollected(true);
-                const data = await dashboardAPI.getCollectedPayments(
-                    collectedPaymentRange.start,
-                    collectedPaymentRange.end
-                );
-                setCollectedAmount(data.total_amount || 0);
-            } catch (err) {
-                console.error("Error fetching collected payments:", err);
-            } finally {
-                setLoadingCollected(false);
-            }
-        };
-        if (collectedPaymentRange.start && collectedPaymentRange.end) {
-            fetchCollectedPayments();
-        }
-    }, [collectedPaymentRange, hasPermission]);
-
-    const loadSalesTrendByDateRange = useCallback(async () => {
-        if (!hasPermission(PERMISSIONS.VIEW_REPORTS)) return;
-        try {
-            setLoadingChart(true);
-            const data = await reportsAPI.getSalesTrend({
-                interval: "daily",
-                start_date: salesDateRange.start,
-                end_date: salesDateRange.end,
-            });
-            const chartData = (data.trends || []).map((trend: any) => ({
-                sale_date: trend.period,
-                total_amount: parseFloat(trend.total_amount) || 0,
-                sales_count: parseInt(trend.sales_count) || 0,
-            }));
-            setSalesTrend(chartData);
-            setChartKey((prev) => prev + 1);
-        } catch (err) {
-            console.error("Error loading sales trend:", err);
-            setSalesTrend([]);
-        } finally {
-            setLoadingChart(false);
-        }
-    }, [salesDateRange, hasPermission]);
+    // ── System start date — sets initial value for both date pickers ───────────
+    const { data: systemDateData } = useQuery({
+        queryKey: ["system-start-date"],
+        queryFn: () => dashboardAPI.getSystemStartDate(),
+        staleTime: Infinity, // the earliest sale date never changes
+    });
 
     useEffect(() => {
-        loadDashboardData();
-    }, []);
-
-    useEffect(() => {
-        if (salesDateRange.start && salesDateRange.end) {
-            loadSalesTrendByDateRange();
+        const startDate = systemDateData?.start_date;
+        if (startDate) {
+            setSalesDateRange(prev => prev.start ? prev : { ...prev, start: startDate });
+            setCollectedPaymentRange(prev => prev.start ? prev : { ...prev, start: startDate });
         }
-    }, [salesDateRange, loadSalesTrendByDateRange]);
+    }, [systemDateData]);
 
-    const loadDashboardData = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            // Only call APIs the user is permitted to — skip API calls but keep UI rendered
-            const [metricsData, salesData, demosData] = await Promise.all([
-                hasPermission(PERMISSIONS.VIEW_DASHBOARD) ? dashboardAPI.getMetrics() : Promise.resolve(null),
-                hasPermission(PERMISSIONS.VIEW_SALES) ? dashboardAPI.getRecentSales(10) : Promise.resolve([]),
-                hasPermission(PERMISSIONS.VIEW_DEMOS) ? dashboardAPI.getUpcomingDemos(10) : Promise.resolve([]),
-            ]);
-            if (metricsData) setMetrics(metricsData);
-            setRecentSales(salesData || []);
-            setUpcomingDemos(demosData || []);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load dashboard data");
-            console.error("Dashboard error:", err);
-        } finally {
-            setLoading(false);
-        }
+    // ── Dashboard metrics (async RPC, RBAC-scoped) ────────────────────────────
+    const {
+        data: metrics,
+        isLoading: metricsLoading,
+        error: metricsError,
+        refetch: refetchMetrics,
+    } = useQuery<DashboardMetrics>({
+        queryKey: ["dashboard-metrics"],
+        queryFn: () => dashboardAPI.getMetrics(),
+        enabled: hasPermission(PERMISSIONS.VIEW_DASHBOARD),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    // ── Recent sales ──────────────────────────────────────────────────────────
+    const {
+        data: recentSales = [] as RecentSale[],
+        isLoading: salesLoading,
+        refetch: refetchSales,
+    } = useQuery<RecentSale[]>({
+        queryKey: ["recent-sales"],
+        queryFn: () => dashboardAPI.getRecentSales(10),
+        enabled: hasPermission(PERMISSIONS.VIEW_SALES),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    // ── Upcoming demos ────────────────────────────────────────────────────────
+    const {
+        data: upcomingDemos = [] as UpcomingDemo[],
+        isLoading: demosLoading,
+        refetch: refetchDemos,
+    } = useQuery<UpcomingDemo[]>({
+        queryKey: ["upcoming-demos"],
+        queryFn: () => dashboardAPI.getUpcomingDemos(10),
+        enabled: hasPermission(PERMISSIONS.VIEW_DEMOS),
+        staleTime: 5 * 60 * 1000,
+    });
+
+    // ── Sales trend — re-fetches automatically when date range changes ─────────
+    const {
+        data: salesTrendRaw,
+        isFetching: loadingChart,
+        refetch: refetchSalesTrend,
+    } = useQuery({
+        queryKey: ["sales-trend", salesDateRange.start, salesDateRange.end],
+        queryFn: () => reportsAPI.getSalesTrend({
+            interval: "daily",
+            start_date: salesDateRange.start,
+            end_date: salesDateRange.end,
+        }),
+        enabled: hasPermission(PERMISSIONS.VIEW_REPORTS) && !!salesDateRange.start && !!salesDateRange.end,
+        staleTime: 2 * 60 * 1000,
+    });
+
+    const salesTrend = useMemo(() =>
+        ((salesTrendRaw as any)?.trends || []).map((trend: any) => ({
+            sale_date: trend.period,
+            total_amount: parseFloat(trend.total_amount) || 0,
+            sales_count: parseInt(trend.sales_count) || 0,
+        })),
+        [salesTrendRaw]
+    );
+
+    // ── Collected payments — re-fetches automatically when date range changes ──
+    const {
+        data: collectedPaymentData,
+        isFetching: loadingCollected,
+    } = useQuery({
+        queryKey: ["collected-payments", collectedPaymentRange.start, collectedPaymentRange.end],
+        queryFn: () => dashboardAPI.getCollectedPayments(
+            collectedPaymentRange.start,
+            collectedPaymentRange.end,
+        ),
+        enabled: hasPermission(PERMISSIONS.VIEW_PAYMENTS) && !!collectedPaymentRange.start && !!collectedPaymentRange.end,
+        staleTime: 2 * 60 * 1000,
+    });
+
+    const collectedAmount = (collectedPaymentData as any)?.total_amount || 0;
+
+    // ── Derived states ────────────────────────────────────────────────────────
+    // `loading` true only on the very first load (no cached data yet)
+    const loading = (metricsLoading || salesLoading || demosLoading) && !metrics;
+    const error = metricsError ? (metricsError as Error).message : null;
+
+    // Kept for the Refresh button and error-state retry
+    const loadDashboardData = () => {
+        refetchMetrics();
+        refetchSales();
+        refetchDemos();
     };
+
+    // Kept for the chart Refresh icon button
+    const loadSalesTrendByDateRange = () => refetchSalesTrend();
+
 
     if (loading && !metrics && !hasPermission(PERMISSIONS.VIEW_DASHBOARD)) {
         // Non-dashboard users still see the shell, skip skeleton
@@ -278,7 +283,7 @@ export default function Dashboard() {
                             : error}
                     </Typography>
                     <Button variant="contained" startIcon={<RefreshIcon />}
-                        onClick={() => { setError(null); loadDashboardData(); }}>
+                        onClick={() => { loadDashboardData(); }}>
                         Refresh Page
                     </Button>
                 </Paper>
@@ -432,7 +437,7 @@ export default function Dashboard() {
                                         <Typography variant="body2" color="text.secondary">No sales data for selected date range</Typography>
                                     </Box>
                                 ) : (
-                                    <ResponsiveContainer width="100%" height={300} key={chartKey}>
+                                    <ResponsiveContainer width="100%" height={300}>
                                         <LineChart data={salesTrend}>
                                             <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
                                             <XAxis dataKey="sale_date" stroke={theme.palette.text.secondary} style={{ fontSize: "12px" }} />
