@@ -2215,6 +2215,28 @@ export default function Sales() {
             <NoteIcon sx={{ mr: 1 }} fontSize="small" color="info" />
             Manage Notes
           </MenuItem>
+          <MenuItem onClick={async () => {
+            handleMenuClose();
+            if (selectedActionSale) {
+              try {
+                const res = await telecallerOrderAPI.exportMergedExcel(selectedActionSale.sale_id);
+                // If the excel has no data (not a merged sale or no telecaller orders), backend returns an empty excel. 
+                // A toast will be better, but the simplest is just downloading what the backend gives.
+                const url = window.URL.createObjectURL(new Blob([res.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', `merged_orders_sale_${selectedActionSale.sale_id}.xlsx`);
+                document.body.appendChild(link);
+                link.click();
+                link.parentNode?.removeChild(link);
+              } catch (e: any) {
+                setToast({ msg: "Failed to download Merged Orders Excel (Sale might not have merged orders)", sev: "error" });
+              }
+            }
+          }}>
+            <DownloadIcon sx={{ mr: 1 }} fontSize="small" color="primary" />
+            Download Merged Excel
+          </MenuItem>
           {hasPermission(PERMISSIONS.DELETE_SALE) && (
             <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>
               <DeleteIcon sx={{ mr: 1 }} fontSize="small" color="error" />
