@@ -593,10 +593,10 @@ def export_confirmations_excel(
 ):
     """Export telecaller orders to Excel, optionally filtered by date. Telecallers only see their own."""
     try:
-        from rbac_utils import get_user_role_cached
-        role = get_user_role_cached(user_email, db)
+        user_resp = db.table("users").select("role").eq("email", user_email).execute()
+        role = user_resp.data[0]["role"] if user_resp.data else None
         
-        q = db.table("telecaller_orders").select("*")
+        q = db.table("telecaller_orders").select("*").in_("status", ["unconfirmed", "pending", "approved", "rejected"])
         
         if role in ["telecaller", "telecaller1", "telecaller2"]:
             q = q.eq("telecaller_email", user_email)
