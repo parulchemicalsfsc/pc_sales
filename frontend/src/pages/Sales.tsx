@@ -2217,7 +2217,7 @@ export default function Sales() {
           </MenuItem>
           <MenuItem onClick={async () => {
             handleMenuClose();
-            if (selectedActionSale) {
+            if (selectedActionSale && selectedActionSale.sale_id !== undefined) {
               try {
                 const res = await telecallerOrderAPI.exportMergedExcel(selectedActionSale.sale_id);
                 // If the excel has no data (not a merged sale or no telecaller orders), backend returns an empty excel. 
