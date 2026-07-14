@@ -221,7 +221,7 @@ class BulkMarkApprovedRequest(BaseModel):
     order_ids: List[int]
     sale_id: Optional[int] = None
 
-@router.post("/bulk-mark-approved", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+@router.post("/bulk-mark-approved", dependencies=[Depends(verify_permission("view_sales"))])
 def bulk_mark_approved(
     body: BulkMarkApprovedRequest,
     db: SupabaseClient = Depends(get_supabase),
@@ -252,7 +252,7 @@ def bulk_mark_approved(
         raise HTTPException(status_code=500, detail=f"Error approving orders: {str(e)}")
 
 
-@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("view_sales"))])
 def approve_telecaller_order(
     order_id: int,
     body: TelecallerOrderApprove,
@@ -412,7 +412,7 @@ def approve_telecaller_order(
         raise HTTPException(status_code=500, detail=f"Error approving order: {str(e)}")
 
 
-@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("view_sales"))])
 def reject_telecaller_order(
     order_id: int,
     body: TelecallerOrderReject,
