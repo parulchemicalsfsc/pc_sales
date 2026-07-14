@@ -192,6 +192,9 @@ export default function Sales() {
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [mergedTelecallerOrderIds, setMergedTelecallerOrderIds] = useState<number[]>([]);
+  const [downloadExcelDialogOpen, setDownloadExcelDialogOpen] = useState(false);
+  const [downloadExcelSaleId, setDownloadExcelSaleId] = useState<number | null>(null);
+  const [downloadExcelOrdersData, setDownloadExcelOrdersData] = useState<TelecallerOrder[]>([]);
 
   useEffect(() => {
     loadData();
@@ -1127,17 +1130,11 @@ export default function Sales() {
           await telecallerOrderAPI.bulkMarkApproved(mergedTelecallerOrderIds, response.sale.sale_id);
           loadTelecallerOrders();
           
-          // Ask if they want to download the merged excel
-          if (window.confirm("Sale created successfully. Do you want to download the Excel report for these merged orders?")) {
-            const res = await telecallerOrderAPI.exportMergedExcel(response.sale.sale_id);
-            const url = window.URL.createObjectURL(new Blob([res.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `merged_orders_sale_${response.sale.sale_id}.xlsx`);
-            document.body.appendChild(link);
-            link.click();
-            link.parentNode?.removeChild(link);
-          }
+          // Show dialog to download the merged excel
+          const ordersToDownload = telecallerOrders.filter(o => o.order_id && mergedTelecallerOrderIds.includes(o.order_id));
+          setDownloadExcelSaleId(response.sale.sale_id);
+          setDownloadExcelOrdersData(ordersToDownload);
+          setDownloadExcelDialogOpen(true);
         } catch (e) {
           console.error("Error marking telecaller orders as approved or exporting excel:", e);
         }
@@ -2528,7 +2525,63 @@ export default function Sales() {
             <Button onClick={() => setTelecallerOrdersDialogOpen(false)}>Close</Button>
           </DialogActions>
         </Dialog>
-
+        
+        {/* Merged Excel Download Dialog */}
+        <Dialog open={downloadExcelDialogOpen} onClose={() => setDownloadExcelDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Sale Created Successfully</DialogTitle>
+          <DialogContent>
+            <Typography variant="body1" gutterBottom>
+              A sale was successfully created from the selected {downloadExcelOrdersData.length} telecaller order(s).
+            </Typography>
+            <Box sx={{ mt: 2, mb: 2, maxHeight: 200, overflowY: 'auto', p: 1, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+              {downloadExcelOrdersData.map((order, idx) => {
+                let productsCount = 0;
+                try {
+                  const prods = typeof order.products_json === 'string' ? JSON.parse(order.products_json) : (order.products_json || []);
+                  productsCount = prods.length;
+                } catch(e) {}
+                
+                return (
+                  <Typography key={idx} variant="body2" sx={{ mb: 1 }}>
+                    • <strong>{order.customer_name}</strong> ({order.customer_village || 'No village'}) - {productsCount} product(s)
+                  </Typography>
+                );
+              })}
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              Would you like to download the Excel report containing the details of these merged orders?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDownloadExcelDialogOpen(false)} color="inherit">
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (downloadExcelSaleId) {
+                  try {
+                    const res = await telecallerOrderAPI.exportMergedExcel(downloadExcelSaleId);
+                    const url = window.URL.createObjectURL(new Blob([res.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `merged_orders_sale_${downloadExcelSaleId}.xlsx`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.parentNode?.removeChild(link);
+                  } catch (e) {
+                    setToast({ msg: "Failed to download excel", sev: "error" });
+                  }
+                }
+                setDownloadExcelDialogOpen(false);
+              }}
+              variant="contained"
+              color="primary"
+              startIcon={<DownloadIcon />}
+            >
+              Download Excel File
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </PermissionGate>
   );
