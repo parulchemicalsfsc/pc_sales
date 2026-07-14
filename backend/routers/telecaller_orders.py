@@ -244,7 +244,7 @@ def bulk_mark_approved(
             data["sale_id"] = body.sale_id
 
         # Update all orders in one go using in_
-        res = db.table("telecaller_orders").update(data).in_("order_id", body.order_ids).execute()
+        res = db.table("telecaller_orders").in_("order_id", body.order_ids).update(data).execute()
         
         return {"message": f"{len(body.order_ids)} orders marked as approved", "updated": len(res.data) if res.data else 0}
     except Exception as e:
