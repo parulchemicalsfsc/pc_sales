@@ -529,15 +529,18 @@ def get_my_assignments(
             query = query.neq("reason", "Scheduled Callback")
             count_query = count_query.neq("reason", "Scheduled Callback")
 
-        query = query.order("assignment_id", desc=True)
-
+        # Sorting
         if status:
             if status == "completed":
                 query = query.neq("status", "Pending")
                 count_query = count_query.neq("status", "Pending")
+                query = query.order("updated_at", desc=True)
             else:
                 query = query.eq("status", status)
                 count_query = count_query.eq("status", status)
+                query = query.order("assignment_id", desc=True)
+        else:
+            query = query.order("assignment_id", desc=True)
 
         query = query.limit(limit).offset(offset)
         res = query.execute()
@@ -554,15 +557,11 @@ def get_my_assignments(
         distributor_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
         customer_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
         
-        # Fallback for old records without entity_type: assume distributor if role is sales_manager, else customer
-        for a in assignments:
-            if not a.get("entity_type") and a.get("customer_id"):
-                if role == "sales_manager":
-                    distributor_ids.append(a["customer_id"])
-                    a["entity_type"] = "distributor"
-                else:
-                    customer_ids.append(a["customer_id"])
-                    a["entity_type"] = "customer"
+        # Fallback for old records without entity_type: check both tables
+        unknown_ids = [a["customer_id"] for a in assignments if not a.get("entity_type") and a.get("customer_id")]
+        if unknown_ids:
+            distributor_ids.extend(unknown_ids)
+            customer_ids.extend(unknown_ids)
 
         logger.info(f"[MY-ASSIGN] Enriching {len(distributor_ids)} distributor IDs, {len(customer_ids)} customer IDs")
         
@@ -626,12 +625,20 @@ def get_my_assignments(
 
         enhanced = []
         for a in assignments:
-            key = (a.get("entity_type", "customer"), a.get("customer_id"))
-            c = customers_map.get(key, {})
-            last_call = last_calls_map.get(a.get("customer_id"))
+            cid = a.get("customer_id")
+            etype = a.get("entity_type")
+            
+            c = {}
+            if etype:
+                c = customers_map.get((etype, cid), {})
+            else:
+                # Try both for legacy records
+                c = customers_map.get(("distributor", cid)) or customers_map.get(("customer", cid), {})
+                
+            last_call = last_calls_map.get(cid)
             enhanced.append({
                 **a,
-                "name": c.get("name", "Unknown"),
+                "name": c.get("name") or "Unknown",
                 "mobile": c.get("mobile", ""),
                 "village": c.get("village", ""),
                 "taluka": c.get("taluka", ""),

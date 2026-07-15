@@ -879,12 +879,22 @@ export default function CallingList() {
                         const istDate = rawDate.includes("+") || rawDate.endsWith("Z")
                           ? new Date(rawDate)
                           : new Date(rawDate + "+05:30");
-                        const scheduledLabel = isNaN(istDate.getTime())
-                          ? rawDate
-                          : istDate.toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+                          
+                        let dateOnly = isNaN(istDate.getTime()) ? rawDate : istDate.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
+                        
+                        const timeMatch = (item.notes || "").match(/^\[Time:\s*(\d{1,2}:\d{2})\]/);
+                        let timeStr = "";
+                        if (timeMatch) {
+                           const [hh, mm] = timeMatch[1].split(":");
+                           const h = parseInt(hh, 10);
+                           const ampm = h >= 12 ? 'pm' : 'am';
+                           const h12 = h % 12 || 12;
+                           timeStr = `, ${h12}:${mm} ${ampm}`;
+                        }
+                        
                         return (
                           <Typography variant="caption" sx={{ color: "#ea580c", fontWeight: 600, display: "block", mt: 0.5 }}>
-                            📅 Follow-up scheduled: {scheduledLabel}
+                            📅 Follow-up scheduled: {dateOnly}{timeStr}
                           </Typography>
                         );
                       })()}
