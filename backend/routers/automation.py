@@ -534,7 +534,7 @@ def get_my_assignments(
             if status == "completed":
                 query = query.neq("status", "Pending")
                 count_query = count_query.neq("status", "Pending")
-                query = query.order("updated_at", desc=True)
+                query = query.order("assignment_id", desc=True)
             else:
                 query = query.eq("status", status)
                 count_query = count_query.eq("status", status)
