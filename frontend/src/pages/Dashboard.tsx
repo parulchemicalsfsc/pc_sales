@@ -372,10 +372,10 @@ export default function Dashboard() {
                         ) : <MetricCardSkeleton />}
                     </Grid>
                 </PermissionGate>
-                <PermissionGate permission={PERMISSIONS.VIEW_DASHBOARD}>
+                <PermissionGate permission={PERMISSIONS.VIEW_PAYMENTS}>
                     <Grid item xs={12} sm={6} md={3}>
                         {metrics ? (
-                            <MetricCard title={t("dashboard.pendingPayments")} value={`₹${metrics.pending_amount.toLocaleString()}`}
+                            <MetricCard title={t("dashboard.pendingPayments")} value={`₹${(metrics.pending_amount || 0).toLocaleString()}`}
                                 subtitle={t("dashboard.outstandingAmount")}
                                 icon={<Receipt sx={{ fontSize: 32 }} />} color="#ed6c02" />
                         ) : <MetricCardSkeleton />}
