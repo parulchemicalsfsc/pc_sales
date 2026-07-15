@@ -554,23 +554,17 @@ def get_my_assignments(
 
         # Enrich with details based on entity_type
         # We need to separate them by entity_type to fetch from correct tables
-        distributor_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
-        customer_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
-        
-        # Fallback for old records without entity_type: check both tables
-        unknown_ids = [a["customer_id"] for a in assignments if not a.get("entity_type") and a.get("customer_id")]
-        if unknown_ids:
-            distributor_ids.extend(unknown_ids)
-            customer_ids.extend(unknown_ids)
+        # We collect all IDs and query both tables to be completely resilient against incorrect or missing entity_type
+        all_ids = list(set([a["customer_id"] for a in assignments if a.get("customer_id")]))
 
-        logger.info(f"[MY-ASSIGN] Enriching {len(distributor_ids)} distributor IDs, {len(customer_ids)} customer IDs")
+        logger.info(f"[MY-ASSIGN] Enriching {len(all_ids)} customer/distributor IDs from both tables")
         
         customers_map = {}
-        if distributor_ids:
+        if all_ids:
             try:
                 dist_res = db.table("distributors") \
                     .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
-                    .in_("distributor_id", distributor_ids) \
+                    .in_("distributor_id", all_ids) \
                     .execute()
                 for d in (dist_res.data or []):
                     customers_map[("distributor", d["distributor_id"])] = {
@@ -585,11 +579,10 @@ def get_my_assignments(
             except Exception as e:
                 logger.error(f"[MY-ASSIGN] ❌ Distributor enrichment failed: {e}", exc_info=True)
                 
-        if customer_ids:
             try:
                 cust_res = db.table("customers") \
                     .select("customer_id, name, village, taluka, district, mobile") \
-                    .in_("customer_id", customer_ids) \
+                    .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
                     customers_map[("customer", c["customer_id"])] = {
@@ -606,7 +599,6 @@ def get_my_assignments(
 
         # Fetch last call details
         last_calls_map = {}
-        all_ids = distributor_ids + customer_ids
         if all_ids:
             try:
                 logs_res = db.table("call_logs") \
@@ -628,12 +620,11 @@ def get_my_assignments(
             cid = a.get("customer_id")
             etype = a.get("entity_type")
             
-            c = {}
-            if etype:
-                c = customers_map.get((etype, cid), {})
-            else:
-                # Try both for legacy records
-                c = customers_map.get(("distributor", cid)) or customers_map.get(("customer", cid), {})
+            c = customers_map.get((etype, cid)) if etype else None
+            
+            if not c:
+                # Try both for legacy records or incorrect entity_type tags
+                c = customers_map.get(("customer", cid)) or customers_map.get(("distributor", cid), {})
                 
             last_call = last_calls_map.get(cid)
             enhanced.append({
@@ -724,27 +715,15 @@ def get_my_callbacks(
         res = q.execute()
         assignments = res.data or []
 
-        # ── Enrich with customer/distributor details ──
-        distributor_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "distributor" and a.get("customer_id")]
-        customer_ids = [a["customer_id"] for a in assignments if a.get("entity_type") == "customer" and a.get("customer_id")]
-
-        # Fallback for old records without entity_type
-        role = get_user_role_cached(user_email, db) or ""
-        for a in assignments:
-            if not a.get("entity_type") and a.get("customer_id"):
-                if role == "sales_manager":
-                    distributor_ids.append(a["customer_id"])
-                    a["entity_type"] = "distributor"
-                else:
-                    customer_ids.append(a["customer_id"])
-                    a["entity_type"] = "customer"
+        # We collect all IDs and query both tables to be completely resilient against incorrect or missing entity_type
+        all_ids = list(set([a["customer_id"] for a in assignments if a.get("customer_id")]))
 
         customers_map = {}
-        if distributor_ids:
+        if all_ids:
             try:
                 dist_res = db.table("distributors") \
                     .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
-                    .in_("distributor_id", distributor_ids) \
+                    .in_("distributor_id", all_ids) \
                     .execute()
                 for d in (dist_res.data or []):
                     customers_map[("distributor", d["distributor_id"])] = {
@@ -757,11 +736,10 @@ def get_my_callbacks(
             except Exception as e:
                 logger.error(f"[MY-CALLBACKS] Distributor enrichment failed: {e}", exc_info=True)
 
-        if customer_ids:
             try:
                 cust_res = db.table("customers") \
                     .select("customer_id, name, village, taluka, district, mobile") \
-                    .in_("customer_id", customer_ids) \
+                    .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
                     customers_map[("customer", c["customer_id"])] = {
@@ -776,8 +754,13 @@ def get_my_callbacks(
 
         enhanced = []
         for a in assignments:
-            key = (a.get("entity_type", "customer"), a.get("customer_id"))
-            c = customers_map.get(key, {})
+            cid = a.get("customer_id")
+            etype = a.get("entity_type")
+            
+            c = customers_map.get((etype, cid)) if etype else None
+            if not c:
+                c = customers_map.get(("customer", cid)) or customers_map.get(("distributor", cid), {})
+                
             enhanced.append({
                 **a,
                 "name": c.get("name", "Unknown"),
