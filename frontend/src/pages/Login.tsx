@@ -9,10 +9,13 @@ import {
   InputAdornment,
   CircularProgress,
   Container,
+  IconButton,
 } from "@mui/material";
 import {
   MailOutline as MailOutlineIcon,
   LockOutlined as LockOutlinedIcon,
+  Visibility,
+  VisibilityOff,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -21,6 +24,7 @@ import { useTranslation } from "../hooks/useTranslation";
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -188,14 +192,21 @@ export default function Login() {
                   fullWidth
                   variant="standard"
                   label="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading}
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
-                        <LockOutlinedIcon sx={{ color: "#2a1538" }} fontSize="small" />
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                          sx={{ color: "#2a1538" }}
+                        >
+                          {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                        </IconButton>
                       </InputAdornment>
                     ),
                   }}
@@ -239,37 +250,6 @@ export default function Login() {
               </Box>
             </form>
 
-            <Box
-              sx={{
-                mt: 8,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Typography
-                variant="body2"
-                sx={{ 
-                  color: "rgba(42,21,56,0.7)", 
-                  fontSize: "0.85rem",
-                  cursor: "pointer", 
-                  "&:hover": { color: "#2a1538" } 
-                }}
-              >
-                Creat an account
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ 
-                  color: "rgba(42,21,56,0.7)", 
-                  fontSize: "0.85rem",
-                  cursor: "pointer", 
-                  "&:hover": { color: "#2a1538" } 
-                }}
-              >
-                Forgot your password
-              </Typography>
-            </Box>
           </Box>
         </Paper>
       </Container>
