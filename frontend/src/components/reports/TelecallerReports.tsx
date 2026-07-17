@@ -43,7 +43,22 @@ import {
   PictureAsPdf as PdfIcon,
   TableChart as ExcelIcon,
   Download as DownloadIcon,
+  Timeline as TimelineIcon,
+  LocationOn as LocationIcon,
+  Storefront as StoreIcon,
 } from "@mui/icons-material";
+import { DimensionTable } from "./DimensionTable";
+import { KpiCard } from "./KpiCard";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { useAuth } from "../../contexts/AuthContext";
 import { reportsAPI } from "../../services/api";
 
@@ -94,80 +109,6 @@ const getProgressColor = (pct: number) => {
 
 // ─── Components ──────────────────────────────────────────────────────────────
 
-function KpiCard({
-  label,
-  value,
-  percentage,
-  subLabel,
-  icon,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string;
-  percentage?: string;
-  subLabel?: string;
-  icon: React.ReactNode;
-  color: string;
-  loading: boolean;
-}) {
-  return (
-    <Card
-      sx={{
-        height: "100%",
-        borderTop: `4px solid ${color}`,
-        borderRadius: 2,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
-        transition: "transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
-        "&:hover": { transform: "translateY(-4px)", boxShadow: "0 8px 24px rgba(0,0,0,0.12)" },
-      }}
-    >
-      <CardContent sx={{ p: 3 }}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>
-              {label}
-            </Typography>
-            {loading ? (
-              <Skeleton width={120} height={40} sx={{ mt: 1 }} />
-            ) : (
-              <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mt: 0.5 }}>
-                <Typography variant="h4" sx={{ fontWeight: 800, color }}>
-                  {value}
-                </Typography>
-                {percentage && (
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", bgcolor: "action.hover", px: 1, py: 0.25, borderRadius: 1 }}>
-                    {percentage}
-                  </Typography>
-                )}
-              </Box>
-            )}
-            {subLabel && !loading && (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                {subLabel}
-              </Typography>
-            )}
-          </Box>
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: `${color}15`,
-              color,
-              flexShrink: 0,
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-}
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -193,11 +134,13 @@ export default function TelecallerReports() {
     end_date: thisMonth.end,
     telecaller_email: null as string | null,
     order_status: "all",
+    view_by: "daily" as "daily" | "weekly" | "monthly",
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
+  const [chartsData, setChartsData] = useState<any>(null);
 
   // Derive unique telecallers from performance data if possible, or leave empty
   const telecallerOptions = data?.performance?.map((p: any) => p.email) || [];
@@ -248,13 +191,23 @@ export default function TelecallerReports() {
     setLoading(true);
     setError(null);
     try {
-      const response = await reportsAPI.getTelecallerDashboard({
-        start_date: filters.start_date,
-        end_date: filters.end_date,
-        telecaller_email: filters.telecaller_email || undefined,
-        order_status: filters.order_status === "all" ? undefined : filters.order_status,
-      });
+      const [response, chartsRes] = await Promise.all([
+        reportsAPI.getTelecallerDashboard({
+          start_date: filters.start_date,
+          end_date: filters.end_date,
+          telecaller_email: filters.telecaller_email || undefined,
+          order_status: filters.order_status === "all" ? undefined : filters.order_status,
+        }),
+        reportsAPI.getTelecallerCharts({
+          start_date: filters.start_date,
+          end_date: filters.end_date,
+          telecaller_email: filters.telecaller_email || undefined,
+          view_by: filters.view_by,
+        })
+      ]);
+      console.log("DEBUG: Frontend chartsRes:", chartsRes);
       setData(response);
+      setChartsData(chartsRes);
     } catch (e: any) {
       setError(e?.message || "Failed to load telecaller dashboard");
     } finally {
@@ -374,6 +327,22 @@ export default function TelecallerReports() {
               <MenuItem value="approved">Approved</MenuItem>
               <MenuItem value="rejected">Rejected</MenuItem>
             </TextField>
+
+            <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+            
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary" }}>View By:</Typography>
+              <ToggleButtonGroup
+                value={filters.view_by}
+                exclusive
+                size="small"
+                onChange={(_, v) => { if (v) setFilters((f) => ({ ...f, view_by: v })); }}
+              >
+                <ToggleButton value="daily" sx={{ px: 2, fontWeight: 600 }}>Daily</ToggleButton>
+                <ToggleButton value="weekly" sx={{ px: 2, fontWeight: 600 }}>Weekly</ToggleButton>
+                <ToggleButton value="monthly" sx={{ px: 2, fontWeight: 600 }}>Monthly</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
           </Box>
         </CardContent>
       </Card>
@@ -461,9 +430,14 @@ export default function TelecallerReports() {
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700, width: 36 }}>#</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Telecaller</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Calls</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Calls</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Connected</TableCell>
                         <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Connected %</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Callback</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Not Reachable</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Wrong Number</TableCell>
                         <TableCell sx={{ fontWeight: 700 }} align="right">Orders</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Conversion %</TableCell>
                         <TableCell sx={{ fontWeight: 700 }} align="right">Attendance %</TableCell>
                         <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
                       </TableRow>
@@ -489,6 +463,9 @@ export default function TelecallerReports() {
                             <Typography variant="body2">{row.calls}</Typography>
                           </TableCell>
                           <TableCell align="right">
+                            <Typography variant="body2">{row.connected_calls || 0}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
                             <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
                               <Typography variant="caption" sx={{ fontWeight: 600 }}>
                                 {row.connected_pct}%
@@ -502,7 +479,19 @@ export default function TelecallerReports() {
                             </Box>
                           </TableCell>
                           <TableCell align="right">
-                            <Typography variant="body2">{row.orders}</Typography>
+                            <Typography variant="body2" color="text.secondary">{row.callback || 0}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="text.secondary">{row.not_reachable || 0}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="text.secondary">{row.wrong_number || 0}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.orders}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>{row.conversion_pct}%</Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2">{row.attendance_pct}%</Typography>
@@ -698,6 +687,138 @@ export default function TelecallerReports() {
         </Grid>
         
       </Grid>
+
+      {/* ── Geographical Analysis ── */}
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
+        <LocationIcon color="primary" />
+        Geographical Analysis
+      </Typography>
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12} md={6}>
+          <DimensionTable
+            title="Telecalling by District"
+            icon={<LocationIcon />}
+            rows={data?.district_breakdown || []}
+            loading={loading}
+            colLabel="District"
+            mode="telecaller"
+          />
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <DimensionTable
+            title="Telecalling by Village"
+            icon={<StoreIcon />}
+            rows={data?.village_breakdown || []}
+            loading={loading}
+            colLabel="Village"
+            colSub="District"
+            mode="telecaller"
+          />
+        </Grid>
+      </Grid>
+
+      {/* ── Performance Analytics Charts ── */}
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
+        <TimelineIcon color="primary" />
+        Performance Analytics
+      </Typography>
+
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {/* Calls Trend (Bar) */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%", borderRadius: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Calls Trend</Typography>
+              <Box sx={{ width: "100%", height: 300 }}>
+                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                  <ResponsiveContainer>
+                    <BarChart data={chartsData?.calls_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                      <Bar dataKey="calls" name="Total Calls" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Orders Trend (Bar) */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%", borderRadius: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Orders Trend</Typography>
+              <Box sx={{ width: "100%", height: 300 }}>
+                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                  <ResponsiveContainer>
+                    <BarChart data={chartsData?.orders_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                      <Bar dataKey="orders" name="Orders Generated" fill={theme.palette.warning.main} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Call Outcomes (Stacked Bar) */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%", borderRadius: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Call Outcome Analysis</Typography>
+              <Box sx={{ width: "100%", height: 300 }}>
+                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                  <ResponsiveContainer>
+                    <BarChart data={chartsData?.outcomes_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                      <Legend />
+                      <Bar dataKey="connected" stackId="a" name="Connected" fill={theme.palette.success.main} />
+                      <Bar dataKey="callback" stackId="a" name="Callback" fill={theme.palette.info.main} />
+                      <Bar dataKey="not_reachable" stackId="a" name="Not Reachable" fill={theme.palette.warning.main} />
+                      <Bar dataKey="wrong_number" stackId="a" name="Wrong Number" fill={theme.palette.error.main} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Top Performing Telecallers (Horizontal Bar) */}
+        <Grid item xs={12} md={6}>
+          <Card sx={{ height: "100%", borderRadius: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Top Performing Telecallers</Typography>
+              <Box sx={{ width: "100%", height: 300 }}>
+                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                  <ResponsiveContainer>
+                    <BarChart layout="vertical" data={chartsData?.top_telecallers?.map((t: any) => ({ ...t, name: extractNameFromEmail(t.telecaller_email) })) || []} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 12 }} />
+                      <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
+                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                      <Bar dataKey="orders_generated" name="Orders Generated" fill={theme.palette.secondary.main} radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+
 
       {/* ── Enhanced Downloads Section ── */}
       <Card sx={{ mt: 2, mb: 3 }}>

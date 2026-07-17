@@ -1427,3 +1427,32 @@ def download_telecaller_report(
     except Exception as e:
         print(f"Error generating telecaller export: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating telecaller export: {str(e)}")
+
+@router.get("/telecaller/charts", dependencies=[Depends(verify_permission("view_reports"))])
+def get_telecaller_charts_api(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    view_by: str = "daily",
+    telecaller_email: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Get chart data aggregated by time interval for telecaller reports"""
+    try:
+        from services.telecaller_reports import get_telecaller_charts
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            
+        return get_telecaller_charts(
+            db=db,
+            start_date=start_date,
+            end_date=end_date,
+            view_by=view_by,
+            telecaller_email=telecaller_email
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching telecaller charts: {str(e)}")

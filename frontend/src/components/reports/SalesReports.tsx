@@ -46,6 +46,8 @@ import {
 import { useAuth } from "../../contexts/AuthContext";
 import { reportsAPI } from "../../services/api";
 import { useTranslation } from "../../hooks/useTranslation";
+import { KpiCard } from "./KpiCard";
+import { DimensionTable, DimensionRow } from "./DimensionTable";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Filters {
@@ -66,16 +68,6 @@ interface KPISummary {
   top_district_amount: number;
   top_product: string | null;
   top_product_amount: number;
-}
-
-interface DimensionRow {
-  rank: number;
-  label: string;
-  secondary_label: string | null;
-  orders: number;
-  revenue: number;
-  liters: number;
-  pct: number;
 }
 
 interface FilterOptions {
@@ -116,195 +108,7 @@ const fmtCurrency = (v: number) =>
 const fmtLiters = (v: number) =>
   `${v.toLocaleString("en-IN", { maximumFractionDigits: 1 })} L`;
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-function KpiCard({
-  label,
-  value,
-  sub,
-  icon,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  color: string;
-  loading: boolean;
-}) {
-  return (
-    <Card
-      sx={{
-        height: "100%",
-        borderTop: `3px solid ${color}`,
-        transition: "transform 0.18s, box-shadow 0.18s",
-        "&:hover": { transform: "translateY(-2px)", boxShadow: 4 },
-      }}
-    >
-      <CardContent sx={{ p: 2.5 }}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              {label}
-            </Typography>
-            {loading ? (
-              <Skeleton width={100} height={36} />
-            ) : (
-              <Typography variant="h5" sx={{ fontWeight: 700, mt: 0.5, color }}>
-                {value}
-              </Typography>
-            )}
-            {sub && !loading && (
-              <Typography variant="caption" color="text.secondary">
-                {sub}
-              </Typography>
-            )}
-          </Box>
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 2,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: `${color}18`,
-              color,
-              flexShrink: 0,
-            }}
-          >
-            {icon}
-          </Box>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-}
 
-// ─── Dimension Table ──────────────────────────────────────────────────────────
-function DimensionTable({
-  title,
-  icon,
-  rows,
-  loading,
-  colLabel,
-  colSub,
-  showLitersAs,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  rows: DimensionRow[];
-  loading: boolean;
-  colLabel: string;
-  colSub?: string;
-  showLitersAs?: "liters" | "qty";
-}) {
-  const theme = useTheme();
-  return (
-    <Card sx={{ height: "100%" }}>
-      <CardContent sx={{ p: 0 }}>
-        <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-          <Box sx={{ color: "primary.main" }}>{icon}</Box>
-          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
-            {title}
-          </Typography>
-          <Chip label={rows.length} size="small" sx={{ ml: "auto" }} />
-        </Box>
-        {loading ? (
-          <Box sx={{ p: 2 }}>
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />
-            ))}
-          </Box>
-        ) : rows.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: "center" }}>
-            <Typography color="text.secondary" variant="body2">No data for selected filters</Typography>
-          </Box>
-        ) : (
-          <TableContainer sx={{ maxHeight: 340 }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 700, width: 36 }}>#</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>{colLabel}</TableCell>
-                  {colSub && <TableCell sx={{ fontWeight: 700, display: { xs: "none", sm: "table-cell" } }}>{colSub}</TableCell>}
-                  <TableCell sx={{ fontWeight: 700 }} align="right">Orders</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="right">Revenue</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }} align="right">{showLitersAs === "qty" ? "Qty" : "Liters"}</TableCell>
-                  <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Share</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow
-                    key={row.rank}
-                    hover
-                    sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}
-                  >
-                    <TableCell>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontWeight: 700,
-                          color: row.rank <= 3 ? "warning.main" : "text.secondary",
-                        }}
-                      >
-                        {row.rank}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {row.label}
-                      </Typography>
-                      {row.secondary_label && colSub === undefined && (
-                        <Typography variant="caption" color="text.secondary">
-                          {row.secondary_label}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    {colSub && (
-                      <TableCell sx={{ display: { xs: "none", sm: "table-cell" } }}>
-                        <Typography variant="caption" color="text.secondary">
-                          {row.secondary_label || "—"}
-                        </Typography>
-                      </TableCell>
-                    )}
-                    <TableCell align="right">
-                      <Typography variant="body2">{row.orders}</Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: "success.main" }}>
-                        {fmtCurrency(row.revenue)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" color="text.secondary">
-                        {showLitersAs === "qty" ? row.liters : fmtLiters(row.liters)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                          {row.pct}%
-                        </Typography>
-                        <LinearProgress
-                          variant="determinate"
-                          value={row.pct}
-                          sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
-                          color="primary"
-                        />
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function SalesReports() {

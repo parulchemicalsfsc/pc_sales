@@ -397,6 +397,16 @@ export const reportsAPI = {
     });
     return response.data;
   },
+
+  getTelecallerCharts: async (params: {
+    start_date?: string;
+    end_date?: string;
+    telecaller_email?: string;
+    view_by?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/telecaller/charts", { params });
+    return response.data;
+  },
 };
 
 // Forecasting API

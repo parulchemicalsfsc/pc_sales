@@ -11,7 +11,7 @@ def get_telecaller_dashboard(
 ) -> Dict[str, Any]:
     
     # 1. Fetch Call Logs
-    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
     if telecaller_email:
         call_logs_query = call_logs_query.eq("user_email", telecaller_email)
     call_logs = call_logs_query.execute().data or []
@@ -23,7 +23,7 @@ def get_telecaller_dashboard(
     attendance = attendance_query.execute().data or []
 
     # 3. Fetch Orders
-    orders_query = db.table("telecaller_orders").select("telecaller_email, status").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
+    orders_query = db.table("telecaller_orders").select("telecaller_email, status, customer_id, customer_village").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
     if telecaller_email:
         orders_query = orders_query.eq("telecaller_email", telecaller_email)
     if order_status:
@@ -40,6 +40,9 @@ def get_telecaller_dashboard(
     # Call stats per telecaller
     tc_calls = defaultdict(int)
     tc_connected = defaultdict(int)
+    tc_callback = defaultdict(int)
+    tc_not_reachable = defaultdict(int)
+    tc_wrong_number = defaultdict(int)
     tc_time = defaultdict(int)
     tc_time_count = defaultdict(int)
     outcome_counts = defaultdict(int)
@@ -54,8 +57,16 @@ def get_telecaller_dashboard(
         
         outcome = log.get("call_outcome") or "Unknown"
         outcome_counts[outcome] += 1
-        if outcome.lower() == "connected":
+        
+        outcome_lower = outcome.lower()
+        if "connect" in outcome_lower:
             tc_connected[email] += 1
+        elif "callback" in outcome_lower:
+            tc_callback[email] += 1
+        elif "reach" in outcome_lower:
+            tc_not_reachable[email] += 1
+        elif "wrong" in outcome_lower:
+            tc_wrong_number[email] += 1
             
         time_taken = log.get("time_taken")
         if time_taken is not None:
@@ -93,6 +104,90 @@ def get_telecaller_dashboard(
             tc_orders_rejected[email] += 1
         else:
             tc_orders_pending[email] += 1
+
+    # -------------------------------------------------------------
+    # GEOGRAPHICAL ANALYSIS
+    # -------------------------------------------------------------
+    customer_ids = {log.get("customer_id") for log in call_logs if log.get("customer_id")}
+    customer_ids.update({ord.get("customer_id") for ord in orders if ord.get("customer_id")})
+    
+    customers_dict = {}
+    if customer_ids:
+        customers_resp = db.table("customers").select("customer_id, district, village").in_("customer_id", list(customer_ids)).execute()
+        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+
+    print("--- GEOGRAPHICAL ANALYSIS DEBUG ---")
+    print(f"Total call_logs fetched: {len(call_logs)}")
+    print(f"Total telecaller_orders fetched: {len(orders)}")
+    print(f"Number of unique customer_ids extracted: {len(customer_ids)}")
+    print(f"Number of customer records successfully matched: {len(customers_dict)}")
+
+    dist_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0})
+    vill_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0, "district": ""})
+
+    for log in call_logs:
+        cid = log.get("customer_id")
+        cust = customers_dict.get(cid, {}) if cid else {}
+        dist = cust.get("district") or "Not Available"
+        vill = cust.get("village") or "Not Available"
+        
+        dist_stats[dist]["calls"] += 1
+        vill_stats[vill]["calls"] += 1
+        if not vill_stats[vill]["district"] or vill_stats[vill]["district"] == "Not Available":
+            vill_stats[vill]["district"] = dist
+            
+        outcome_lower = (log.get("call_outcome") or "").lower()
+        if "connect" in outcome_lower:
+            dist_stats[dist]["connected"] += 1
+            vill_stats[vill]["connected"] += 1
+
+    for ord in orders:
+        cid = ord.get("customer_id")
+        cust = customers_dict.get(cid, {}) if cid else {}
+        
+        # Fallback to customer_village if missing customer_id
+        if not cid and ord.get("customer_village"):
+            vill = ord.get("customer_village")
+            dist = "Not Available"
+        else:
+            dist = cust.get("district") or "Not Available"
+            vill = cust.get("village") or "Not Available"
+            
+        dist_stats[dist]["orders"] += 1
+        vill_stats[vill]["orders"] += 1
+        if not vill_stats[vill]["district"] or vill_stats[vill]["district"] == "Not Available":
+            vill_stats[vill]["district"] = dist
+
+    district_breakdown = []
+    for rank, (dist, stats) in enumerate(sorted(dist_stats.items(), key=lambda x: x[1]["calls"], reverse=True), 1):
+        calls = stats["calls"]
+        conn = stats["connected"]
+        ords = stats["orders"]
+        conv = (ords / conn * 100) if conn else 0
+        district_breakdown.append({
+            "rank": rank,
+            "label": dist,
+            "orders": calls,           # Frontend expects DimensionRow format (calls -> orders)
+            "revenue": conn,           # connected -> revenue
+            "liters": ords,            # orders -> liters
+            "pct": round(conv, 1)      # conversion pct -> pct
+        })
+
+    village_breakdown = []
+    for rank, (vill, stats) in enumerate(sorted(vill_stats.items(), key=lambda x: x[1]["calls"], reverse=True), 1):
+        calls = stats["calls"]
+        conn = stats["connected"]
+        ords = stats["orders"]
+        conv = (ords / conn * 100) if conn else 0
+        village_breakdown.append({
+            "rank": rank,
+            "label": vill,
+            "secondary_label": stats["district"],
+            "orders": calls,
+            "revenue": conn,
+            "liters": ords,
+            "pct": round(conv, 1)
+        })
 
     # Build KPI Summary
     total_connected = sum(tc_connected.values())
@@ -145,8 +240,13 @@ def get_telecaller_dashboard(
         performance_list.append({
             "email": email,
             "calls": calls,
+            "connected_calls": connected,
             "connected_pct": round((connected / calls * 100) if calls else 0, 1),
+            "callback": tc_callback[email],
+            "not_reachable": tc_not_reachable[email],
+            "wrong_number": tc_wrong_number[email],
             "orders": ords,
+            "conversion_pct": round((ords / connected * 100) if connected > 0 else 0, 1),
             "attendance_pct": round((pres / total_duty_days * 100), 1),
             "avg_duration": round((time_sum / time_cnt) if time_cnt else 0, 1)
         })
@@ -174,13 +274,20 @@ def get_telecaller_dashboard(
     # Sort Performance by Total Calls DESC
     performance_list.sort(key=lambda x: x["calls"], reverse=True)
     
-    return {
+    response_data = {
         "summary": summary,
         "call_outcomes": call_outcomes_list,
         "performance": performance_list,
         "attendance": sorted(attendance_list, key=lambda x: x["present_days"], reverse=True),
-        "orders": sorted(orders_list, key=lambda x: x["total_orders"], reverse=True)
+        "orders": sorted(orders_list, key=lambda x: x["total_orders"], reverse=True),
+        "district_breakdown": district_breakdown,
+        "village_breakdown": village_breakdown
     }
+    print("--- GEOGRAPHICAL BREAKDOWN OUTPUT ---")
+    print(f"District records: {len(district_breakdown)}")
+    print(f"Village records: {len(village_breakdown)}")
+    
+    return response_data
 
 def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None):
     dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
@@ -285,3 +392,48 @@ def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, te
             order.get("notes", "") or ""
         ])
     return headers, rows
+
+def get_telecaller_charts(db: SupabaseClient, start_date: str, end_date: str, view_by: str = 'daily', telecaller_email: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Fetch aggregated charts data from the dedicated RPC.
+    """
+    params = {
+        "p_start_date": start_date,
+        "p_end_date": end_date,
+        "p_view_by": view_by
+    }
+    if telecaller_email:
+        params["p_telecaller_email"] = telecaller_email
+        
+    try:
+        print(f"DEBUG: Executing RPC get_telecaller_charts_data with params: {params}")
+        result = db.rpc('get_telecaller_charts_data', params)
+        print(f"DEBUG: Raw RPC result type: {type(result)}")
+        print(f"DEBUG: Raw RPC result: {result}")
+        
+        # PostgREST sometimes returns a list of objects or a single value for JSONB RPCs
+        if isinstance(result, list) and len(result) > 0:
+            result = result[0]
+            print(f"DEBUG: Extracted first element from list: {result}")
+            
+        # Ensure fallback lists if null
+        parsed_result = {
+            "calls_trend": result.get("calls_trend") if isinstance(result, dict) else [],
+            "orders_trend": result.get("orders_trend") if isinstance(result, dict) else [],
+            "outcomes_trend": result.get("outcomes_trend") if isinstance(result, dict) else [],
+            "top_telecallers": result.get("top_telecallers") if isinstance(result, dict) else []
+        }
+        print(f"DEBUG: Final parsed charts data: {parsed_result}")
+        return parsed_result
+    except Exception as e:
+        import traceback
+        print(f"Error fetching telecaller charts data: {str(e)}")
+        traceback.print_exc()
+        # Return empty structure on failure
+        return {
+            "calls_trend": [],
+            "orders_trend": [],
+            "outcomes_trend": [],
+            "top_telecallers": []
+        }
+
