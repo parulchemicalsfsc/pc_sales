@@ -1,89 +1,60 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from supabase_db import SupabaseClient, get_supabase
-from rbac_utils import verify_permission
+from fastapi import APIRouter, Depends, Header, HTTPException
+from supabase_db import AsyncSupabaseClient, SupabaseClient, get_async_supabase, get_supabase
+from rbac_utils import get_user_permissions, verify_permission
 
 router = APIRouter()
 
 
 # ======================
 # Dashboard Metrics
-# FIX-4: Use count-only queries instead of fetching entire tables.
-# Previously: fetched ALL rows of 4 tables, counted/summed in Python.
-# Now: targeted selects with only required columns.
+# Optimised: single async RPC call to get_dashboard_metrics().
+# The DB function computes only the metrics the backend asks for.
+# The backend asks only for metrics the user’s live permissions allow.
+# This keeps RBAC fully dynamic (no SQL changes when roles change).
 # ======================
 @router.get("/metrics", dependencies=[Depends(verify_permission("view_dashboard"))])
-def dashboard_metrics(db: SupabaseClient = Depends(get_supabase)):
-    """Get dashboard metrics using targeted queries (FIX-4 optimized)"""
+async def dashboard_metrics(
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+    async_db: AsyncSupabaseClient = Depends(get_async_supabase),
+    sync_db: SupabaseClient = Depends(get_supabase),
+):
+    """Get dashboard metrics via a single async DB-side aggregation RPC."""
     try:
-        # 1. Sales Metrics — only fetch the 2 columns we actually use
-        sales_response = db.table("sales").select("total_amount, payment_status").execute()
-        sales_data = sales_response.data or []
+        # 1. Resolve which metrics this user can see.
+        #    get_user_permissions() hits an in-memory cache — near-zero cost.
+        perms = get_user_permissions(user_email or "", sync_db)
 
-        total_sales = sum((s.get("total_amount") or 0) for s in sales_data)
-        total_transactions = len(sales_data)
+        metrics_to_fetch: List[str] = []
 
-        # 2. Customer Metrics — using exact count to avoid pagination limit
-        total_resp = (
-            db.table("customers")
-            .select("*", count="exact")
-            .limit(1)
-            .execute()
-        )
-        total_customers = total_resp.count or 0
+        # view_dashboard is already enforced by the route guard above,
+        # but we check again so the list is built from the live permission set.
+        if "view_dashboard" in perms:
+            metrics_to_fetch += [
+                "total_sales",
+                "total_transactions",
+                "total_customers",
+                "active_customers",
+                "demo_conversion_rate",
+            ]
 
-        active_resp = (
-            db.table("customers")
-            .select("*", count="exact")
-            .ilike("status", "active")
-            .limit(1)
-            .execute()
-        )
-        active_customers = active_resp.count or 0
+        # Payment metrics require an extra permission beyond view_dashboard.
+        if "view_payments" in perms:
+            metrics_to_fetch += [
+                "pending_amount",
+                "payment_method_distribution",
+            ]
 
-        # 3. Demo Conversion Rate — only fetch conversion_status column
-        demo_conversion_rate = 0
-        try:
-            demos_response = db.table("demos").select("conversion_status").execute()
-            demos_data = demos_response.data or []
+        if not metrics_to_fetch:
+            return {}
 
-            total_demos = len(demos_data)
-            converted_demos = sum(
-                1 for d in demos_data
-                if str(d.get("conversion_status", "")).lower() == "converted"
-            )
-
-            if total_demos > 0:
-                demo_conversion_rate = round((converted_demos / total_demos) * 100, 2)
-        except Exception as demo_err:
-            print(f"Warning: Could not fetch demos data: {demo_err}")
-
-        # 4. Payment Method Distribution — only fetch the 2 columns we need
-        payments_response = db.table("payments").select("payment_method, amount").execute()
-        payments_data = payments_response.data or []
-
-        payment_method_distribution = {}
-        total_collected = 0
-        for p in payments_data:
-            method = p.get("payment_method") or "Unknown"
-            amount = p.get("amount") or 0
-            payment_method_distribution[method] = payment_method_distribution.get(method, 0) + amount
-            total_collected += amount
-
-        # Calculate accurate pending amount by subtracting all collected payments from total sales
-        pending_amount = max(0, total_sales - total_collected)
-
-        return {
-            "total_sales": total_sales,
-            "total_transactions": total_transactions,
-            "pending_amount": pending_amount,
-            "total_customers": total_customers,
-            "active_customers": active_customers,
-            "demo_conversion_rate": demo_conversion_rate,
-            "payment_method_distribution": payment_method_distribution,
-        }
+        # 2. Single async RPC — Supabase aggregates server-side, returns 1 JSON row.
+        #    The await here frees the FastAPI event loop for other requests
+        #    while the network round-trip to Tokyo completes.
+        result = await async_db.rpc("get_dashboard_metrics", {"metrics": metrics_to_fetch})
+        return result
 
     except Exception as e:
         print(f"Error in dashboard_metrics: {e}")

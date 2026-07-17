@@ -673,8 +673,8 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
-  getMyCallbacks: async () => {
-    const response = await apiClient.get("/api/automation/my-callbacks");
+  getMyCallbacks: async (date?: string) => {
+    const response = await apiClient.get("/api/automation/my-callbacks", { params: { date } });
     return response.data;
   },
   getCallingSummary: async () => {
@@ -1136,6 +1136,17 @@ export const telecallerOrderAPI = {
     const response = await apiClient.post(`/api/telecaller-orders/${orderId}/approve`, { notes });
     return response.data;
   },
+  telecallerConfirm: async (orderId: number) => {
+    const response = await apiClient.post(`/api/telecaller-orders/${orderId}/telecaller-confirm`);
+    return response.data;
+  },
+  bulkMarkApproved: async (orderIds: number[], saleId?: number) => {
+    const response = await apiClient.post(`/api/telecaller-orders/bulk-mark-approved`, {
+      order_ids: orderIds,
+      sale_id: saleId,
+    });
+    return response.data;
+  },
   reject: async (orderId: number, reason: string) => {
     const response = await apiClient.post(`/api/telecaller-orders/${orderId}/reject`, { reason });
     return response.data;
@@ -1148,6 +1159,20 @@ export const telecallerOrderAPI = {
     const params = date ? { date } : {};
     const response = await apiClient.get("/api/telecaller-orders/my-confirmation-calls", { params });
     return response.data;
+  },
+  exportMergedExcel: async (saleId: number) => {
+    const response = await apiClient.get(`/api/telecaller-orders/export-merged-excel/${saleId}`, {
+      responseType: 'blob',
+    });
+    return response;
+  },
+  exportConfirmationsExcel: async (date?: string) => {
+    const params = date ? { date } : {};
+    const response = await apiClient.get("/api/telecaller-orders/export-confirmations-excel", {
+      params,
+      responseType: 'blob',
+    });
+    return response;
   },
 };
 

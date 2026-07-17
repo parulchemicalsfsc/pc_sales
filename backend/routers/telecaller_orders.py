@@ -9,9 +9,11 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 import pytz
 
 from models import TelecallerOrderCreate, TelecallerOrderApprove, TelecallerOrderReject
+from pydantic import BaseModel
 from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
 from activity_logger import ActivityLogger
@@ -70,7 +72,7 @@ def create_telecaller_order(
             "customer_village": order.customer_village,
             "products_json": products_json,
             "confirmation_date": order.confirmation_date,
-            "status": "pending",
+            "status": "unconfirmed",
             "notes": order.notes,
         }
 
@@ -80,23 +82,9 @@ def create_telecaller_order(
 
         created = result.data[0]
 
-        try:
-            users = _fetch_all(db, "app_users", "email, role")
-            sm_emails = [u["email"] for u in users if u.get("role") == "sales_manager"]
-            for sm_email in sm_emails:
-                create_notification_helper(
-                    db,
-                    title="New Telecaller Order Pending",
-                    message=f"{user_email} submitted an order for {order.customer_name}",
-                    notification_type="info",
-                    user_email=sm_email,
-                    entity_type="telecaller_order",
-                    entity_id=created.get("order_id"),
-                )
-        except Exception as n_err:
-            logger.warning(f"Failed to send notification: {n_err}")
+        created = result.data[0]
 
-        return {"message": "Order submitted for approval", "order": created}
+        return {"message": "Order submitted for confirmation", "order": created}
     except HTTPException:
         raise
     except Exception as e:
@@ -128,8 +116,47 @@ def get_telecaller_orders(
             except Exception:
                 pass
 
+        ids_by_type = {
+            "Sabhasad": set(),
+            "Mantri": set(),
+            "Doctor": set(),
+            "Shopkeeper": set()
+        }
+        for o in orders:
+            ctype = o.get("customer_type")
+            cid = o.get("customer_id")
+            if ctype in ids_by_type and cid:
+                ids_by_type[ctype].add(cid)
+                
+        locations_map = {}
+        try:
+            if ids_by_type["Sabhasad"]:
+                res = db.table("customers").select("customer_id, state, district, taluka, village").in_("customer_id", list(ids_by_type["Sabhasad"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Sabhasad", r["customer_id"])] = r
+            if ids_by_type["Mantri"]:
+                res = db.table("distributors").select("distributor_id, state, district, taluka, village").in_("distributor_id", list(ids_by_type["Mantri"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Mantri", r["distributor_id"])] = r
+            if ids_by_type["Doctor"]:
+                res = db.table("doctors").select("doctor_id, state, district, taluka, village").in_("doctor_id", list(ids_by_type["Doctor"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Doctor", r["doctor_id"])] = r
+            if ids_by_type["Shopkeeper"]:
+                res = db.table("shopkeepers").select("shopkeeper_id, state, district, taluka, village").in_("shopkeeper_id", list(ids_by_type["Shopkeeper"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Shopkeeper", r["shopkeeper_id"])] = r
+        except Exception as e:
+            logger.error(f"Error fetching locations for orders: {e}")
+
         for o in orders:
             o["telecaller_name"] = name_map.get(o.get("telecaller_email", ""), o.get("telecaller_email", "Unknown"))
+            loc = locations_map.get((o.get("customer_type"), o.get("customer_id")), {})
+            o["customer_state"] = loc.get("state")
+            o["customer_district"] = loc.get("district")
+            o["customer_taluka"] = loc.get("taluka")
+            if not o.get("customer_village"):
+                o["customer_village"] = loc.get("village")
 
         return orders
     except HTTPException:
@@ -139,13 +166,93 @@ def get_telecaller_orders(
         raise HTTPException(status_code=500, detail=f"Error fetching telecaller orders: {str(e)}")
 
 
+@router.post("/{order_id}/telecaller-confirm", dependencies=[Depends(verify_permission("view_calling_list"))])
+def telecaller_confirm_order(
+    order_id: int,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Telecaller confirms the order, sending it to the Sales Manager."""
+    try:
+        order_resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
+        if not order_resp.data:
+            raise HTTPException(status_code=404, detail="Order not found")
+            
+        order = order_resp.data[0]
+        if order.get("status") != "unconfirmed":
+            raise HTTPException(status_code=400, detail=f"Order is already {order.get('status')}")
+
+        db.table("telecaller_orders").eq("order_id", order_id).update({
+            "status": "pending",
+            "updated_at": datetime.now().isoformat(),
+        }).execute()
+
+        try:
+            users = _fetch_all(db, "app_users", "email, role")
+            sm_emails = [u["email"] for u in users if u.get("role") == "sales_manager"]
+            for sm_email in sm_emails:
+                create_notification_helper(
+                    db,
+                    title="New Telecaller Order Pending",
+                    message=f"{order.get('telecaller_email')} submitted an order for {order.get('customer_name')}",
+                    notification_type="info",
+                    user_email=sm_email,
+                    entity_type="telecaller_order",
+                    entity_id=order_id,
+                )
+        except Exception as n_err:
+            logger.warning(f"Failed to send notification: {n_err}")
+        
+        return {"message": "Order confirmed and sent to Sales Manager"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error confirming telecaller order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error confirming order: {str(e)}")
+
+
 @router.get("/pending", dependencies=[Depends(verify_permission("view_sales"))])
 def get_pending_telecaller_orders(db: SupabaseClient = Depends(get_supabase)):
     """Get only pending telecaller orders (convenience endpoint)."""
     return get_telecaller_orders(status="pending", db=db)
 
 
-@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+class BulkMarkApprovedRequest(BaseModel):
+    order_ids: List[int]
+    sale_id: Optional[int] = None
+
+@router.post("/bulk-mark-approved", dependencies=[Depends(verify_permission("view_sales"))])
+def bulk_mark_approved(
+    body: BulkMarkApprovedRequest,
+    db: SupabaseClient = Depends(get_supabase),
+    user_email: Optional[str] = Header(None, alias="x-user-email"),
+):
+    """Mark multiple telecaller orders as approved (used when merging into a single sale)."""
+    try:
+        if user_email:
+            user_email = user_email.strip()
+
+        if not body.order_ids:
+            return {"message": "No orders to approve"}
+
+        data = {
+            "status": "approved",
+            "approved_by": user_email,
+            "updated_at": datetime.now().isoformat()
+        }
+        if body.sale_id is not None:
+            data["sale_id"] = body.sale_id
+
+        # Update all orders in one go using in_
+        res = db.table("telecaller_orders").in_("order_id", body.order_ids).update(data).execute()
+        
+        return {"message": f"{len(body.order_ids)} orders marked as approved", "updated": len(res.data) if res.data else 0}
+    except Exception as e:
+        logger.error(f"Error in bulk mark approved: {e}")
+        raise HTTPException(status_code=500, detail=f"Error approving orders: {str(e)}")
+
+
+@router.post("/{order_id}/approve", dependencies=[Depends(verify_permission("view_sales"))])
 def approve_telecaller_order(
     order_id: int,
     body: TelecallerOrderApprove,
@@ -305,7 +412,7 @@ def approve_telecaller_order(
         raise HTTPException(status_code=500, detail=f"Error approving order: {str(e)}")
 
 
-@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("manage_telecaller_orders"))])
+@router.post("/{order_id}/reject", dependencies=[Depends(verify_permission("view_sales"))])
 def reject_telecaller_order(
     order_id: int,
     body: TelecallerOrderReject,
@@ -391,7 +498,7 @@ def get_my_confirmation_calls(
 
         q = db.table("telecaller_orders").select("*") \
             .eq("telecaller_email", user_email) \
-            .eq("status", "pending") \
+            .eq("status", "unconfirmed") \
             .order("created_at", desc=True)
 
         if date:
@@ -421,6 +528,110 @@ def get_my_confirmation_calls(
         raise HTTPException(status_code=500, detail=f"Error fetching confirmation calls: {str(e)}")
 
 
+@router.get("/export-merged-excel/{sale_id}", dependencies=[Depends(verify_permission("view_sales"))])
+def export_merged_excel(sale_id: int, db: SupabaseClient = Depends(get_supabase)):
+    """Export telecaller orders merged into a specific sale as an Excel file."""
+    try:
+        resp = db.table("telecaller_orders").select("*").eq("sale_id", sale_id).execute()
+        orders = resp.data or []
+        
+        data = []
+        for o in orders:
+            prods = o.get("products_json") or "[]"
+            try:
+                if isinstance(prods, str):
+                    prods = json.loads(prods)
+                prod_str = ", ".join([f"{p.get('product_name') or p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+            except:
+                prod_str = str(prods)
+            
+            data.append({
+                "Date": o.get("created_at", "")[:10],
+                "Telecaller Email": o.get("telecaller_email", ""),
+                "Customer Name": o.get("customer_name", ""),
+                "Village": o.get("customer_village", ""),
+                "Mobile": o.get("customer_mobile", ""),
+                "Products": prod_str,
+                "Notes": o.get("notes", ""),
+                "Status": o.get("status", "")
+            })
+            
+        import pandas as pd
+        import io
+        df = pd.DataFrame(data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Merged Orders')
+        output.seek(0)
+        
+        headers = {
+            'Content-Disposition': f'attachment; filename="merged_orders_sale_{sale_id}.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        logger.error(f"Error exporting merged excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export-confirmations-excel", dependencies=[Depends(verify_permission("view_calling_list"))])
+def export_confirmations_excel(
+    date: Optional[str] = None,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Export telecaller orders to Excel, optionally filtered by date. Telecallers only see their own."""
+    try:
+        user_resp = db.table("app_users").select("role").eq("email", user_email).execute()
+        role = user_resp.data[0]["role"] if user_resp.data else None
+        
+        q = db.table("telecaller_orders").select("*").in_("status", ["unconfirmed", "pending", "approved", "rejected"])
+        
+        if role in ["telecaller", "telecaller1", "telecaller2"]:
+            q = q.eq("telecaller_email", user_email)
+            
+        if date:
+            q = q.like("created_at", f"{date}%")
+            
+        resp = q.execute()
+        orders = resp.data or []
+        
+        data = []
+        for o in orders:
+            prods = o.get("products_json") or "[]"
+            try:
+                if isinstance(prods, str):
+                    prods = json.loads(prods)
+                prod_str = ", ".join([f"{p.get('product_name') or p.get('name', 'Unknown')} (Qty: {p.get('quantity', 1)})" for p in prods])
+            except:
+                prod_str = str(prods)
+                
+            data.append({
+                "Date": o.get("created_at", "")[:10],
+                "Time": o.get("created_at", "")[11:16] if len(o.get("created_at", "")) > 16 else "",
+                "Customer Name": o.get("customer_name", ""),
+                "Village": o.get("customer_village", ""),
+                "Mobile": o.get("customer_mobile", ""),
+                "Products": prod_str,
+                "Status": o.get("status", ""),
+                "Notes": o.get("notes", ""),
+            })
+            
+        import pandas as pd
+        import io
+        df = pd.DataFrame(data)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Telecaller Orders')
+        output.seek(0)
+        
+        filename_date = date if date else "all"
+        headers = {
+            'Content-Disposition': f'attachment; filename="telecaller_orders_{filename_date}.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        logger.error(f"Error exporting confirmations excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
 def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
     """Get a single telecaller order by ID."""
@@ -433,4 +644,5 @@ def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabas
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching order: {str(e)}")
+
 
