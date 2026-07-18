@@ -49,6 +49,7 @@ import {
   SupervisorAccount as SalesManagerIcon,
   RecordVoiceOver as TelecallerIcon,
   ArrowDropDown as ArrowDropDownIcon,
+  Download as DownloadIcon,
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
@@ -250,6 +251,21 @@ export default function CallDistribution() {
     }
   };
 
+  const handleExportExcel = async () => {
+    try {
+      const res = await automationAPI.exportAdminAssignmentsExcel(distStatus?.date);
+      const url = window.URL.createObjectURL(new Blob([res]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `admin_assignments_${distStatus?.date || "all"}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (e: any) {
+      setToast({ msg: "Failed to download Excel", sev: "error" });
+    }
+  };
+
   const effectiveBulkPriority = viewFilter === "telecaller" ? "Any" : bulkPriority;
 
   const handleBulk = async () => {
@@ -377,6 +393,15 @@ export default function CallDistribution() {
           </Box>
           {/* Top-right controls: help button */}
           <Stack direction="row" spacing={1} alignItems="center">
+            <Button 
+              variant="outlined" 
+              size="small" 
+              startIcon={<DownloadIcon />} 
+              onClick={handleExportExcel}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, mr: 1 }}
+            >
+              Export Excel
+            </Button>
             <Tooltip title="How to use this page">
               <IconButton onClick={() => setHelpOpen(true)} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, color: "primary.main" }}>
                 <HelpIcon fontSize="small" />

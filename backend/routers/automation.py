@@ -1775,6 +1775,97 @@ def get_admin_assignments(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/export-assignments-excel")
+def export_admin_assignments_excel(
+    target_date: Optional[str] = Query(None),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin: Export all assignments for a date to Excel."""
+    try:
+        import pandas as pd
+        import io
+        from fastapi.responses import StreamingResponse
+
+        d = target_date or get_today_ist()
+
+        res = db.table("calling_assignments") \
+            .select("*") \
+            .eq("assigned_date", d) \
+            .order("assignment_id") \
+            .execute()
+
+        assignments = res.data or []
+
+        dist_ids = list(set([a["customer_id"] for a in assignments if a.get("entity_type") != "customer" and a.get("customer_id")]))
+        cust_ids = list(set([a["customer_id"] for a in assignments if a.get("entity_type") != "distributor" and a.get("customer_id")]))
+
+        distributors_map = {}
+        if dist_ids:
+            dist_res = db.table("distributors").select("distributor_id, mantri_name, mantri_mobile, village, taluka, district").in_("distributor_id", dist_ids).execute()
+            for dist_row in (dist_res.data or []):
+                distributors_map[dist_row["distributor_id"]] = dist_row
+
+        customers_map = {}
+        if cust_ids:
+            cust_res = db.table("customers").select("customer_id, name, mobile, village, taluka, district").in_("customer_id", cust_ids).execute()
+            for cust_row in (cust_res.data or []):
+                customers_map[cust_row["customer_id"]] = cust_row
+
+        export_data = []
+        for a in assignments:
+            e_type = a.get("entity_type")
+            cid = a.get("customer_id")
+            
+            if e_type == "customer" or (e_type != "distributor" and cid in customers_map and cid not in distributors_map):
+                info = customers_map.get(cid, {})
+                name = info.get("name") or "Unknown"
+                mobile = info.get("mobile") or ""
+                village = info.get("village") or ""
+                taluka = info.get("taluka") or ""
+                district = info.get("district") or ""
+            else:
+                info = distributors_map.get(cid, {})
+                name = info.get("mantri_name") or "Unknown"
+                mobile = info.get("mantri_mobile") or ""
+                village = info.get("village") or ""
+                taluka = info.get("taluka") or ""
+                district = info.get("district") or ""
+                
+            export_data.append({
+                "Assignment ID": a.get("assignment_id"),
+                "User Email": a.get("user_email"),
+                "Entity Type": a.get("entity_type", "distributor").capitalize(),
+                "Customer Name": name,
+                "Mobile": mobile,
+                "Village": village,
+                "Taluka": taluka,
+                "District": district,
+                "Status": a.get("status"),
+                "Priority": a.get("priority"),
+                "Reason": a.get("reason"),
+                "Assigned Date": a.get("assigned_date"),
+                "Notes": a.get("notes"),
+            })
+
+        df = pd.DataFrame(export_data)
+        excel_buffer = io.BytesIO()
+        
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Assignments')
+        
+        excel_buffer.seek(0)
+        
+        filename = f"assignments_{d}.xlsx"
+        return StreamingResponse(
+            excel_buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error exporting admin assignments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/admin/distribute-mantris")
 def admin_distribute(
     force: bool = Query(False, description="Set true to re-distribute even if already done today"),

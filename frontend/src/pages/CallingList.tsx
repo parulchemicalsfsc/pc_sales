@@ -178,6 +178,26 @@ export default function CallingList() {
   const [notes, setNotes] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  
+  // Wizard States
+  const [callConn, setCallConn] = useState("");
+  const [callReach, setCallReach] = useState("");
+  const [callInterest, setCallInterest] = useState("");
+  const [callReason, setCallReason] = useState("");
+  const [callSubReason, setCallSubReason] = useState("");
+  const [callRetry, setCallRetry] = useState("");
+
+  const resetWizard = () => {
+    setOutcome("");
+    setNotes("");
+    setCallbackDate("");
+    setCallConn("");
+    setCallReach("");
+    setCallInterest("");
+    setCallReason("");
+    setCallSubReason("");
+    setCallRetry("");
+  };
 
   // Estimation Calculator Dialog
   const [calcOpen, setCalcOpen] = useState(false);
@@ -454,17 +474,51 @@ export default function CallingList() {
   };
 
   const submitOutcome = async () => {
-    if (!outcome) return;
+    let finalOutcome = outcome;
+    let finalNotes = notes || "";
+
+    if (callConn) {
+      if (callConn === "connected") {
+        if (callReach === "reached") {
+          finalOutcome = "connected";
+          if (callInterest === "interested") {
+            finalNotes = `[Customer Reached - Interested] ${finalNotes}`;
+          } else if (callInterest === "not_interested") {
+            finalNotes = `[Customer Reached - Not Interested] Reason: ${callReason} ${callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
+          } else return;
+        } else if (callReach === "not_reached") {
+          finalOutcome = "not_reachable";
+          finalNotes = `[Customer Not Reached - ${callReason}] | ${finalNotes}`;
+        } else return;
+      } else if (callConn === "not_connected") {
+        if (callRetry === "retry") {
+          finalOutcome = "callback";
+          finalNotes = `[Call Not Connected - Retry] | ${finalNotes}`;
+        } else if (callRetry === "close") {
+          finalOutcome = "not_reachable";
+          finalNotes = `[Call Not Connected - Close] | ${finalNotes}`;
+        } else return;
+      }
+    }
+
+    if (!finalOutcome) return;
 
     // Route to correct handler based on which dialog context is active
-    if (orderCallItem) return submitOrderCallOutcome();
+    if (orderCallItem) {
+      const oldOutcome = outcome;
+      setOutcome(finalOutcome); 
+      // submitOrderCallOutcome uses `outcome` and `notes` state directly, so we need to pass them or update them
+      // Since it's an async call relying on state, it's safer to pass them if we changed it, but for order calls, they might use the old UI?
+      // Wait, order confirmations still use the old UI or quick UI? 
+      // The instructions are for the telecaller call log, which applies to pending calls. Let's assume order confirmations use the same wizard or old UI. If old UI, outcome is already set.
+    }
 
-    if (!isQuickCall && !activeItem) return;
+    if (!isQuickCall && !activeItem && !orderCallItem) return;
 
-    if (outcome === "take_order") {
+    if (finalOutcome === "take_order") {
       return handleTakeOrder();
     }
-    if (outcome === "callback" && !callbackDate) {
+    if (finalOutcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       setSubmitting(false);
       return;
@@ -479,9 +533,9 @@ export default function CallingList() {
         await automationAPI.logAdhocCall({
           entity_id: entityId,
           entity_type: entityType,
-          call_outcome: outcome,
-          notes: notes,
-          callback_date: outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
+          call_outcome: finalOutcome,
+          notes: finalNotes,
+          callback_date: finalOutcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -501,7 +555,7 @@ export default function CallingList() {
           load(pagination.page);
         }
       } else {
-        await automationAPI.updateCallStatus(activeItem!.assignment_id, outcome, notes, outcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined);
+        await automationAPI.updateCallStatus(activeItem!.assignment_id, finalOutcome, finalNotes, finalOutcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined);
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
         setCallbackCallItem(null);
@@ -1374,32 +1428,167 @@ export default function CallingList() {
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
 
-          <Stack spacing={1} sx={{ mb: 2.5 }}>
-            {CALL_OUTCOMES.filter(o => !(isQuickCall && o.value === "take_order")).map(o => (
-              <Box
-                key={o.value}
-                onClick={() => setOutcome(o.value)}
-                sx={{
-                  p: 1.5,
-                  borderRadius: 2,
-                  cursor: "pointer",
-                  border: `2px solid ${outcome === o.value ? o.color : border}`,
-                  bgcolor: outcome === o.value ? alpha(o.color, 0.06) : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 1.5,
-                  transition: "all 0.12s",
-                  "&:hover": { borderColor: alpha(o.color, 0.5), bgcolor: alpha(o.color, 0.03) },
-                }}
-              >
-                <Box sx={{ color: o.color }}>{o.icon}</Box>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: outcome === o.value ? 700 : 500 }}>{o.label}</Typography>
-                  <Typography variant="caption" sx={{ color: "text.secondary" }}>{o.desc}</Typography>
-                </Box>
-              </Box>
-            ))}
+          {/* Main Connection Toggle */}
+          <Stack direction="row" spacing={1} sx={{ mb: 2.5 }}>
+            <Button
+              fullWidth
+              variant={callConn === "connected" ? "contained" : "outlined"}
+              onClick={() => { setCallConn("connected"); setCallReach(""); setCallInterest(""); setCallReason(""); setCallRetry(""); }}
+              sx={{ borderRadius: 2, textTransform: "none", py: 1 }}
+            >
+              Call Connected
+            </Button>
+            <Button
+              fullWidth
+              variant={callConn === "not_connected" ? "contained" : "outlined"}
+              onClick={() => { setCallConn("not_connected"); setCallReach(""); setCallInterest(""); setCallReason(""); setCallRetry(""); }}
+              sx={{ borderRadius: 2, textTransform: "none", py: 1 }}
+            >
+              Not Connected
+            </Button>
           </Stack>
+
+          {/* Connected Details */}
+          {callConn === "connected" && (
+            <Box sx={{ p: 1.5, mb: 2.5, bgcolor: alpha(theme.palette.primary.main, 0.04), borderRadius: 2, border: `1px solid ${border}` }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 1 }}>
+                Status
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                <Button
+                  fullWidth
+                  variant={callReach === "reached" ? "contained" : "outlined"}
+                  color="success"
+                  onClick={() => { setCallReach("reached"); setCallInterest(""); setCallReason(""); }}
+                  sx={{ borderRadius: 2, textTransform: "none" }}
+                >
+                  Customer Reached
+                </Button>
+                <Button
+                  fullWidth
+                  variant={callReach === "not_reached" ? "contained" : "outlined"}
+                  color="error"
+                  onClick={() => { setCallReach("not_reached"); setCallReason(""); setCallInterest(""); }}
+                  sx={{ borderRadius: 2, textTransform: "none" }}
+                >
+                  Customer Not Reached
+                </Button>
+              </Stack>
+
+              {callReach === "reached" && (
+                <Box>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 1 }}>
+                    Interest Level
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                    <Button
+                      fullWidth
+                      variant={callInterest === "interested" ? "contained" : "outlined"}
+                      onClick={() => { setCallInterest("interested"); setCallReason(""); }}
+                      sx={{ borderRadius: 2, textTransform: "none" }}
+                    >
+                      Interested
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant={callInterest === "not_interested" ? "contained" : "outlined"}
+                      color="warning"
+                      onClick={() => { setCallInterest("not_interested"); setCallReason(""); }}
+                      sx={{ borderRadius: 2, textTransform: "none" }}
+                    >
+                      Not Interested
+                    </Button>
+                  </Stack>
+
+                  {callInterest === "not_interested" && (
+                    <Box sx={{ mb: 1 }}>
+                      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                        <InputLabel>Reason</InputLabel>
+                        <Select
+                          value={callReason}
+                          label="Reason"
+                          onChange={(e) => { setCallReason(e.target.value); setCallSubReason(""); }}
+                          sx={{ borderRadius: 2, bgcolor: surface }}
+                        >
+                          <MenuItem value="Expensive">Expensive</MenuItem>
+                          <MenuItem value="Decision Maker">Decision Maker</MenuItem>
+                          <MenuItem value="Trust Issue">Trust Issue</MenuItem>
+                          <MenuItem value="Not a Pashupalak">Not a Pashupalak</MenuItem>
+                          <MenuItem value="Invalid Number">Invalid Number</MenuItem>
+                          <MenuItem value="Using Other Brand">Using Other Brand</MenuItem>
+                          <MenuItem value="Quality Concern">Quality Concern</MenuItem>
+                          <MenuItem value="Other">Other</MenuItem>
+                        </Select>
+                      </FormControl>
+                      {["Expensive", "Decision Maker", "Trust Issue", "Using Other Brand", "Quality Concern", "Other"].includes(callReason) && (
+                        <TextField
+                          label="Specific Details"
+                          size="small"
+                          fullWidth
+                          value={callSubReason}
+                          onChange={e => setCallSubReason(e.target.value)}
+                          placeholder={callReason === "Using Other Brand" ? "Brand name & result?" : callReason === "Expensive" ? "YES / NO" : callReason === "Decision Maker" ? "Who & Number?" : "Details..."}
+                          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                        />
+                      )}
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {callReach === "not_reached" && (
+                <Box sx={{ mb: 1 }}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 1 }}>
+                    Reason
+                  </Typography>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Select Reason</InputLabel>
+                    <Select
+                      value={callReason}
+                      label="Select Reason"
+                      onChange={(e) => setCallReason(e.target.value)}
+                      sx={{ borderRadius: 2, bgcolor: surface }}
+                    >
+                      <MenuItem value="Busy">Busy</MenuItem>
+                      <MenuItem value="No Answer">No Answer</MenuItem>
+                      <MenuItem value="Switched Off">Switched Off</MenuItem>
+                      <MenuItem value="Call Rejected">Call Rejected</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Not Connected Details */}
+          {callConn === "not_connected" && (
+            <Box sx={{ p: 1.5, mb: 2.5, bgcolor: alpha(theme.palette.warning.main, 0.04), borderRadius: 2, border: `1px solid ${border}` }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 1 }}>
+                Action
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                <Button
+                  fullWidth
+                  variant={callRetry === "retry" ? "contained" : "outlined"}
+                  color="warning"
+                  onClick={() => { setCallRetry("retry"); setCallbackDate(""); }}
+                  sx={{ borderRadius: 2, textTransform: "none" }}
+                >
+                  Retry / Callback
+                </Button>
+                <Button
+                  fullWidth
+                  variant={callRetry === "close" ? "contained" : "outlined"}
+                  color="error"
+                  onClick={() => setCallRetry("close")}
+                  sx={{ borderRadius: 2, textTransform: "none" }}
+                >
+                  Close Status
+                </Button>
+              </Stack>
+            </Box>
+          )}
+
           <TextField
             label="Notes"
             multiline
@@ -1407,10 +1596,11 @@ export default function CallingList() {
             fullWidth
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder="Optional details..."
+            placeholder="Additional optional details..."
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
-          {outcome === "callback" && (
+          
+          {(callRetry === "retry" || outcome === "callback") && (
             <TextField
               type="datetime-local"
               label="Followback Date & Time"
@@ -1420,21 +1610,46 @@ export default function CallingList() {
               onChange={e => setCallbackDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
               inputProps={{ min: new Date().toISOString().slice(0, 16) }}
-              sx={{ mt: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+              sx={{ mt: 2.5, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
             />
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
-          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={submitOutcome}
-            disabled={!outcome || submitting || (outcome === "callback" && !callbackDate)}
-            startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
-            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
-          >
-            {submitting ? "Saving…" : (isQuickCall && qcCurrentIndex < qcQueue.length - 1 ? "Save & Next" : "Submit")}
-          </Button>
+          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); resetWizard(); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          
+          <Stack direction="row" spacing={1}>
+            {callConn === "connected" && callReach === "reached" && callInterest === "interested" && !isQuickCall && (
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={() => { 
+                  // If Take Order is clicked, we override finalOutcome directly, or set state and call submitOutcome
+                  setOutcome("take_order"); 
+                  setTimeout(submitOutcome, 0); 
+                }}
+                disabled={submitting}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+              >
+                Take Order
+              </Button>
+            )}
+            <Button
+              variant="contained"
+              onClick={submitOutcome}
+              disabled={
+                submitting ||
+                (!callConn ||
+                 (callConn === "connected" && (!callReach || (callReach === "reached" && !callInterest) || (callReach === "not_reached" && !callReason))) ||
+                 (callConn === "not_connected" && !callRetry) ||
+                 (callConn === "not_connected" && callRetry === "retry" && !callbackDate)
+                )
+              }
+              startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
+            >
+              {submitting ? "Saving…" : (isQuickCall && qcCurrentIndex < qcQueue.length - 1 ? "Save & Next" : "Submit")}
+            </Button>
+          </Stack>
         </DialogActions>
       </Dialog>
 

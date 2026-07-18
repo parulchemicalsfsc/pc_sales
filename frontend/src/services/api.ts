@@ -683,6 +683,13 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/admin/assignments", { params });
     return response.data;
   },
+  exportAdminAssignmentsExcel: async (target_date?: string) => {
+    const response = await apiClient.get("/api/automation/admin/export-assignments-excel", {
+      params: { target_date },
+      responseType: "blob",
+    });
+    return response.data;
+  },
   getTelecallerProfile: async (email: string) => {
     const response = await apiClient.get("/api/automation/admin/telecaller-profile", { params: { email } });
     return response.data;
