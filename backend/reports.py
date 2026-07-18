@@ -1346,3 +1346,82 @@ class ReportGenerator:
                 df.to_excel(writer, sheet_name="Customer Report", index=False)
         buffer.seek(0)
         return buffer.getvalue()
+
+    def generate_generic_table_pdf(
+        self,
+        title: str,
+        subtitle: str,
+        headers: List[str],
+        data_rows: List[List[Any]],
+        metadata_filters: List[str]
+    ) -> bytes:
+        """Generic PDF generator for a standard table of rows"""
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5 * inch,
+                                leftMargin=0.4 * inch, rightMargin=0.4 * inch)
+        elements = []
+
+        # Header
+        self._add_header(elements, title, " | ".join(metadata_filters))
+
+        if subtitle:
+            elements.append(Paragraph(subtitle, self.styles["CustomSubtitle"]))
+
+        if not data_rows:
+            elements.append(Spacer(1, 0.5 * inch))
+            elements.append(Paragraph("No records found for the selected filters.", self.styles["CustomTitle"]))
+        else:
+            # Prepare table data
+            table_data = [headers]
+            for row in data_rows:
+                table_data.append([str(item) if item is not None else "" for item in row])
+
+            # Calculate standard table style
+            # Create a clean table style
+            style = TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+                ("ALIGN", (0, 0), (-1, 0), "LEFT"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("TOPPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#374151")),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 1), (-1, -1), 9),
+                ("ALIGN", (0, 1), (-1, -1), "LEFT"),
+                ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#e5e7eb")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ])
+            
+            # Determine column widths based on page width
+            available_width = A4[0] - 0.8 * inch
+            col_width = available_width / max(len(headers), 1)
+
+            t = Table(table_data, colWidths=[col_width] * len(headers), repeatRows=1)
+            t.setStyle(style)
+            elements.append(t)
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    def generate_generic_table_excel(
+        self,
+        sheet_name: str,
+        headers: List[str],
+        data_rows: List[List[Any]]
+    ) -> bytes:
+        """Generic Excel generator for a standard table of rows"""
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            if data_rows:
+                df = pd.DataFrame(data_rows, columns=headers)
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+            else:
+                # Output a single cell stating no records found
+                df = pd.DataFrame([["No records found."]], columns=["Message"])
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+        buffer.seek(0)
+        return buffer.getvalue()
