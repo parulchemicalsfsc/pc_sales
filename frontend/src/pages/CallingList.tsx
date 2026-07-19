@@ -35,6 +35,7 @@ import {
   InputLabel,
   Autocomplete,
   Checkbox,
+  FormControlLabel,
   InputAdornment,
 } from "@mui/material";
 import {
@@ -183,8 +184,11 @@ export default function CallingList() {
   const [callConn, setCallConn] = useState("");
   const [callReach, setCallReach] = useState("");
   const [callInterest, setCallInterest] = useState("");
+  const [interestedIntro, setInterestedIntro] = useState(false);
+  const [interestedDetails, setInterestedDetails] = useState("");
   const [callReason, setCallReason] = useState("");
   const [callSubReason, setCallSubReason] = useState("");
+  const [qualityFollowUpDate, setQualityFollowUpDate] = useState("");
   const [callRetry, setCallRetry] = useState("");
 
   const resetWizard = () => {
@@ -194,8 +198,11 @@ export default function CallingList() {
     setCallConn("");
     setCallReach("");
     setCallInterest("");
+    setInterestedIntro(false);
+    setInterestedDetails("");
     setCallReason("");
     setCallSubReason("");
+    setQualityFollowUpDate("");
     setCallRetry("");
   };
 
@@ -482,9 +489,13 @@ export default function CallingList() {
         if (callReach === "reached") {
           finalOutcome = "connected";
           if (callInterest === "interested") {
-            finalNotes = `[Customer Reached - Interested] ${finalNotes}`;
+            finalNotes = `[Customer Reached - Interested] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
           } else if (callInterest === "not_interested") {
-            finalNotes = `[Customer Reached - Not Interested] Reason: ${callReason} ${callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
+            let reasonText = callReason;
+            if (callReason === "Quality Concern" && qualityFollowUpDate) {
+               reasonText += ` (Follow up: ${qualityFollowUpDate.replace("T", " ")})`;
+            }
+            finalNotes = `[Customer Reached - Not Interested] Reason: ${reasonText} ${callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
           } else return;
         } else if (callReach === "not_reached") {
           finalOutcome = "not_reachable";
@@ -535,7 +546,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: finalOutcome,
           notes: finalNotes,
-          callback_date: finalOutcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined,
+          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : undefined),
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -555,7 +566,12 @@ export default function CallingList() {
           load(pagination.page);
         }
       } else {
-        await automationAPI.updateCallStatus(activeItem!.assignment_id, finalOutcome, finalNotes, finalOutcome === "callback" ? (callbackDate ? `${callbackDate}+05:30` : undefined) : undefined);
+        await automationAPI.updateCallStatus(
+          activeItem!.assignment_id, 
+          finalOutcome, 
+          finalNotes, 
+          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : undefined)
+        );
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
         setCallbackCallItem(null);
@@ -1500,6 +1516,26 @@ export default function CallingList() {
                     </Button>
                   </Stack>
 
+                  {callInterest === "interested" && (
+                    <Box sx={{ mb: 1, p: 1.5, bgcolor: surface, borderRadius: 2 }}>
+                      <FormControlLabel
+                        control={<Checkbox size="small" checked={interestedIntro} onChange={e => setInterestedIntro(e.target.checked)} />}
+                        label={<Typography variant="body2">Introduced F.S. Calcival</Typography>}
+                        sx={{ mb: 1 }}
+                      />
+                      <TextField
+                        label="Collect customer details"
+                        size="small"
+                        multiline
+                        rows={2}
+                        fullWidth
+                        value={interestedDetails}
+                        onChange={e => setInterestedDetails(e.target.value)}
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                      />
+                    </Box>
+                  )}
+
                   {callInterest === "not_interested" && (
                     <Box sx={{ mb: 1 }}>
                       <FormControl fullWidth size="small" sx={{ mb: 2 }}>
@@ -1507,28 +1543,48 @@ export default function CallingList() {
                         <Select
                           value={callReason}
                           label="Reason"
-                          onChange={(e) => { setCallReason(e.target.value); setCallSubReason(""); }}
+                          onChange={(e) => { setCallReason(e.target.value); setCallSubReason(""); setQualityFollowUpDate(""); }}
                           sx={{ borderRadius: 2, bgcolor: surface }}
                         >
                           <MenuItem value="Expensive">Expensive</MenuItem>
                           <MenuItem value="Decision Maker">Decision Maker</MenuItem>
                           <MenuItem value="Trust Issue">Trust Issue</MenuItem>
-                          <MenuItem value="Not a Pashupalak">Not a Pashupalak</MenuItem>
+                          <MenuItem value="Not a Pashupalak">Not a Pashupalak / Wrong Person</MenuItem>
                           <MenuItem value="Invalid Number">Invalid Number</MenuItem>
                           <MenuItem value="Using Other Brand">Using Other Brand</MenuItem>
                           <MenuItem value="Quality Concern">Quality Concern</MenuItem>
                           <MenuItem value="Other">Other</MenuItem>
                         </Select>
                       </FormControl>
-                      {["Expensive", "Decision Maker", "Trust Issue", "Using Other Brand", "Quality Concern", "Other"].includes(callReason) && (
+                      
+                      {["Expensive", "Decision Maker", "Trust Issue", "Using Other Brand", "Other"].includes(callReason) && (
                         <TextField
-                          label="Specific Details"
+                          label={
+                            callReason === "Using Other Brand" ? "Brand name & result?" : 
+                            callReason === "Expensive" ? "YES / NO" : 
+                            callReason === "Decision Maker" ? "Who & Number?" : 
+                            callReason === "Trust Issue" ? "Product / delivery / quality issue?" : 
+                            "Specific Details"
+                          }
                           size="small"
                           fullWidth
                           value={callSubReason}
                           onChange={e => setCallSubReason(e.target.value)}
-                          placeholder={callReason === "Using Other Brand" ? "Brand name & result?" : callReason === "Expensive" ? "YES / NO" : callReason === "Decision Maker" ? "Who & Number?" : "Details..."}
-                          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                          placeholder="Details..."
+                          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                        />
+                      )}
+
+                      {callReason === "Quality Concern" && (
+                        <TextField
+                          type="date"
+                          label="Follow Up Date"
+                          size="small"
+                          fullWidth
+                          value={qualityFollowUpDate}
+                          onChange={e => setQualityFollowUpDate(e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
                         />
                       )}
                     </Box>
