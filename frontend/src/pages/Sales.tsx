@@ -825,9 +825,10 @@ export default function Sales() {
         .map((d: any) => {
           const mName = d.mantri_name || d.name || 'Unknown';
           const mMobile = d.mantri_mobile || d.mobile || '';
+          const isRedemo = String(d.redemo).toUpperCase() === 'YES' || String(d.is_redemo).toUpperCase() === 'YES' || d.is_redemo === true;
           return {
             id: d.distributor_id,
-            label: `${mName}${mMobile ? ` (${mMobile})` : ''}${d.village ? ` - ${d.village}` : ''}`,
+            label: `${mName}${mMobile ? ` (${mMobile})` : ''}${d.village ? ` - ${d.village}` : ''}${isRedemo ? ' [REDEMO]' : ''}`,
             name: mName,
             village: d.village || '',
             mobile: mMobile,
@@ -1810,6 +1811,12 @@ export default function Sales() {
                     if (!entityDetails) return null;
                     return (
                       <>
+                        {(customerCategory === "Mantri" || customerCategory === "Distributor") &&
+                         (String(entityDetails.redemo).toUpperCase() === 'YES' || String(entityDetails.is_redemo).toUpperCase() === 'YES' || entityDetails.is_redemo === true) && (
+                          <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', mt: -1, mb: 1 }}>
+                            <Chip label="REDEMO" size="small" color="warning" sx={{ borderRadius: 1 }} />
+                          </Grid>
+                        )}
                         <Grid item xs={12} sm={6}>
                           <TextField fullWidth disabled label="Mobile" value={entityDetails.mobile || entityDetails.mantri_mobile || ""} />
                         </Grid>

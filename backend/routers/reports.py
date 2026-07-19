@@ -10,6 +10,13 @@ from fastapi.responses import StreamingResponse
 from supabase_db import SupabaseClient, get_db
 from reports import ReportGenerator
 from rbac_utils import verify_permission
+from services.telecaller_reports import (
+    get_telecaller_dashboard,
+    prepare_performance_export,
+    prepare_attendance_export,
+    prepare_call_logs_export,
+    prepare_orders_export
+)
 import io
 
 router = APIRouter()
@@ -1329,3 +1336,123 @@ def get_customer_analytics_excel(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating customer Excel: {str(e)}")
+
+@router.get("/telecaller-dashboard", dependencies=[Depends(verify_permission("view_reports"))])
+def get_telecaller_dashboard_route(
+    start_date: str,
+    end_date: str,
+    telecaller_email: Optional[str] = None,
+    order_status: Optional[str] = None,
+    db: SupabaseClient = Depends(get_db),
+):
+    try:
+        data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
+        return data
+    except Exception as e:
+        print(f"Error generating telecaller dashboard: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating telecaller dashboard: {str(e)}")
+
+@router.get("/telecaller/{report_type}/{format}", dependencies=[Depends(verify_permission("view_reports"))])
+def download_telecaller_report(
+    report_type: str,
+    format: str,
+    start_date: str,
+    end_date: str,
+    telecaller_email: Optional[str] = None,
+    order_status: Optional[str] = None,
+    db: SupabaseClient = Depends(get_db),
+):
+    try:
+        format = format.lower()
+        if format not in ["pdf", "excel"]:
+            raise HTTPException(status_code=400, detail="Invalid format. Use 'pdf' or 'excel'.")
+            
+        filters = []
+        if telecaller_email:
+            filters.append(f"Telecaller: {telecaller_email}")
+        else:
+            filters.append("Telecaller: All")
+            
+        if order_status and order_status != "all":
+            filters.append(f"Status: {order_status.title()}")
+            
+        title = ""
+        subtitle = f"Period: {start_date} to {end_date}"
+        
+        if report_type == "performance":
+            headers, rows = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status)
+            title = "Telecaller Performance Report"
+        elif report_type == "attendance":
+            headers, rows = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status)
+            title = "Telecaller Attendance Report"
+        elif report_type == "call-logs":
+            headers, rows = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status)
+            title = "Telecaller Call Logs Report"
+        elif report_type == "orders":
+            headers, rows = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status)
+            title = "Telecaller Orders Report"
+        else:
+            raise HTTPException(status_code=400, detail="Invalid report type.")
+
+        safe_start = start_date.replace("-", "")
+        safe_end = end_date.replace("-", "")
+        filename_prefix = title.replace(" ", "_")
+        
+        if format == "pdf":
+            pdf_bytes = report_generator.generate_generic_table_pdf(
+                title=title,
+                subtitle=subtitle,
+                headers=headers,
+                data_rows=rows,
+                metadata_filters=filters
+            )
+            return StreamingResponse(
+                io.BytesIO(pdf_bytes),
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename={filename_prefix}_{safe_start}_to_{safe_end}.pdf"}
+            )
+        else:
+            excel_bytes = report_generator.generate_generic_table_excel(
+                sheet_name=title,
+                headers=headers,
+                data_rows=rows
+            )
+            return StreamingResponse(
+                io.BytesIO(excel_bytes),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f"attachment; filename={filename_prefix}_{safe_start}_to_{safe_end}.xlsx"}
+            )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Error generating telecaller export: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating telecaller export: {str(e)}")
+
+@router.get("/telecaller/charts", dependencies=[Depends(verify_permission("view_reports"))])
+def get_telecaller_charts_api(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    view_by: str = "daily",
+    telecaller_email: Optional[str] = None,
+    user_email: str = Depends(get_user_email),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Get chart data aggregated by time interval for telecaller reports"""
+    try:
+        from services.telecaller_reports import get_telecaller_charts
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            
+        return get_telecaller_charts(
+            db=db,
+            start_date=start_date,
+            end_date=end_date,
+            view_by=view_by,
+            telecaller_email=telecaller_email
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching telecaller charts: {str(e)}")

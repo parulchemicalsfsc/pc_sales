@@ -371,6 +371,42 @@ export const reportsAPI = {
     const response = await apiClient.get("/api/reports/customer-analytics-excel", { params, responseType: "blob" });
     return response.data;
   },
+
+  getTelecallerDashboard: async (params: {
+    start_date?: string;
+    end_date?: string;
+    telecaller_email?: string;
+    order_status?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/telecaller-dashboard", { params });
+    return response.data;
+  },
+
+  downloadTelecallerReport: async (params: {
+    report: string;
+    format: "pdf" | "excel";
+    start_date?: string;
+    end_date?: string;
+    telecaller_email?: string;
+    order_status?: string;
+  }) => {
+    const { report, format, ...queryParams } = params;
+    const response = await apiClient.get(`/api/reports/telecaller/${report}/${format}`, {
+      params: queryParams,
+      responseType: "blob",
+    });
+    return response.data;
+  },
+
+  getTelecallerCharts: async (params: {
+    start_date?: string;
+    end_date?: string;
+    telecaller_email?: string;
+    view_by?: string;
+  }) => {
+    const response = await apiClient.get("/api/reports/telecaller/charts", { params });
+    return response.data;
+  },
 };
 
 // Forecasting API
