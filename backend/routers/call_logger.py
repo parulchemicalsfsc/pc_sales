@@ -61,7 +61,7 @@ Return ONLY a JSON object (no prose, no markdown fences) with exactly these keys
 Rules:
 - Infer conservatively. If the transcript doesn't clearly support a field, use null/false/"".
 - Correct obvious mis-transcriptions of known terms (Sabhasad, Mantri, F.S. Calcival).
-- notes/reason_details/customer_details must be in clear English (translate from Hindi/Gujarati). Keep proper nouns transliterated.
+- notes/reason_details/customer_details must be written in "Gujlish" (Gujarati language written using the English/Latin alphabet, e.g., "customer ne product expensive lagi"). Translate Hindi to Gujarati if necessary, but ALWAYS output in Latin characters, NEVER in Gujarati/Devanagari script.
 - Dates: resolve relative times ("tomorrow", "kal") relative to today: {today}.
 - Output valid JSON only."""
 
@@ -121,14 +121,20 @@ async def transcribe_chunk(
 
     try:
         if provider == "sarvam":
-            text = await _transcribe_sarvam(audio_data, file.filename or "chunk.webm", language)
+            try:
+                text = await _transcribe_sarvam(audio_data, file.filename or "chunk.webm", language)
+            except Exception as e:
+                logger.warning(f"[CALL-LOGGER] Sarvam failed ({e}), falling back to Groq...")
+                text = await _transcribe_groq(audio_data, file.filename or "chunk.webm", language)
         else:
-            text = await _transcribe_groq(audio_data, file.filename or "chunk.webm", language)
+            try:
+                text = await _transcribe_groq(audio_data, file.filename or "chunk.webm", language)
+            except Exception as e:
+                logger.warning(f"[CALL-LOGGER] Groq failed ({e}), falling back to Sarvam...")
+                text = await _transcribe_sarvam(audio_data, file.filename or "chunk.webm", language)
         return {"transcript": text}
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"[CALL-LOGGER] transcription error: {e}")
+        logger.error(f"[CALL-LOGGER] transcription error (all providers failed): {e}")
         raise HTTPException(status_code=502, detail=f"Transcription failed: {str(e)}")
 
 
