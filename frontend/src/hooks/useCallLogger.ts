@@ -29,6 +29,7 @@ export function useCallLogger(language: "auto" | "hi" | "gu" = "auto") {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -60,6 +61,7 @@ export function useCallLogger(language: "auto" | "hi" | "gu" = "auto") {
 
   const startRecording = useCallback(async () => {
     setError(null);
+    setHasAnalyzed(false);
     transcriptRef.current = "";
     setLiveTranscript("");
     stoppingRef.current = false;
@@ -123,10 +125,12 @@ export function useCallLogger(language: "auto" | "hi" | "gu" = "auto") {
     setLiveTranscript("");
   }, [stopRecording]);
 
-  const analyze = useCallback(async (): Promise<AIFields> => {
+  const analyze = useCallback(async (): Promise<AIFields | null> => {
+    if (!transcriptRef.current.trim()) return null;
     setIsAnalyzing(true);
     try {
       const res = await callLoggerAPI.analyzeTranscript(transcriptRef.current);
+      setHasAnalyzed(true);
       return res as AIFields;
     } finally {
       setIsAnalyzing(false);
@@ -143,6 +147,7 @@ export function useCallLogger(language: "auto" | "hi" | "gu" = "auto") {
     isRecording,
     liveTranscript,
     isAnalyzing,
+    hasAnalyzed,
     error,
     requestMicPermission,
     startRecording,

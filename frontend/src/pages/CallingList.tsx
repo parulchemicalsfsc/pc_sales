@@ -2088,7 +2088,7 @@ export default function CallingList() {
               </Button>
             )}
             
-            {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && (
+            {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && !aiLogger.hasAnalyzed && (
               <Button
                 variant="outlined"
                 color="primary"
@@ -2099,7 +2099,7 @@ export default function CallingList() {
                     dispatchWizard({ type: "APPLY_AI_FIELDS", fields });
                   }
                 }}
-                disabled={submitting || aiLogger.isAnalyzing || !aiLogger.liveTranscript}
+                disabled={submitting || aiLogger.isAnalyzing}
                 startIcon={aiLogger.isAnalyzing ? <CircularProgress size={14} color="inherit" /> : <Box component="span" sx={{ fontSize: 16 }}>✨</Box>}
                 sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
               >
