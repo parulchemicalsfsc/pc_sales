@@ -1244,3 +1244,21 @@ export function formatError(err: any): string {
   const fallback = err?.message || err?.error || String(err);
   return typeof fallback === "string" ? fallback : JSON.stringify(fallback);
 }
+
+// AI Call Logger API
+export const callLoggerAPI = {
+  transcribeChunk: async (blob: Blob, language: string, provider: string = "sarvam") => {
+    const form = new FormData();
+    form.append("file", blob, "chunk.webm");
+    form.append("language", language);
+    form.append("provider", provider);
+    const response = await apiClient.post("/api/call-logger/transcribe-chunk", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+  analyzeTranscript: async (transcript: string) => {
+    const response = await apiClient.post("/api/call-logger/analyze", { transcript });
+    return response.data;
+  },
+};

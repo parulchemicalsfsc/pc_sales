@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, DragEvent } from "react";
+import { useEffect, useState, useCallback, useRef, DragEvent, useReducer } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PERMISSIONS } from "../config/permissions";
 import {
@@ -63,6 +63,8 @@ import {
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
+import { useCallLogger } from "../hooks/useCallLogger";
+import { FEATURE_FLAGS } from "../config/featureFlags";
 
 // ── Types ──────────────────────────────────────────────
 interface Assignment {
@@ -138,6 +140,69 @@ function parseOrderProducts(order: any): any[] {
 // ── Live Timer Hook ────────────────────────────────────
 
 
+// ── Wizard Reducer for Call Outcome Dialog ─────────────
+type WizardState = {
+  callConn: string; callReach: string; callInterest: string;
+  interestedIntro: boolean; interestedDetails: string; callReason: string;
+  callSubReason: string; qualityFollowUpDate: string; callRetry: string;
+  notes: string; callbackDate: string;
+  dmName: string; dmPhone: string; dmScheduleToggle: boolean; dmScheduleDate: string;
+  otherScheduleToggle: boolean; otherScheduleDate: string;
+};
+
+type WizardAction =
+  | { type: "SET"; field: keyof WizardState; value: any }
+  | { type: "RESET" }
+  | { type: "APPLY_AI_FIELDS"; fields: any }; // we use `any` to avoid strict import tying, AIFields from useCallLogger
+
+const initialWizardState: WizardState = {
+  callConn: "", callReach: "", callInterest: "",
+  interestedIntro: false, interestedDetails: "", callReason: "",
+  callSubReason: "", qualityFollowUpDate: "", callRetry: "",
+  notes: "", callbackDate: "",
+  dmName: "", dmPhone: "", dmScheduleToggle: false, dmScheduleDate: "",
+  otherScheduleToggle: false, otherScheduleDate: ""
+};
+
+function wizardReducer(state: WizardState, action: WizardAction): WizardState {
+  switch (action.type) {
+    case "SET": return { ...state, [action.field]: action.value };
+    case "RESET": return initialWizardState;
+    case "APPLY_AI_FIELDS": return mapAIFieldsToWizardState(action.fields);
+    default: return state;
+  }
+}
+
+function mapAIFieldsToWizardState(f: any): WizardState {
+  const s = { ...initialWizardState, notes: f.notes || "" };
+  if (!f.call_connected) {
+    return { ...s, callConn: "not_connected",
+      callRetry: f.retry_or_close || "",
+      callbackDate: f.retry_or_close === "retry" ? (f.callback_datetime || "") : "" };
+  }
+  const s2 = { ...s, callConn: "connected" };
+  if (f.customer_reached === false) {
+    return { ...s2, callReach: "not_reached", callReason: f.not_reached_reason || "" };
+  }
+  if (f.customer_reached === true) {
+    const s3 = { ...s2, callReach: "reached" };
+    if (f.interest === "interested") {
+      return { ...s3, callInterest: "interested",
+        interestedIntro: !!f.introduced_product,
+        interestedDetails: f.customer_details || "" };
+    }
+    if (f.interest === "not_interested") {
+      return { ...s3, callInterest: "not_interested",
+        callReason: f.not_interested_reason || "",
+        callSubReason: f.reason_details || "",
+        qualityFollowUpDate: f.quality_followup_date || "" };
+    }
+    return s3;
+  }
+  return s2;
+}
+
+
 // ── Main Component ─────────────────────────────────────
 export default function CallingList() {
   const theme = useTheme();
@@ -184,47 +249,42 @@ export default function CallingList() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
   const [outcome, setOutcome] = useState("");
-  const [notes, setNotes] = useState("");
-  const [callbackDate, setCallbackDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  
-  // Wizard States
-  const [callConn, setCallConn] = useState("");
-  const [callReach, setCallReach] = useState("");
-  const [callInterest, setCallInterest] = useState("");
-  const [interestedIntro, setInterestedIntro] = useState(false);
-  const [interestedDetails, setInterestedDetails] = useState("");
-  const [callReason, setCallReason] = useState("");
-  const [callSubReason, setCallSubReason] = useState("");
-  const [qualityFollowUpDate, setQualityFollowUpDate] = useState("");
-  const [callRetry, setCallRetry] = useState("");
-  const [dmName, setDmName] = useState("");
-  const [dmPhone, setDmPhone] = useState("");
-  const [dmScheduleToggle, setDmScheduleToggle] = useState(false);
-  const [dmScheduleDate, setDmScheduleDate] = useState("");
-  const [otherScheduleToggle, setOtherScheduleToggle] = useState(false);
-  const [otherScheduleDate, setOtherScheduleDate] = useState("");
+  // Wizard States via Reducer
+  const [wizardState, dispatchWizard] = useReducer(wizardReducer, initialWizardState);
+
+  // Destructure for easier access in the JSX
+  const {
+    callConn, callReach, callInterest, interestedIntro, interestedDetails,
+    callReason, callSubReason, qualityFollowUpDate, callRetry, notes, callbackDate,
+    dmName, dmPhone, dmScheduleToggle, dmScheduleDate, otherScheduleToggle, otherScheduleDate
+  } = wizardState;
+
+  // Helper wrappers for JSX
+  const setCallConn = (v: any) => dispatchWizard({ type: "SET", field: "callConn", value: v });
+  const setCallReach = (v: any) => dispatchWizard({ type: "SET", field: "callReach", value: v });
+  const setCallInterest = (v: any) => dispatchWizard({ type: "SET", field: "callInterest", value: v });
+  const setInterestedIntro = (v: any) => dispatchWizard({ type: "SET", field: "interestedIntro", value: v });
+  const setInterestedDetails = (v: any) => dispatchWizard({ type: "SET", field: "interestedDetails", value: v });
+  const setCallReason = (v: any) => dispatchWizard({ type: "SET", field: "callReason", value: v });
+  const setCallSubReason = (v: any) => dispatchWizard({ type: "SET", field: "callSubReason", value: v });
+  const setQualityFollowUpDate = (v: any) => dispatchWizard({ type: "SET", field: "qualityFollowUpDate", value: v });
+  const setCallRetry = (v: any) => dispatchWizard({ type: "SET", field: "callRetry", value: v });
+  const setNotes = (v: any) => dispatchWizard({ type: "SET", field: "notes", value: v });
+  const setCallbackDate = (v: any) => dispatchWizard({ type: "SET", field: "callbackDate", value: v });
+  const setDmName = (v: any) => dispatchWizard({ type: "SET", field: "dmName", value: v });
+  const setDmPhone = (v: any) => dispatchWizard({ type: "SET", field: "dmPhone", value: v });
+  const setDmScheduleToggle = (v: any) => dispatchWizard({ type: "SET", field: "dmScheduleToggle", value: v });
+  const setDmScheduleDate = (v: any) => dispatchWizard({ type: "SET", field: "dmScheduleDate", value: v });
+  const setOtherScheduleToggle = (v: any) => dispatchWizard({ type: "SET", field: "otherScheduleToggle", value: v });
+  const setOtherScheduleDate = (v: any) => dispatchWizard({ type: "SET", field: "otherScheduleDate", value: v });
 
   const resetWizard = () => {
     setOutcome("");
-    setNotes("");
-    setCallbackDate("");
-    setCallConn("");
-    setCallReach("");
-    setCallInterest("");
-    setInterestedIntro(false);
-    setInterestedDetails("");
-    setCallReason("");
-    setCallSubReason("");
-    setQualityFollowUpDate("");
-    setCallRetry("");
-    setDmName("");
-    setDmPhone("");
-    setDmScheduleToggle(false);
-    setDmScheduleDate("");
-    setOtherScheduleToggle(false);
-    setOtherScheduleDate("");
+    dispatchWizard({ type: "RESET" });
   };
+
+  const aiLogger = useCallLogger("auto");
 
   // Estimation Calculator Dialog
   const [calcOpen, setCalcOpen] = useState(false);
@@ -532,9 +592,9 @@ export default function CallingList() {
       setCallbackCallItem(null);
       setOrderCallItem(null);
       setOutcome("");
-      setNotes("");
-      setCallbackDate("");
+      dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
+      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -552,9 +612,9 @@ export default function CallingList() {
       setCallbackCallItem(item);
       setOrderCallItem(null);
       setOutcome("");
-      setNotes("");
-      setCallbackDate("");
+      dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
+      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -567,9 +627,9 @@ export default function CallingList() {
       setCallbackCallItem(null);
       setActiveItem(null);
       setOutcome("");
-      setNotes("");
-      setCallbackDate("");
+      dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
+      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -736,9 +796,9 @@ export default function CallingList() {
     setQcQueue(selectedItems);
     setQcCurrentIndex(0);
     setOutcome("");
-    setNotes("");
-    setCallbackDate("");
+    dispatchWizard({ type: "RESET" });
     setQcDialogOpen(true);
+    if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
   };
 
   // Take Order Dialog
@@ -1608,18 +1668,28 @@ export default function CallingList() {
 
       {/* ── Post-Call Dialog ── */}
       <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
-        <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0 }}>
-          {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
-          {(activeItem || isQuickCall || orderCallItem) && (() => {
-            const item = orderCallItem
-              ? { name: orderCallItem.customer_name, mobile: orderCallItem.customer_mobile, village: orderCallItem.customer_village }
-              : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
-            return (
-              <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
-                {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
-              </Typography>
-            );
-          })()}
+        <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <Box>
+            {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
+            {(activeItem || isQuickCall || orderCallItem) && (() => {
+              const item = orderCallItem
+                ? { name: orderCallItem.customer_name, mobile: orderCallItem.customer_mobile, village: orderCallItem.customer_village }
+                : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
+              return (
+                <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
+                  {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
+                </Typography>
+              );
+            })()}
+          </Box>
+          {FEATURE_FLAGS.CALL_LOGGER_BETA && aiLogger.isRecording && (
+            <Chip 
+              size="small" 
+              label="Recording" 
+              icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', ml: 1, mr: -0.5 }} />} 
+              sx={{ height: 24, bgcolor: alpha('#ef4444', 0.1), color: '#ef4444', fontWeight: 600, border: `1px solid ${alpha('#ef4444', 0.2)}` }} 
+            />
+          )}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
 
@@ -1947,6 +2017,22 @@ export default function CallingList() {
             </Box>
           )}
 
+          {/* AI Logger Transcript Panel */}
+          {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && (
+            <Box sx={{ mb: 3, p: 2, borderRadius: 2, bgcolor: isDark ? "rgba(255,255,255,0.02)" : "#f8fafc", border: `1px solid ${border}` }}>
+              <Stack direction="row" alignItems="center" gap={1} mb={1}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>LIVE TRANSCRIPT</Typography>
+                {aiLogger.isAnalyzing && <CircularProgress size={12} />}
+              </Stack>
+              <Typography variant="body2" sx={{ color: "text.secondary", minHeight: 40, fontStyle: !aiLogger.liveTranscript ? "italic" : "normal" }}>
+                {aiLogger.liveTranscript || "Listening..."}
+              </Typography>
+              {aiLogger.error && (
+                <Typography variant="caption" color="error.main" display="block" mt={1}>{aiLogger.error}</Typography>
+              )}
+            </Box>
+          )}
+
           <TextField
             label="Notes"
             multiline
@@ -1973,7 +2059,16 @@ export default function CallingList() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
-          <Button onClick={() => { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); resetWizard(); }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          <Stack direction="row" spacing={1}>
+            <Button onClick={() => { 
+              setDialogOpen(false); 
+              setQcDialogOpen(false); 
+              setOrderCallItem(null); 
+              setCallbackCallItem(null); 
+              resetWizard(); 
+              if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.cancelRecording();
+            }} disabled={submitting || aiLogger.isAnalyzing} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+          </Stack>
           
           <Stack direction="row" spacing={1}>
             {callConn === "connected" && callReach === "reached" && callInterest === "interested" && !isQuickCall && (
@@ -1992,6 +2087,26 @@ export default function CallingList() {
                 Take Order
               </Button>
             )}
+            
+            {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && (
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={async () => {
+                  aiLogger.stopRecording();
+                  const fields = await aiLogger.analyze();
+                  if (fields) {
+                    dispatchWizard({ type: "APPLY_AI_FIELDS", fields });
+                  }
+                }}
+                disabled={submitting || aiLogger.isAnalyzing || !aiLogger.liveTranscript}
+                startIcon={aiLogger.isAnalyzing ? <CircularProgress size={14} color="inherit" /> : <Box component="span" sx={{ fontSize: 16 }}>✨</Box>}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+              >
+                Stop & Auto-Fill
+              </Button>
+            )}
+
             <Button
               variant="contained"
               onClick={submitOutcome}
