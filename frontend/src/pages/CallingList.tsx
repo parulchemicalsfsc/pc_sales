@@ -81,6 +81,7 @@ interface Assignment {
   district?: string;
   priority_label?: string;
   priority_score?: number;
+  updated_at?: string;
   last_call?: {
     call_outcome: string;
     notes: string;
@@ -301,6 +302,11 @@ export default function CallingList() {
       if (tab === 0) {
         fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
       }
+
+      // Sort assignments so newest are at the top
+      const getTime = (a: any) => new Date(a.last_call?.created_at || a.updated_at || a.assigned_date || 0).getTime();
+      fetched.sort((a: any, b: any) => getTime(b) - getTime(a));
+
       setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
     } catch (e: any) {
@@ -1327,6 +1333,13 @@ export default function CallingList() {
                                   "{item.last_call.notes}"
                                 </Typography>
                               )}
+                            </Box>
+                          )}
+                          {!item.last_call && tab === 1 && (item.updated_at || item.assigned_date) && (
+                            <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
+                              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block" }}>
+                                Completed At: {new Date((item.updated_at || item.assigned_date)!).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </Typography>
                             </Box>
                           )}
                         </Box>
