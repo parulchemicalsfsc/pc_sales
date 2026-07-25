@@ -324,8 +324,8 @@ export default function CallDistribution() {
   const tcTelecallers = telecallers.filter(t => t.role !== "sales_manager" && t.role !== "admin");
   const smEmails = new Set(smTelecallers.map(t => t.email));
 
-  const pendingAssignments = useMemo(() => {
-    const all = (adminData?.assignments || []).filter((a: any) => a.status === "Pending");
+  const filteredAssignments = useMemo(() => {
+    const all = adminData?.assignments || [];
     if (viewFilter === "sales_manager") return all.filter((a: any) => smEmails.has(a.user_email));
     if (viewFilter === "telecaller") return all.filter((a: any) => !smEmails.has(a.user_email));
     return all;
@@ -1042,7 +1042,7 @@ export default function CallDistribution() {
           </Paper>
 
           {/* ── Individual Reassign ── */}
-          {pendingAssignments.length > 0 && (
+          {filteredAssignments.length > 0 && (
             <Paper
               elevation={0}
               sx={{
@@ -1052,7 +1052,7 @@ export default function CallDistribution() {
               }}
             >
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 2, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
-                {t("callDistribution.reassignCalls", "Reassign Individual Calls")} ({pendingAssignments.length})
+                {t("callDistribution.reassignCalls", "Reassign Individual Calls")} ({filteredAssignments.length})
               </Typography>
               <TableContainer>
                 <Table size="small">
@@ -1062,12 +1062,13 @@ export default function CallDistribution() {
                         {viewFilter === "sales_manager" ? "Mantri" : t("customers.title", "Sabhasad")}
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("fields.village", "Village")}</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>Status</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.assignedTo", "Assigned To")}</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: "0.78rem" }}>{t("callDistribution.reassign", "Reassign")}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {pendingAssignments
+                    {filteredAssignments
                       .slice(reassignPage * pageSize, (reassignPage + 1) * pageSize)
                       .map((a: any) => (
                         <TableRow key={a.assignment_id} hover>
@@ -1080,6 +1081,14 @@ export default function CallDistribution() {
                             <Typography variant="caption" color="text.secondary">
                               {a.village || "—"}
                             </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={a.status}
+                              color={a.status === "completed" ? "success" : "warning"}
+                              sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700 }}
+                            />
                           </TableCell>
                           <TableCell>
                             <Chip
@@ -1119,10 +1128,10 @@ export default function CallDistribution() {
                   </TableBody>
                 </Table>
               </TableContainer>
-              {pendingAssignments.length > pageSize && (
+              {filteredAssignments.length > pageSize && (
                 <TablePagination
                   component="div"
-                  count={pendingAssignments.length}
+                  count={filteredAssignments.length}
                   page={reassignPage}
                   rowsPerPage={pageSize}
                   onPageChange={(_, p) => setReassignPage(p)}
