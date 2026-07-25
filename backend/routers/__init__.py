@@ -22,3 +22,4 @@ from .doctors import router as doctors
 from .attendance import router as attendance
 from .leads import router as leads
 from .telecaller_orders import router as telecaller_orders
+from .call_logger import router as call_logger
