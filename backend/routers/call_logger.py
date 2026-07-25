@@ -25,8 +25,16 @@ router = APIRouter()
 logger = logging.getLogger("call_logger")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-GROQ_API_KEY     = os.getenv("GROQ_API_KEY", "")
-SARVAM_API_KEY   = os.getenv("SARVAM_API_KEY", "")
+def _get_api_keys(prefix: str) -> list[str]:
+    keys = []
+    for k, v in os.environ.items():
+        if k.startswith(prefix) and v.strip():
+            keys.append((k, v.strip()))
+    keys.sort(key=lambda x: (len(x[0]), x[0]))
+    return [v for k, v in keys]
+
+GROQ_KEYS        = _get_api_keys("GROQ_API_KEY")
+SARVAM_KEYS      = _get_api_keys("SARVAM_API_KEY")
 DEFAULT_LANGUAGE = os.getenv("CALL_LOGGER_DEFAULT_LANGUAGE", "auto")  # auto | hi | gu
 
 ALLOWED_ROLES    = {"telecaller", "sales_manager", "admin"}
@@ -139,24 +147,33 @@ async def transcribe_chunk(
 
 
 async def _transcribe_sarvam(audio_data: bytes, filename: str, language: str) -> str:
-    if not SARVAM_API_KEY:
-        raise HTTPException(status_code=503, detail="Sarvam API key not configured on server. Set SARVAM_API_KEY env var.")
+    if not SARVAM_KEYS:
+        raise HTTPException(status_code=503, detail="Sarvam API keys not configured. Set SARVAM_API_KEY env var.")
     lang_code = "hi-IN" if language == "hi" else "gu-IN" if language == "gu" else "unknown"
+    
+    last_err = None
     async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            "https://api.sarvam.ai/speech-to-text",
-            headers={"api-subscription-key": SARVAM_API_KEY},
-            files={"file": (filename, audio_data, "audio/webm")},
-            data={"model": "saaras:v3", "mode": "transcribe", "language_code": lang_code},
-        )
-    if not resp.is_success:
-        raise Exception(f"Sarvam {resp.status_code}: {resp.text[:200]}")
-    return (resp.json().get("transcript") or "").strip()
+        for key in SARVAM_KEYS:
+            try:
+                resp = await client.post(
+                    "https://api.sarvam.ai/speech-to-text",
+                    headers={"api-subscription-key": key},
+                    files={"file": (filename, audio_data, "audio/webm")},
+                    data={"model": "saaras:v3", "mode": "transcribe", "language_code": lang_code},
+                )
+                if not resp.is_success:
+                    raise Exception(f"Sarvam {resp.status_code}: {resp.text[:200]}")
+                return (resp.json().get("transcript") or "").strip()
+            except Exception as e:
+                logger.warning(f"[CALL-LOGGER] Sarvam key failed: {e}")
+                last_err = e
+    
+    raise last_err or Exception("All Sarvam keys exhausted")
 
 
 async def _transcribe_groq(audio_data: bytes, filename: str, language: str) -> str:
-    if not GROQ_API_KEY:
-        raise HTTPException(status_code=503, detail="Groq API key not configured on server. Set GROQ_API_KEY env var.")
+    if not GROQ_KEYS:
+        raise HTTPException(status_code=503, detail="Groq API keys not configured. Set GROQ_API_KEY env var.")
     form_data = {"model": "whisper-large-v3", "response_format": "json", "temperature": "0"}
     if language == "hi":
         form_data["language"] = "hi"
@@ -167,16 +184,24 @@ async def _transcribe_groq(audio_data: bytes, filename: str, language: str) -> s
     else:
         form_data["prompt"] = f"{DOMAIN_PROMPT_HI} | {DOMAIN_PROMPT_GU}"
 
+    last_err = None
     async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            files={"file": (filename, audio_data, "audio/webm")},
-            data=form_data,
-        )
-    if not resp.is_success:
-        raise Exception(f"Groq Whisper {resp.status_code}: {resp.text[:200]}")
-    return (resp.json().get("text") or "").strip()
+        for key in GROQ_KEYS:
+            try:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {key}"},
+                    files={"file": (filename, audio_data, "audio/webm")},
+                    data=form_data,
+                )
+                if not resp.is_success:
+                    raise Exception(f"Groq Whisper {resp.status_code}: {resp.text[:200]}")
+                return (resp.json().get("text") or "").strip()
+            except Exception as e:
+                logger.warning(f"[CALL-LOGGER] Groq Whisper key failed: {e}")
+                last_err = e
+                
+    raise last_err or Exception("All Groq keys exhausted")
 
 
 class AnalyzeRequest(BaseModel):
@@ -192,40 +217,55 @@ async def analyze_transcript(
     """Send full transcript to Groq gpt-oss-120b, return validated structured call-outcome fields."""
     _require_role(user_role)
 
-    if not GROQ_API_KEY:
-        raise HTTPException(status_code=503, detail="Groq API key not configured on server. Set GROQ_API_KEY env var.")
+    if not GROQ_KEYS:
+        raise HTTPException(status_code=503, detail="Groq API keys not configured. Set GROQ_API_KEY env var.")
     if not body.transcript.strip():
         raise HTTPException(status_code=400, detail="Transcript is empty")
 
     logger.info(f"[CALL-LOGGER] analyze: user={user_email}, len={len(body.transcript)}")
 
+    last_err = None
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": "openai/gpt-oss-120b",
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.1,
-                    "messages": [
-                        {"role": "system", "content": _build_system_prompt()},
-                        {"role": "user",   "content": f'Transcript:\n"""{body.transcript}"""'},
-                    ],
-                },
-            )
-        if not resp.is_success:
-            raise Exception(f"Groq chat {resp.status_code}: {resp.text[:200]}")
+            for key in GROQ_KEYS:
+                try:
+                    resp = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                        json={
+                            "model": "openai/gpt-oss-120b",
+                            "response_format": {"type": "json_object"},
+                            "temperature": 0.1,
+                            "messages": [
+                                {"role": "system", "content": _build_system_prompt()},
+                                {"role": "user",   "content": f'Transcript:\n"""{body.transcript}"""'},
+                            ],
+                        },
+                    )
+                    if not resp.is_success:
+                        raise Exception(f"Groq chat {resp.status_code}: {resp.text[:200]}")
+
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    raw     = json.loads(content)
+                    return _validate_ai_fields(raw)
+                except json.JSONDecodeError as e:
+                    # JSON error is a model output error, no point in retrying other keys for this
+                    logger.error(f"[CALL-LOGGER] AI returned invalid JSON: {e}")
+                    raise HTTPException(status_code=502, detail="AI returned invalid JSON — analysis failed")
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.warning(f"[CALL-LOGGER] Groq chat key failed: {e}")
+                    last_err = e
+                    
+        raise last_err or Exception("All Groq keys exhausted")
 
         content = resp.json()["choices"][0]["message"]["content"]
         raw     = json.loads(content)
         return _validate_ai_fields(raw)
 
-    except json.JSONDecodeError as e:
-        logger.error(f"[CALL-LOGGER] AI returned invalid JSON: {e}")
-        raise HTTPException(status_code=502, detail="AI returned invalid JSON — analysis failed")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[CALL-LOGGER] analyze error: {e}")
+        logger.error(f"[CALL-LOGGER] analyze error (all keys failed): {e}")
         raise HTTPException(status_code=502, detail=f"Analysis failed: {str(e)}")
