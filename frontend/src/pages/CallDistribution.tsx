@@ -241,6 +241,17 @@ export default function CallDistribution() {
     }
   };
 
+  const handleUndoVillageAssignment = async (email: string, village: string) => {
+    if (!window.confirm(`Are you sure you want to unassign all pending calls for ${village} from this telecaller?`)) return;
+    try {
+      const res = await automationAPI.adminUndoVillageAssignment(email, village);
+      setToast({ msg: res.message || "Undo successful", sev: "success" });
+      loadData();
+    } catch (e: any) {
+      setToast({ msg: e?.response?.data?.detail || "Undo failed", sev: "error" });
+    }
+  };
+
   const handleReassign = async (id: number, email: string) => {
     try {
       await automationAPI.adminReassign(id, email);
@@ -876,6 +887,10 @@ export default function CallDistribution() {
                                     key={idx}
                                     size="small"
                                     label={`${v.name}: ${v.count}`}
+                                    onDelete={(e) => {
+                                      e.stopPropagation(); // prevent opening the dialog
+                                      handleUndoVillageAssignment(email, v.name);
+                                    }}
                                     sx={{ 
                                       height: 20, 
                                       fontSize: "0.65rem", 

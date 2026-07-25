@@ -1025,8 +1025,6 @@ def update_call_status(
             raise HTTPException(status_code=404, detail="Assignment not found or not yours")
 
         assignment = res.data[0]
-        if assignment["status"] != "Pending":
-            raise HTTPException(status_code=400, detail="This call has already been logged")
 
         # 2. Map outcome to status
         status_map = {
@@ -1997,6 +1995,48 @@ def distribute_sabhsads(
         }
     except Exception as e:
         logger.error(f"[DIST-SABHSADS] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+class UndoVillagePayload(BaseModel):
+    telecaller_email: str
+    village: str
+
+@router.post("/admin/undo-village-assignment")
+def undo_village_assignment(
+    payload: UndoVillagePayload,
+    user_role: str = Header(None, alias="x-user-role"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin/Sales Manager: Undo an assignment for a specific village for a specific telecaller."""
+    role = (user_role or "").lower()
+    if role not in ["admin", "sales_manager"]:
+        raise HTTPException(status_code=403, detail="Only Admins or Sales Managers can undo assignments")
+
+    try:
+        # First, find all customers in this village
+        cust_res = db.table("customers").select("customer_id").eq("village", payload.village).execute()
+        if not cust_res.data:
+            return {"message": f"No customers found in village {payload.village}", "deleted": 0}
+            
+        cust_ids = [c["customer_id"] for c in cust_res.data]
+        
+        # Now, delete all Pending assignments for these customers assigned to this telecaller
+        deleted_count = 0
+        for i in range(0, len(cust_ids), 100):
+            chunk = cust_ids[i:i+100]
+            delete_res = db.table("calling_assignments") \
+                .delete() \
+                .eq("user_email", payload.telecaller_email) \
+                .eq("status", "Pending") \
+                .in_("customer_id", chunk) \
+                .execute()
+                
+            if delete_res.data:
+                deleted_count += len(delete_res.data)
+                
+        return {"message": "Undo successful", "deleted": deleted_count}
+    except Exception as e:
+        logger.error(f"[UNDO-VILLAGE] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/locations")

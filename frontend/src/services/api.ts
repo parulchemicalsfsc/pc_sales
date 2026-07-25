@@ -744,6 +744,10 @@ export const automationAPI = {
     const response = await apiClient.post("/api/automation/admin/distribute-sabhsads", payload);
     return response.data;
   },
+  adminUndoVillageAssignment: async (telecaller_email: string, village: string) => {
+    const response = await apiClient.post("/api/automation/admin/undo-village-assignment", { telecaller_email, village });
+    return response.data;
+  },
   getLocations: async () => {
     const response = await apiClient.get("/api/automation/locations");
     return response.data;
