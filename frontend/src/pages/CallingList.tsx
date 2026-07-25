@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, DragEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PERMISSIONS } from "../config/permissions";
 import {
@@ -58,6 +58,7 @@ import {
   HelpOutline as HelpIcon,
   Search as SearchIcon,
   Download as DownloadIcon,
+  DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -222,6 +223,56 @@ export default function CallingList() {
   const [qcCurrentIndex, setQcCurrentIndex] = useState(0);
   const [qcDialogOpen, setQcDialogOpen] = useState(false);
   const isQuickCall = qcDialogOpen && qcQueue.length > 0;
+
+  // Drag & Drop state for assignment cards
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isDraggingCard, setIsDraggingCard] = useState(false);
+
+  const handleDragStart = (e: DragEvent<HTMLDivElement>, index: number) => {
+    dragIndexRef.current = index;
+    setIsDraggingCard(true);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    if (dragIndexRef.current !== null && dragIndexRef.current !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>, dropIndex: number) => {
+    e.preventDefault();
+    const fromIndex = dragIndexRef.current;
+    if (fromIndex === null || fromIndex === dropIndex) {
+      setDragOverIndex(null);
+      setIsDraggingCard(false);
+      dragIndexRef.current = null;
+      return;
+    }
+    setAssignments(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(dropIndex, 0, moved);
+      return next;
+    });
+    setDragOverIndex(null);
+    setIsDraggingCard(false);
+    dragIndexRef.current = null;
+  };
+
+  const handleDragEnd = () => {
+    setDragOverIndex(null);
+    setIsDraggingCard(false);
+    dragIndexRef.current = null;
+  };
 
 
 
@@ -484,13 +535,22 @@ export default function CallingList() {
     let finalOutcome = outcome;
     let finalNotes = notes || "";
 
+    // Determine if the user explicitly clicked "Take Order" before resolving wizard state.
+    // outcome is set to "take_order" by the Take Order button before this function is called.
+    const isTakeOrder = outcome === "take_order";
+
     if (callConn) {
       if (callConn === "connected") {
         if (callReach === "reached") {
-          finalOutcome = "connected";
-          if (callInterest === "interested") {
+          // If Take Order was explicitly chosen, override finalOutcome now.
+          if (isTakeOrder) {
+            finalOutcome = "take_order";
+            finalNotes = `[Customer Reached - Interested - Take Order] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
+          } else if (callInterest === "interested") {
+            finalOutcome = "connected";
             finalNotes = `[Customer Reached - Interested] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
           } else if (callInterest === "not_interested") {
+            finalOutcome = "connected";
             let reasonText = callReason;
             if (callReason === "Quality Concern" && qualityFollowUpDate) {
                reasonText += ` (Follow up: ${qualityFollowUpDate.replace("T", " ")})`;
@@ -513,16 +573,6 @@ export default function CallingList() {
     }
 
     if (!finalOutcome) return;
-
-    // Route to correct handler based on which dialog context is active
-    if (orderCallItem) {
-      const oldOutcome = outcome;
-      setOutcome(finalOutcome); 
-      // submitOrderCallOutcome uses `outcome` and `notes` state directly, so we need to pass them or update them
-      // Since it's an async call relying on state, it's safer to pass them if we changed it, but for order calls, they might use the old UI?
-      // Wait, order confirmations still use the old UI or quick UI? 
-      // The instructions are for the telecaller call log, which applies to pending calls. Let's assume order confirmations use the same wizard or old UI. If old UI, outcome is already set.
-    }
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
 
@@ -1132,29 +1182,66 @@ export default function CallingList() {
                 </Box>
               ) : (
                 <Stack spacing={1} sx={{ minWidth: 0 }}>
-                  {assignments.map(item => {
+                  {assignments.map((item, idx) => {
                     const chip = STATUS_CHIP[item.status] || STATUS_CHIP.Pending;
                     const dotColor = PRIORITY_DOT[item.priority] || "#eab308";
                     const pLabel = (item.priority_label || "LOW").toUpperCase();
                     const pColor = PRIORITY_COLORS[pLabel] || PRIORITY_COLORS.LOW;
+                    const isDragOver = dragOverIndex === idx;
+                    const isDragging = isDraggingCard && dragIndexRef.current === idx;
                     return (
                       <Box
                         key={item.assignment_id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragEnter={(e) => handleDragEnter(e, idx)}
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, idx)}
+                        onDragEnd={handleDragEnd}
                         onClick={() => openHistoryDialog(item)}
                         sx={{
                           p: 2,
                           borderRadius: 2,
-                          cursor: "pointer",
-                          border: `1px solid ${border}`,
-                          borderLeft: `4px solid ${pColor.border}`,
-                          bgcolor: isDark ? pColor.bgDark : pColor.bg,
+                          cursor: "grab",
+                          border: isDragging
+                            ? `2px solid #2563eb`
+                            : isDragOver
+                            ? `2px dashed #2563eb`
+                            : `1px solid ${border}`,
+                          borderLeft: isDragging || isDragOver
+                            ? `4px solid #2563eb`
+                            : `4px solid ${pColor.border}`,
+                          bgcolor: isDragging
+                            ? alpha("#2563eb", 0.12)
+                            : isDragOver
+                            ? alpha("#2563eb", 0.08)
+                            : isDark ? pColor.bgDark : pColor.bg,
                           display: "flex",
                           alignItems: "center",
                           gap: 2,
-                          transition: "border-color 0.15s, box-shadow 0.15s",
+                          opacity: isDragging ? 0.7 : 1,
+                          transform: isDragOver ? "scale(1.01)" : "scale(1)",
+                          transition: "border-color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.15s, bgcolor 0.15s",
                           "&:hover": { borderColor: alpha("#2563eb", 0.3), boxShadow: `0 0 0 1px ${alpha("#2563eb", 0.08)}` },
+                          "&:active": { cursor: "grabbing" },
                         }}
                       >
+                        {/* Drag Handle */}
+                        <Box
+                          sx={{
+                            color: "text.disabled",
+                            display: "flex",
+                            alignItems: "center",
+                            flexShrink: 0,
+                            opacity: 0.4,
+                            "&:hover": { opacity: 1, color: "text.secondary" },
+                            cursor: "grab",
+                            transition: "opacity 0.15s",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <DragIndicatorIcon sx={{ fontSize: 18 }} />
+                        </Box>
                         {/* Priority dot */}
                         <Tooltip title={`${pLabel} Priority`}>
                           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: pColor.border, flexShrink: 0 }} />
@@ -1167,19 +1254,21 @@ export default function CallingList() {
                               {item.name || "Unknown"}
                             </Typography>
                             {/* Priority Badge */}
-                            <Chip
-                              size="small"
-                              label={pLabel}
-                              sx={{
-                                height: 20,
-                                fontSize: 10,
-                                fontWeight: 700,
-                                letterSpacing: 0.5,
-                                bgcolor: alpha(pColor.border, 0.12),
-                                color: pColor.fg,
-                                border: `1px solid ${alpha(pColor.border, 0.3)}`,
-                              }}
-                            />
+                            {pLabel !== "NONE" && (
+                              <Chip
+                                size="small"
+                                label={pLabel}
+                                sx={{
+                                  height: 20,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  letterSpacing: 0.5,
+                                  bgcolor: alpha(pColor.border, 0.12),
+                                  color: pColor.fg,
+                                  border: `1px solid ${alpha(pColor.border, 0.3)}`,
+                                }}
+                              />
+                            )}
                           </Stack>
                           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
                             {item.mobile && (
@@ -1678,13 +1767,14 @@ export default function CallingList() {
               <Button
                 variant="outlined"
                 color="primary"
-                onClick={() => { 
-                  // If Take Order is clicked, we override finalOutcome directly, or set state and call submitOutcome
-                  setOutcome("take_order"); 
-                  setTimeout(submitOutcome, 0); 
+                startIcon={<ShoppingCartIcon />}
+                onClick={() => {
+                  // Call handleTakeOrder directly — avoids the React async-state race condition
+                  // where setOutcome("take_order") wouldn't be visible inside submitOutcome's closure.
+                  handleTakeOrder();
                 }}
                 disabled={submitting}
-                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, borderColor: "#16a34a", color: "#16a34a", "&:hover": { borderColor: "#15803d", bgcolor: "rgba(22,163,74,0.06)" } }}
               >
                 Take Order
               </Button>
