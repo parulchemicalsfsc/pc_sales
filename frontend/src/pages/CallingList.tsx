@@ -195,6 +195,8 @@ export default function CallingList() {
   const [dmPhone, setDmPhone] = useState("");
   const [dmScheduleToggle, setDmScheduleToggle] = useState(false);
   const [dmScheduleDate, setDmScheduleDate] = useState("");
+  const [otherScheduleToggle, setOtherScheduleToggle] = useState(false);
+  const [otherScheduleDate, setOtherScheduleDate] = useState("");
 
   const resetWizard = () => {
     setOutcome("");
@@ -213,6 +215,8 @@ export default function CallingList() {
     setDmPhone("");
     setDmScheduleToggle(false);
     setDmScheduleDate("");
+    setOtherScheduleToggle(false);
+    setOtherScheduleDate("");
   };
 
   // Estimation Calculator Dialog
@@ -569,6 +573,11 @@ export default function CallingList() {
                   reasonText += ` (Follow up: ${dmScheduleDate.replace("T", " ")})`;
                }
             }
+            if (callReason === "Other") {
+               if (otherScheduleToggle && otherScheduleDate) {
+                  reasonText += ` (Follow up: ${otherScheduleDate.replace("T", " ")})`;
+               }
+            }
             finalNotes = `[Customer Reached - Not Interested] Reason: ${reasonText} ${callReason !== "Decision Maker" && callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
           } else return;
         } else if (callReach === "not_reached") {
@@ -610,7 +619,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: finalOutcome,
           notes: finalNotes,
-          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : undefined)),
+          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined))),
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -634,7 +643,7 @@ export default function CallingList() {
           activeItem!.assignment_id, 
           finalOutcome, 
           finalNotes, 
-          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : undefined))
+          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined)))
         );
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
@@ -1226,16 +1235,16 @@ export default function CallingList() {
                             ? `4px solid #2563eb`
                             : `4px solid ${pColor.border}`,
                           bgcolor: isDragging
-                            ? alpha("#2563eb", 0.12)
+                            ? (isDark ? alpha("#2563eb", 0.4) : "#dbeafe")
                             : isDragOver
-                            ? alpha("#2563eb", 0.08)
+                            ? (isDark ? alpha("#2563eb", 0.3) : "#bfdbfe")
                             : isDark ? pColor.bgDark : pColor.bg,
                           display: "flex",
                           alignItems: "center",
                           gap: 2,
-                          opacity: isDragging ? 0.7 : 1,
-                          transform: isDragOver ? "scale(1.01)" : "scale(1)",
-                          transition: "border-color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.15s, bgcolor 0.15s",
+                          opacity: isDragging ? 0.8 : 1,
+                          transform: isDragOver ? "scale(1.02)" : "scale(1)",
+                          transition: "all 0.2s ease-in-out",
                           "&:hover": { borderColor: alpha("#2563eb", 0.3), boxShadow: `0 0 0 1px ${alpha("#2563eb", 0.08)}` },
                           "&:active": { cursor: "grabbing" },
                         }}
@@ -1675,6 +1684,32 @@ export default function CallingList() {
                           placeholder="Details..."
                           sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
                         />
+                      )}
+
+                      {callReason === "Other" && (
+                        <Box sx={{ mb: 2 }}>
+                          <Button
+                            variant={otherScheduleToggle ? "contained" : "outlined"}
+                            size="small"
+                            onClick={() => setOtherScheduleToggle(!otherScheduleToggle)}
+                            sx={{ borderRadius: 2, textTransform: "none", mb: otherScheduleToggle ? 1.5 : 0 }}
+                          >
+                            {otherScheduleToggle ? "Cancel Schedule" : "Schedule Call"}
+                          </Button>
+                          {otherScheduleToggle && (
+                            <TextField
+                              type="datetime-local"
+                              label="Schedule Date & Time"
+                              size="small"
+                              fullWidth
+                              value={otherScheduleDate}
+                              onChange={e => setOtherScheduleDate(e.target.value)}
+                              InputLabelProps={{ shrink: true }}
+                              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
+                              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                            />
+                          )}
+                        </Box>
                       )}
 
                       {callReason === "Decision Maker" && (
