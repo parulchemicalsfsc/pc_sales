@@ -243,24 +243,36 @@ export default function CallingList() {
   const [isDraggingCard, setIsDraggingCard] = useState(false);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>, index: number) => {
+    dragIndexRef.current = index;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index));
 
-    // Synchronously apply the blue styles to the DOM element so the browser
-    // captures them for the drag ghost image snapshot!
-    const target = e.currentTarget;
-    target.style.setProperty("background-color", isDark ? "rgba(37, 99, 235, 0.8)" : "#bfdbfe", "important");
-    target.style.setProperty("border", "2px solid #2563eb", "important");
-    target.style.setProperty("opacity", "1", "important");
+    // Create a custom drag ghost image styled blue
+    const original = e.currentTarget;
+    const clone = original.cloneNode(true) as HTMLElement;
+    const rect = original.getBoundingClientRect();
 
-    // Defer the React state update to the next tick (after snapshot is taken)
+    clone.style.cssText = `
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: ${rect.width}px;
+      background-color: ${isDark ? "#1d4ed8" : "#dbeafe"} !important;
+      border: 2px solid #2563eb !important;
+      border-left: 4px solid #2563eb !important;
+      border-radius: 8px;
+      box-shadow: 0 4px 24px rgba(37, 99, 235, 0.35);
+      opacity: 1;
+      pointer-events: none;
+      z-index: -1;
+    `;
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(clone, e.clientX - rect.left, e.clientY - rect.top);
+
+    // Remove the clone after browser captures the image
     setTimeout(() => {
-      dragIndexRef.current = index;
+      document.body.removeChild(clone);
       setIsDraggingCard(true);
-      // Clear inline styles so React's `sx` styling can take over
-      target.style.removeProperty("background-color");
-      target.style.removeProperty("border");
-      target.style.removeProperty("opacity");
     }, 0);
   };
 
