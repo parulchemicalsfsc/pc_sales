@@ -243,10 +243,23 @@ export default function CallingList() {
   const [isDraggingCard, setIsDraggingCard] = useState(false);
 
   const handleDragStart = (e: DragEvent<HTMLDivElement>, index: number) => {
-    dragIndexRef.current = index;
-    setIsDraggingCard(true);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index));
+
+    // Synchronously apply the blue styles to the DOM element so the browser
+    // captures them for the drag ghost image snapshot!
+    const target = e.currentTarget;
+    target.style.backgroundColor = isDark ? "rgba(37, 99, 235, 0.4)" : "#dbeafe";
+    target.style.border = "2px solid #2563eb";
+
+    // Defer the React state update to the next tick (after snapshot is taken)
+    setTimeout(() => {
+      dragIndexRef.current = index;
+      setIsDraggingCard(true);
+      // Clear inline styles so React's `sx` styling can take over
+      target.style.backgroundColor = "";
+      target.style.border = "";
+    }, 0);
   };
 
   const handleDragEnter = (e: DragEvent<HTMLDivElement>, index: number) => {
