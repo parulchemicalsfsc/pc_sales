@@ -178,6 +178,8 @@ export default function CallingList() {
   const [dialogHistory, setDialogHistory] = useState<any>(null);
   const [dialogHistoryLoading, setDialogHistoryLoading] = useState(false);
 
+
+
   // Call Outcome Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
@@ -240,6 +242,24 @@ export default function CallingList() {
   const [qcCurrentIndex, setQcCurrentIndex] = useState(0);
   const [qcDialogOpen, setQcDialogOpen] = useState(false);
   const isQuickCall = qcDialogOpen && qcQueue.length > 0;
+
+  useEffect(() => {
+    if (dialogOpen || qcDialogOpen) {
+      let targetId = null;
+      if (orderCallItem) targetId = orderCallItem.customer_id;
+      else if (isQuickCall && qcQueue[qcCurrentIndex]) targetId = qcQueue[qcCurrentIndex].customer_id;
+      else if (activeItem) targetId = activeItem.customer_id;
+
+      if (targetId) {
+        setDialogHistory(null);
+        setDialogHistoryLoading(true);
+        customerAPI.getSummary(targetId)
+          .then(data => setDialogHistory(data))
+          .catch(() => setDialogHistory(null))
+          .finally(() => setDialogHistoryLoading(false));
+      }
+    }
+  }, [dialogOpen, qcDialogOpen, activeItem, orderCallItem, isQuickCall, qcCurrentIndex, qcQueue]);
 
   // Drag & Drop state for assignment cards
   const dragIndexRef = useRef<number | null>(null);
@@ -505,13 +525,7 @@ export default function CallingList() {
       console.error("Failed to start timer", err);
     }
 
-    // Fetch previous call history for the dialog
-    setDialogHistory(null);
-    setDialogHistoryLoading(true);
-    customerAPI.getSummary(a.customer_id)
-      .then(data => setDialogHistory(data))
-      .catch(() => setDialogHistory(null))
-      .finally(() => setDialogHistoryLoading(false));
+    // The dialog history is now automatically fetched by a useEffect when dialogOpen becomes true
 
     setTimeout(() => {
       setActiveItem(a);

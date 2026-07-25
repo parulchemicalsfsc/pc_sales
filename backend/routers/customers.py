@@ -106,10 +106,9 @@ def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db))
     """Get summarized sales, payments, and join date for a customer"""
     try:
         cust_res = db.table("customers").select("created_at").eq("customer_id", customer_id).execute()
-        if not cust_res.data or len(cust_res.data) == 0:
-            raise HTTPException(status_code=404, detail="Customer not found")
-        
-        joined_date = cust_res.data[0].get("created_at")
+        joined_date = None
+        if cust_res.data and len(cust_res.data) > 0:
+            joined_date = cust_res.data[0].get("created_at")
         
         sales_res = db.table("sales").select("total_amount, sale_id").eq("customer_id", customer_id).execute()
         sales_data = sales_res.data or []
