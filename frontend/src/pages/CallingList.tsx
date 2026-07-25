@@ -1360,9 +1360,10 @@ export default function CallingList() {
                         </Box>
 
                         {/* Status / Action */}
-                        {item.status !== "Pending" ? (
-                          <Chip size="small" label={item.status} sx={{ bgcolor: chip.bg, color: chip.fg, fontWeight: 600, fontSize: 11, height: 24 }} />
-                        ) : (
+                        <Stack spacing={1} alignItems="flex-end">
+                          {item.status !== "Pending" && (
+                            <Chip size="small" label={item.status} sx={{ bgcolor: chip.bg, color: chip.fg, fontWeight: 600, fontSize: 11, height: 24 }} />
+                          )}
                           <Tooltip title={item.mobile ? `Call ${item.mobile}` : "No number"}>
                             <span>
                               <Button
@@ -1378,15 +1379,15 @@ export default function CallingList() {
                                   fontSize: 12,
                                   px: 2,
                                   boxShadow: "none",
-                                  bgcolor: "#16a34a",
-                                  "&:hover": { bgcolor: "#15803d", boxShadow: "none" },
+                                  bgcolor: item.status !== "Pending" ? "#3b82f6" : "#16a34a", // Blue for called, green for pending
+                                  "&:hover": { bgcolor: item.status !== "Pending" ? "#2563eb" : "#15803d", boxShadow: "none" },
                                 }}
                               >
                                 Call
                               </Button>
                             </span>
                           </Tooltip>
-                        )}
+                        </Stack>
                       </Box>
                     );
                   })}
