@@ -174,6 +174,10 @@ export default function CallingList() {
   const [customerSummary, setCustomerSummary] = useState<any>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
+  // Inline call history shown inside the Log Call Outcome dialog
+  const [dialogHistory, setDialogHistory] = useState<any>(null);
+  const [dialogHistoryLoading, setDialogHistoryLoading] = useState(false);
+
   // Call Outcome Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
@@ -500,6 +504,14 @@ export default function CallingList() {
     } catch (err) {
       console.error("Failed to start timer", err);
     }
+
+    // Fetch previous call history for the dialog
+    setDialogHistory(null);
+    setDialogHistoryLoading(true);
+    customerAPI.getSummary(a.customer_id)
+      .then(data => setDialogHistory(data))
+      .catch(() => setDialogHistory(null))
+      .finally(() => setDialogHistoryLoading(false));
 
     setTimeout(() => {
       setActiveItem(a);
@@ -1596,6 +1608,56 @@ export default function CallingList() {
           })()}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+
+          {/* ── Previous Call History ── */}
+          {(dialogHistoryLoading || (dialogHistory?.call_logs && dialogHistory.call_logs.length > 0)) && (
+            <Box sx={{ mb: 2.5, p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.primary.main, 0.04), border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}` }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", textTransform: "uppercase", letterSpacing: 0.5, display: "block", mb: 1 }}>
+                Previous Call History
+              </Typography>
+              {dialogHistoryLoading ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5 }}>
+                  <CircularProgress size={14} />
+                  <Typography variant="caption" color="text.secondary">Loading history…</Typography>
+                </Box>
+              ) : (
+                <Stack spacing={1} sx={{ maxHeight: 200, overflowY: "auto" }}>
+                  {dialogHistory.call_logs.map((log: any, idx: number) => {
+                    const outcomeMatch = CALL_OUTCOMES.find(o => o.value === log.call_outcome);
+                    const logColor = outcomeMatch?.color ?? "#6b7280";
+                    const logLabel = outcomeMatch?.label ?? log.call_outcome?.replace(/_/g, " ")?.toUpperCase();
+                    const logDate = new Date(log.created_at);
+                    return (
+                      <Box key={idx} sx={{ p: 1, borderRadius: 1.5, bgcolor: isDark ? "rgba(255,255,255,0.04)" : "#fff", border: `1px solid ${border}` }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                          <Chip size="small" label={logLabel} sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: alpha(logColor, 0.1), color: logColor, border: `1px solid ${alpha(logColor, 0.25)}` }} />
+                          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.68rem" }}>
+                            {logDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · {logDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          </Typography>
+                        </Stack>
+                        {log.notes && (
+                          <Typography variant="caption" sx={{ color: "text.secondary", fontStyle: "italic", display: "block" }}>
+                            "{log.notes}"
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
+                  {/* Most recent order if any */}
+                  {dialogHistory.recent_order && (
+                    <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: alpha("#16a34a", 0.06), border: `1px solid ${alpha("#16a34a", 0.25)}` }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Chip size="small" label="Last Order" sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700, bgcolor: alpha("#16a34a", 0.1), color: "#16a34a" }} />
+                        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.68rem" }}>
+                          ₹{(dialogHistory.recent_order.total_amount || 0).toLocaleString("en-IN")}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              )}
+            </Box>
+          )}
 
           {/* Main Connection Toggle */}
           <Stack direction="row" spacing={1} sx={{ mb: 2.5 }}>
