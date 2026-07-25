@@ -191,6 +191,10 @@ export default function CallingList() {
   const [callSubReason, setCallSubReason] = useState("");
   const [qualityFollowUpDate, setQualityFollowUpDate] = useState("");
   const [callRetry, setCallRetry] = useState("");
+  const [dmName, setDmName] = useState("");
+  const [dmPhone, setDmPhone] = useState("");
+  const [dmScheduleToggle, setDmScheduleToggle] = useState(false);
+  const [dmScheduleDate, setDmScheduleDate] = useState("");
 
   const resetWizard = () => {
     setOutcome("");
@@ -205,6 +209,10 @@ export default function CallingList() {
     setCallSubReason("");
     setQualityFollowUpDate("");
     setCallRetry("");
+    setDmName("");
+    setDmPhone("");
+    setDmScheduleToggle(false);
+    setDmScheduleDate("");
   };
 
   // Estimation Calculator Dialog
@@ -555,7 +563,13 @@ export default function CallingList() {
             if (callReason === "Quality Concern" && qualityFollowUpDate) {
                reasonText += ` (Follow up: ${qualityFollowUpDate.replace("T", " ")})`;
             }
-            finalNotes = `[Customer Reached - Not Interested] Reason: ${reasonText} ${callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
+            if (callReason === "Decision Maker") {
+               reasonText += ` - Name: ${dmName}, Phone: +91${dmPhone}`;
+               if (dmScheduleToggle && dmScheduleDate) {
+                  reasonText += ` (Follow up: ${dmScheduleDate.replace("T", " ")})`;
+               }
+            }
+            finalNotes = `[Customer Reached - Not Interested] Reason: ${reasonText} ${callReason !== "Decision Maker" && callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
           } else return;
         } else if (callReach === "not_reached") {
           finalOutcome = "not_reachable";
@@ -596,7 +610,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: finalOutcome,
           notes: finalNotes,
-          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : undefined),
+          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : undefined)),
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -620,7 +634,7 @@ export default function CallingList() {
           activeItem!.assignment_id, 
           finalOutcome, 
           finalNotes, 
-          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : undefined)
+          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : undefined))
         );
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
@@ -1646,12 +1660,11 @@ export default function CallingList() {
                         </Select>
                       </FormControl>
                       
-                      {["Expensive", "Decision Maker", "Trust Issue", "Using Other Brand", "Other"].includes(callReason) && (
+                      {["Expensive", "Trust Issue", "Using Other Brand", "Other"].includes(callReason) && (
                         <TextField
                           label={
                             callReason === "Using Other Brand" ? "Brand name & result?" : 
                             callReason === "Expensive" ? "YES / NO" : 
-                            callReason === "Decision Maker" ? "Who & Number?" : 
                             callReason === "Trust Issue" ? "Product / delivery / quality issue?" : 
                             "Specific Details"
                           }
@@ -1662,6 +1675,54 @@ export default function CallingList() {
                           placeholder="Details..."
                           sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
                         />
+                      )}
+
+                      {callReason === "Decision Maker" && (
+                        <Box sx={{ mb: 2 }}>
+                          <TextField
+                            label="Decision Maker Name"
+                            size="small"
+                            fullWidth
+                            value={dmName}
+                            onChange={e => setDmName(e.target.value)}
+                            sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                          />
+                          <TextField
+                            label="Phone Number"
+                            size="small"
+                            fullWidth
+                            value={dmPhone}
+                            onChange={e => {
+                              const val = e.target.value.replace(/\D/g, "").slice(0, 10);
+                              setDmPhone(val);
+                            }}
+                            InputProps={{
+                              startAdornment: <InputAdornment position="start">+91</InputAdornment>,
+                            }}
+                            sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                          />
+                          <Button
+                            variant={dmScheduleToggle ? "contained" : "outlined"}
+                            size="small"
+                            onClick={() => setDmScheduleToggle(!dmScheduleToggle)}
+                            sx={{ borderRadius: 2, textTransform: "none", mb: dmScheduleToggle ? 1.5 : 0 }}
+                          >
+                            {dmScheduleToggle ? "Cancel Schedule" : "Schedule Call"}
+                          </Button>
+                          {dmScheduleToggle && (
+                            <TextField
+                              type="datetime-local"
+                              label="Schedule Date & Time"
+                              size="small"
+                              fullWidth
+                              value={dmScheduleDate}
+                              onChange={e => setDmScheduleDate(e.target.value)}
+                              InputLabelProps={{ shrink: true }}
+                              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
+                              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
+                            />
+                          )}
+                        </Box>
                       )}
 
                       {callReason === "Quality Concern" && (
