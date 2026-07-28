@@ -1601,9 +1601,18 @@ def get_admin_assignments(
         # the user's role.  We replicate that logic here so the admin
         # dashboard numbers are identical.
         #
-        # Step 1: get the set of emails that have assignments TODAY so we
-        #         know which telecallers to show cards for.
+        # Step 1: get the set of emails to show in the summary.
+        # Include all active telecallers/sales_managers, anyone with assignments today, 
+        # and anyone with leftover pending assignments.
         today_emails = set()
+        
+        # 1. Add all active telecallers and sales managers
+        for email, u_info in users_map.items():
+            r = u_info.get("role", "").lower().replace(" ", "_")
+            if r in ("sales_manager", "telecaller", "staff", "telecaller1", "telecaller2") or "telecaller" in r:
+                today_emails.add(email)
+
+        # 2. Add anyone with assignments today (in case role changed but data exists)
         te_offset = 0
         while True:
             te_res = db.table("calling_assignments") \
@@ -1614,10 +1623,28 @@ def get_admin_assignments(
             if not te_res.data:
                 break
             for r in te_res.data:
-                today_emails.add(r["user_email"])
+                if r.get("user_email"):
+                    today_emails.add(r["user_email"])
             if len(te_res.data) < 1000:
                 break
             te_offset += 1000
+            
+        # 3. Add anyone with pending assignments from previous days
+        pe_offset = 0
+        while True:
+            pe_res = db.table("calling_assignments") \
+                .select("user_email") \
+                .eq("status", "Pending") \
+                .range(pe_offset, pe_offset + 999) \
+                .execute()
+            if not pe_res.data:
+                break
+            for r in pe_res.data:
+                if r.get("user_email"):
+                    today_emails.add(r["user_email"])
+            if len(pe_res.data) < 1000:
+                break
+            pe_offset += 1000
 
         # Step 2: for each email that has assignments today, fetch ALL their
         #         assignments (across all dates) — same as the calling list.
