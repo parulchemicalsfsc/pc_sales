@@ -121,6 +121,72 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
+// ─── Role Configuration ───────────────────────────────────────────────────────
+
+interface RoleConfig {
+  title: string;
+  subtitle: string;
+  userFilterLabel: string;
+  userFilterPlaceholder: string;
+  presentKpiLabel: string;
+  userTableColumnHeader: string;
+  showCallKpis: boolean;
+  showCallTableColumns: boolean;
+  showSecondaryCards: boolean;
+  showGeography: boolean;
+  showAnalytics: boolean;
+  showCallOutcomesChart: boolean;
+  showTopPerformersChart: boolean;
+}
+
+const ROLE_CONFIGS: Record<string, RoleConfig> = {
+  all: {
+    title: "Performance Reports",
+    subtitle: "Analyze overall performance across all roles",
+    userFilterLabel: "Filter by User",
+    userFilterPlaceholder: "All Users",
+    presentKpiLabel: "Users Present",
+    userTableColumnHeader: "User",
+    showCallKpis: true,
+    showCallTableColumns: true,
+    showSecondaryCards: true,
+    showGeography: true,
+    showAnalytics: true,
+    showCallOutcomesChart: true,
+    showTopPerformersChart: true,
+  },
+  telecaller: {
+    title: "Telecaller Performance",
+    subtitle: "Analyze call logs, attendance, and generated orders",
+    userFilterLabel: "Filter by Telecaller",
+    userFilterPlaceholder: "All Telecallers",
+    presentKpiLabel: "Telecallers Present",
+    userTableColumnHeader: "Telecaller",
+    showCallKpis: true,
+    showCallTableColumns: true,
+    showSecondaryCards: true,
+    showGeography: true,
+    showAnalytics: true,
+    showCallOutcomesChart: true,
+    showTopPerformersChart: true,
+  },
+  sales_manager: {
+    title: "Sales Manager Performance",
+    subtitle: "Analyze sales manager activities, attendance, and generated orders",
+    userFilterLabel: "Filter by Sales Manager",
+    userFilterPlaceholder: "All Sales Managers",
+    presentKpiLabel: "Sales Managers Present",
+    userTableColumnHeader: "Sales Manager",
+    showCallKpis: false,
+    showCallTableColumns: false,
+    showSecondaryCards: false,
+    showGeography: false,
+    showAnalytics: false,
+    showCallOutcomesChart: false,
+    showTopPerformersChart: false,
+  },
+};
+
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
 export default function TelecallerReports() {
@@ -129,6 +195,7 @@ export default function TelecallerReports() {
 
   const thisMonth = getThisMonth();
   const [filters, setFilters] = useState({
+    role: "all",
     preset: "this_month",
     start_date: thisMonth.start,
     end_date: thisMonth.end,
@@ -160,6 +227,7 @@ export default function TelecallerReports() {
         end_date: filters.end_date,
         telecaller_email: filters.telecaller_email || undefined,
         order_status: filters.order_status === "all" ? undefined : filters.order_status,
+        role: filters.role === "all" ? undefined : filters.role,
       });
 
       // Handle the blob download
@@ -197,12 +265,14 @@ export default function TelecallerReports() {
           end_date: filters.end_date,
           telecaller_email: filters.telecaller_email || undefined,
           order_status: filters.order_status === "all" ? undefined : filters.order_status,
+          role: filters.role === "all" ? undefined : filters.role,
         }),
         reportsAPI.getTelecallerCharts({
           start_date: filters.start_date,
           end_date: filters.end_date,
           telecaller_email: filters.telecaller_email || undefined,
           view_by: filters.view_by,
+          role: filters.role === "all" ? undefined : filters.role,
         })
       ]);
       console.log("DEBUG: Frontend chartsRes:", chartsRes);
@@ -249,16 +319,18 @@ export default function TelecallerReports() {
     zIndex: 1,
   };
 
+  const config = ROLE_CONFIGS[filters.role] || ROLE_CONFIGS.all;
+
   return (
     <Box sx={{ animation: "fadeIn 0.5s ease-in-out", "@keyframes fadeIn": { "0%": { opacity: 0 }, "100%": { opacity: 1 } } }}>
       
       {/* ── Header ── */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, color: "text.primary" }}>
-          Telecaller Performance
+          {config.title}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Analyze call logs, attendance, and generated orders
+          {config.subtitle}
         </Typography>
       </Box>
 
@@ -271,6 +343,30 @@ export default function TelecallerReports() {
       {/* ── Filters ── */}
       <Card sx={{ mb: 4, borderRadius: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
         <CardContent sx={{ pb: "16px !important" }}>
+          {/* ── Role Filter ── */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+            <TextField
+              select
+              size="small"
+              label="Role"
+              value={filters.role}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  role: e.target.value,
+                  telecaller_email: null, // Reset user filter on role change
+                }))
+              }
+              sx={{ minWidth: 200 }}
+            >
+              <MenuItem value="all">All Roles</MenuItem>
+              <MenuItem value="telecaller">Telecaller</MenuItem>
+              <MenuItem value="sales_manager">Sales Manager</MenuItem>
+            </TextField>
+          </Box>
+
+          <Divider sx={{ mb: 2 }} />
+
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", mb: 2 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <CalendarIcon fontSize="small" color="primary" />
@@ -311,7 +407,7 @@ export default function TelecallerReports() {
               options={telecallerOptions}
               value={filters.telecaller_email}
               onChange={(_, v) => setFilters((f) => ({ ...f, telecaller_email: v }))}
-              renderInput={(params) => <TextField {...params} label="Filter by Telecaller" placeholder="All Telecallers" />}
+              renderInput={(params) => <TextField {...params} label={config.userFilterLabel} placeholder={config.userFilterPlaceholder} />}
               sx={{ minWidth: 260 }}
             />
             <TextField
@@ -349,28 +445,32 @@ export default function TelecallerReports() {
 
       {/* ── KPI Cards ── */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={4} lg={2.4}>
+        {config.showCallKpis && (
+          <>
+            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+              <KpiCard
+                label="Total Calls"
+                value={summary.total_calls || "0"}
+                icon={<PhoneIcon fontSize="medium" />}
+                color={theme.palette.primary.main}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+              <KpiCard
+                label="Connected Calls"
+                value={summary.connected_calls || "0"}
+                percentage={summary.connected_pct !== undefined ? `${summary.connected_pct}%` : undefined}
+                icon={<CheckCircleIcon fontSize="medium" />}
+                color={theme.palette.success.main}
+                loading={loading}
+              />
+            </Grid>
+          </>
+        )}
+        <Grid item xs={12} sm={6} md={4} lg={config.showCallKpis ? 2.4 : 12}>
           <KpiCard
-            label="Total Calls"
-            value={summary.total_calls || "0"}
-            icon={<PhoneIcon fontSize="medium" />}
-            color={theme.palette.primary.main}
-            loading={loading}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4} lg={2.4}>
-          <KpiCard
-            label="Connected Calls"
-            value={summary.connected_calls || "0"}
-            percentage={summary.connected_pct !== undefined ? `${summary.connected_pct}%` : undefined}
-            icon={<CheckCircleIcon fontSize="medium" />}
-            color={theme.palette.success.main}
-            loading={loading}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4} lg={2.4}>
-          <KpiCard
-            label="Telecallers Present"
+            label={config.presentKpiLabel}
             value={summary.present_telecallers || "0"}
             subLabel={`Out of ${summary.total_telecallers || "0"} total`}
             icon={<PeopleIcon fontSize="medium" />}
@@ -378,25 +478,29 @@ export default function TelecallerReports() {
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={4} lg={2.4}>
-          <KpiCard
-            label="Orders Generated"
-            value={summary.total_orders || "0"}
-            percentage={summary.conversion_rate !== undefined ? `${summary.conversion_rate}% Conv.` : undefined}
-            icon={<OrderIcon fontSize="medium" />}
-            color={theme.palette.warning.main}
-            loading={loading}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4} lg={2.4}>
-          <KpiCard
-            label="Avg Call Duration"
-            value={summary.avg_duration ? formatDuration(summary.avg_duration) : "0s"}
-            icon={<TimeIcon fontSize="medium" />}
-            color="#9c27b0"
-            loading={loading}
-          />
-        </Grid>
+        {config.showCallKpis && (
+          <>
+            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+              <KpiCard
+                label="Orders Generated"
+                value={summary.total_orders || "0"}
+                percentage={summary.conversion_rate !== undefined ? `${summary.conversion_rate}% Conv.` : undefined}
+                icon={<OrderIcon fontSize="medium" />}
+                color={theme.palette.warning.main}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+              <KpiCard
+                label="Avg Call Duration"
+                value={summary.avg_duration ? formatDuration(summary.avg_duration) : "0s"}
+                icon={<TimeIcon fontSize="medium" />}
+                color="#9c27b0"
+                loading={loading}
+              />
+            </Grid>
+          </>
+        )}
       </Grid>
 
       {/* ── Main Tables Area ── */}
@@ -429,17 +533,23 @@ export default function TelecallerReports() {
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700, width: 36 }}>#</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Telecaller</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Calls</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Connected</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Connected %</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Callback</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Not Reachable</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Wrong Number</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Orders</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Conversion %</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{config.userTableColumnHeader}</TableCell>
+                        {config.showCallTableColumns && (
+                          <>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Total Calls</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Connected</TableCell>
+                            <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Connected %</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Callback</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Not Reachable</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Wrong Number</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Orders</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Conversion %</TableCell>
+                          </>
+                        )}
                         <TableCell sx={{ fontWeight: 700 }} align="right">Attendance %</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
+                        {config.showCallTableColumns && (
+                          <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
+                        )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -459,48 +569,54 @@ export default function TelecallerReports() {
                               {extractNameFromEmail(row.email)}
                             </Typography>
                           </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2">{row.calls}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2">{row.connected_calls || 0}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                {row.connected_pct}%
-                              </Typography>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={row.connected_pct} 
-                                sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
-                                color="primary"
-                              />
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="text.secondary">{row.callback || 0}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="text.secondary">{row.not_reachable || 0}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="text.secondary">{row.wrong_number || 0}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.orders}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>{row.conversion_pct}%</Typography>
-                          </TableCell>
+                          {config.showCallTableColumns && (
+                            <>
+                              <TableCell align="right">
+                                <Typography variant="body2">{row.calls}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2">{row.connected_calls || 0}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                    {row.connected_pct}%
+                                  </Typography>
+                                  <LinearProgress 
+                                    variant="determinate" 
+                                    value={row.connected_pct} 
+                                    sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
+                                    color="primary"
+                                  />
+                                </Box>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" color="text.secondary">{row.callback || 0}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" color="text.secondary">{row.not_reachable || 0}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" color="text.secondary">{row.wrong_number || 0}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.orders}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>{row.conversion_pct}%</Typography>
+                              </TableCell>
+                            </>
+                          )}
                           <TableCell align="right">
                             <Typography variant="body2">{row.attendance_pct}%</Typography>
                           </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" color="text.secondary">
-                              {formatDuration(row.avg_duration)}
-                            </Typography>
-                          </TableCell>
+                          {config.showCallTableColumns && (
+                            <TableCell align="right">
+                              <Typography variant="body2" color="text.secondary">
+                                {formatDuration(row.avg_duration)}
+                              </Typography>
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -511,312 +627,329 @@ export default function TelecallerReports() {
           </Card>
         </Grid>
 
-        {/* Call Outcomes Table */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent sx={{ p: 0 }}>
-              <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                <Box sx={{ color: "primary.main" }}><PhoneIcon /></Box>
-                <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                  Call Outcomes
-                </Typography>
-                <Chip label={callOutcomes.length} size="small" sx={{ ml: "auto" }} />
-              </Box>
-              {loading ? (
-                <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
-              ) : callOutcomes.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
-              ) : (
-                <TableContainer sx={{ maxHeight: 340 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Outcome</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Count</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Share</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {callOutcomes.map((row: any) => (
-                        <TableRow key={row.outcome} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.outcome}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2">{row.count}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                {row.percentage}%
-                              </Typography>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={row.percentage} 
-                                sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
-                                color="info"
-                              />
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* Secondary Summary Tables (Call Outcomes, Attendance Summary, Orders Summary) */}
+        {config.showSecondaryCards && (
+          <>
+            {/* Call Outcomes Table */}
+            <Grid item xs={12} md={4}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent sx={{ p: 0 }}>
+                  <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                    <Box sx={{ color: "primary.main" }}><PhoneIcon /></Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                      Call Outcomes
+                    </Typography>
+                    <Chip label={callOutcomes.length} size="small" sx={{ ml: "auto" }} />
+                  </Box>
+                  {loading ? (
+                    <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
+                  ) : callOutcomes.length === 0 ? (
+                    <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 340 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Outcome</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Count</TableCell>
+                            <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Share</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {callOutcomes.map((row: any) => (
+                            <TableRow key={row.outcome} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.outcome}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2">{row.count}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                    {row.percentage}%
+                                  </Typography>
+                                  <LinearProgress 
+                                    variant="determinate" 
+                                    value={row.percentage} 
+                                    sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
+                                    color="info"
+                                  />
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
 
-        {/* Attendance Summary */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent sx={{ p: 0 }}>
-              <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                <Box sx={{ color: "primary.main" }}><PeopleIcon /></Box>
-                <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                  Attendance Summary
-                </Typography>
-                <Chip label={attendance.length} size="small" sx={{ ml: "auto" }} />
-              </Box>
-              {loading ? (
-                <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
-              ) : attendance.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
-              ) : (
-                <TableContainer sx={{ maxHeight: 340 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Telecaller</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Present</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Att %</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {attendance.map((row: any) => (
-                        <TableRow key={row.email} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                              {extractNameFromEmail(row.email)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2">{row.present_days}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                {row.attendance_pct}%
-                              </Typography>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={row.attendance_pct} 
-                                sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
-                                color="success"
-                              />
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+            {/* Attendance Summary */}
+            <Grid item xs={12} md={4}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent sx={{ p: 0 }}>
+                  <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                    <Box sx={{ color: "primary.main" }}><PeopleIcon /></Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                      Attendance Summary
+                    </Typography>
+                    <Chip label={attendance.length} size="small" sx={{ ml: "auto" }} />
+                  </Box>
+                  {loading ? (
+                    <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
+                  ) : attendance.length === 0 ? (
+                    <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 340 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>{config.userTableColumnHeader}</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Present</TableCell>
+                            <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Att %</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {attendance.map((row: any) => (
+                            <TableRow key={row.email} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                  {extractNameFromEmail(row.email)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2">{row.present_days}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                    {row.attendance_pct}%
+                                  </Typography>
+                                  <LinearProgress 
+                                    variant="determinate" 
+                                    value={row.attendance_pct} 
+                                    sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
+                                    color="success"
+                                  />
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
 
-        {/* Orders Summary */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: "100%" }}>
-            <CardContent sx={{ p: 0 }}>
-              <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                <Box sx={{ color: "primary.main" }}><OrderIcon /></Box>
-                <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                  Orders Summary
-                </Typography>
-                <Chip label={orders.length} size="small" sx={{ ml: "auto" }} />
-              </Box>
-              {loading ? (
-                <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
-              ) : orders.length === 0 ? (
-                <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
-              ) : (
-                <TableContainer sx={{ maxHeight: 340 }}>
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Telecaller</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Total</TableCell>
-                        <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Approval %</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {orders.map((row: any) => (
-                        <TableRow key={row.email} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                              {extractNameFromEmail(row.email)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2">{row.total_orders}</Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                {row.approval_rate}%
-                              </Typography>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={row.approval_rate} 
-                                sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
-                                color="warning"
-                              />
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
+            {/* Orders Summary */}
+            <Grid item xs={12} md={4}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent sx={{ p: 0 }}>
+                  <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                    <Box sx={{ color: "primary.main" }}><OrderIcon /></Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, fontSize: "0.95rem" }}>
+                      Orders Summary
+                    </Typography>
+                    <Chip label={orders.length} size="small" sx={{ ml: "auto" }} />
+                  </Box>
+                  {loading ? (
+                    <Box sx={{ p: 2 }}>{[...Array(3)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
+                  ) : orders.length === 0 ? (
+                    <Box sx={{ p: 4, textAlign: "center" }}><Typography color="text.secondary" variant="body2">No data</Typography></Box>
+                  ) : (
+                    <TableContainer sx={{ maxHeight: 340 }}>
+                      <Table size="small" stickyHeader>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>{config.userTableColumnHeader}</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Total</TableCell>
+                            <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Approval %</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {orders.map((row: any) => (
+                            <TableRow key={row.email} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                  {extractNameFromEmail(row.email)}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2">{row.total_orders}</Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                    {row.approval_rate}%
+                                  </Typography>
+                                  <LinearProgress 
+                                    variant="determinate" 
+                                    value={row.approval_rate} 
+                                    sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
+                                    color="warning"
+                                  />
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          </>
+        )}
         
       </Grid>
 
       {/* ── Geographical Analysis ── */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
-        <LocationIcon color="primary" />
-        Geographical Analysis
-      </Typography>
+      {config.showGeography && (
+        <>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
+            <LocationIcon color="primary" />
+            Geographical Analysis
+          </Typography>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={6}>
-          <DimensionTable
-            title="Telecalling by District"
-            icon={<LocationIcon />}
-            rows={data?.district_breakdown || []}
-            loading={loading}
-            colLabel="District"
-            mode="telecaller"
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <DimensionTable
-            title="Telecalling by Village"
-            icon={<StoreIcon />}
-            rows={data?.village_breakdown || []}
-            loading={loading}
-            colLabel="Village"
-            colSub="District"
-            mode="telecaller"
-          />
-        </Grid>
-      </Grid>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} md={6}>
+              <DimensionTable
+                title="Telecalling by District"
+                icon={<LocationIcon />}
+                rows={data?.district_breakdown || []}
+                loading={loading}
+                colLabel="District"
+                mode="telecaller"
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <DimensionTable
+                title="Telecalling by Village"
+                icon={<StoreIcon />}
+                rows={data?.village_breakdown || []}
+                loading={loading}
+                colLabel="Village"
+                colSub="District"
+                mode="telecaller"
+              />
+            </Grid>
+          </Grid>
+        </>
+      )}
 
       {/* ── Performance Analytics Charts ── */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
-        <TimelineIcon color="primary" />
-        Performance Analytics
-      </Typography>
+      {config.showAnalytics && (
+        <>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>
+            <TimelineIcon color="primary" />
+            Performance Analytics
+          </Typography>
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Calls Trend (Bar) */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%", borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Calls Trend</Typography>
-              <Box sx={{ width: "100%", height: 300 }}>
-                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
-                  <ResponsiveContainer>
-                    <BarChart data={chartsData?.calls_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                      <Bar dataKey="calls" name="Total Calls" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            {/* Calls Trend (Bar) */}
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: "100%", borderRadius: 2 }}>
+                <CardContent>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Calls Trend</Typography>
+                  <Box sx={{ width: "100%", height: 300 }}>
+                    {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                      <ResponsiveContainer>
+                        <BarChart data={chartsData?.calls_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                          <Bar dataKey="calls" name="Total Calls" fill={theme.palette.primary.main} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
 
-        {/* Orders Trend (Bar) */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%", borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Orders Trend</Typography>
-              <Box sx={{ width: "100%", height: 300 }}>
-                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
-                  <ResponsiveContainer>
-                    <BarChart data={chartsData?.orders_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                      <Bar dataKey="orders" name="Orders Generated" fill={theme.palette.warning.main} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+            {/* Orders Trend (Bar) */}
+            <Grid item xs={12} md={6}>
+              <Card sx={{ height: "100%", borderRadius: 2 }}>
+                <CardContent>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Orders Trend</Typography>
+                  <Box sx={{ width: "100%", height: 300 }}>
+                    {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                      <ResponsiveContainer>
+                        <BarChart data={chartsData?.orders_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                          <Bar dataKey="orders" name="Orders Generated" fill={theme.palette.warning.main} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
 
-        {/* Call Outcomes (Stacked Bar) */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%", borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Call Outcome Analysis</Typography>
-              <Box sx={{ width: "100%", height: 300 }}>
-                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
-                  <ResponsiveContainer>
-                    <BarChart data={chartsData?.outcomes_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} />
-                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                      <Legend />
-                      <Bar dataKey="connected" stackId="a" name="Connected" fill={theme.palette.success.main} />
-                      <Bar dataKey="callback" stackId="a" name="Callback" fill={theme.palette.info.main} />
-                      <Bar dataKey="not_reachable" stackId="a" name="Not Reachable" fill={theme.palette.warning.main} />
-                      <Bar dataKey="wrong_number" stackId="a" name="Wrong Number" fill={theme.palette.error.main} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+            {/* Call Outcomes (Stacked Bar) */}
+            {config.showCallOutcomesChart && (
+              <Grid item xs={12} md={6}>
+                <Card sx={{ height: "100%", borderRadius: 2 }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Call Outcome Analysis</Typography>
+                    <Box sx={{ width: "100%", height: 300 }}>
+                      {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                        <ResponsiveContainer>
+                          <BarChart data={chartsData?.outcomes_trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                            <YAxis tick={{ fontSize: 12 }} />
+                            <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                            <Legend />
+                            <Bar dataKey="connected" stackId="a" name="Connected" fill={theme.palette.success.main} />
+                            <Bar dataKey="callback" stackId="a" name="Callback" fill={theme.palette.info.main} />
+                            <Bar dataKey="not_reachable" stackId="a" name="Not Reachable" fill={theme.palette.warning.main} />
+                            <Bar dataKey="wrong_number" stackId="a" name="Wrong Number" fill={theme.palette.error.main} radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
 
-        {/* Top Performing Telecallers (Horizontal Bar) */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: "100%", borderRadius: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Top Performing Telecallers</Typography>
-              <Box sx={{ width: "100%", height: 300 }}>
-                {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
-                  <ResponsiveContainer>
-                    <BarChart layout="vertical" data={chartsData?.top_telecallers?.map((t: any) => ({ ...t, name: extractNameFromEmail(t.telecaller_email) })) || []} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 12 }} />
-                      <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
-                      <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                      <Bar dataKey="orders_generated" name="Orders Generated" fill={theme.palette.secondary.main} radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+            {/* Top Performing Telecallers (Horizontal Bar) */}
+            {config.showTopPerformersChart && (
+              <Grid item xs={12} md={6}>
+                <Card sx={{ height: "100%", borderRadius: 2 }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Top Performing Telecallers</Typography>
+                    <Box sx={{ width: "100%", height: 300 }}>
+                      {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
+                        <ResponsiveContainer>
+                          <BarChart layout="vertical" data={chartsData?.top_telecallers?.map((t: any) => ({ ...t, name: extractNameFromEmail(t.telecaller_email) })) || []} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                            <XAxis type="number" tick={{ fontSize: 12 }} />
+                            <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
+                            <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                            <Bar dataKey="orders_generated" name="Orders Generated" fill={theme.palette.secondary.main} radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+          </Grid>
+        </>
+      )}
 
 
 

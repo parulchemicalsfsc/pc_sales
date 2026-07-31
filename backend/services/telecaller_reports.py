@@ -1,13 +1,57 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from collections import defaultdict
 from supabase_db import SupabaseClient
+
+VALID_ROLES = {"all", "telecaller", "sales_manager"}
+
+def get_role_emails(db: SupabaseClient, role: Optional[str]) -> Optional[Set[str]]:
+    """
+    Validates role parameter and queries app_users table ONCE per request to return a set of emails
+    matching the role. Returns None if role is 'all', invalid, or unprovided (no filtering).
+    """
+    if not role or not isinstance(role, str):
+        return None
+        
+    role_clean = role.strip().lower().replace(" ", "_")
+    if role_clean not in VALID_ROLES or role_clean == "all":
+        return None
+
+    try:
+        res = db.table("app_users").select("email, role").execute()
+        users = res.data or []
+        allowed_emails = set()
+        for u in users:
+            email = u.get("email")
+            if not email:
+                continue
+            u_role = (u.get("role") or "").strip().lower().replace(" ", "_")
+            if role_clean == "telecaller":
+                if u_role == "telecaller" or "telecaller" in u_role or u_role in ["staff", "telecaller1", "telecaller2"]:
+                    allowed_emails.add(email)
+            elif role_clean == "sales_manager":
+                if u_role in ["sales_manager", "salesmanager"] or "sales_manager" in u_role or "sales manager" in (u.get("role") or "").strip().lower():
+                    allowed_emails.add(email)
+        return allowed_emails
+    except Exception as e:
+        print(f"Error resolving role emails from app_users: {e}")
+        return None
+
+def filter_by_allowed_emails(records: List[Dict[str, Any]], email_key: str, allowed_emails: Optional[Set[str]]) -> List[Dict[str, Any]]:
+    """
+    Utility helper to filter a list of dictionary records by allowed_emails.
+    If allowed_emails is None, returns the original records list (no filtering).
+    """
+    if allowed_emails is None:
+        return records
+    return [r for r in records if r.get(email_key) in allowed_emails]
 
 def get_telecaller_dashboard(
     db: SupabaseClient,
     start_date: str,
     end_date: str,
     telecaller_email: Optional[str] = None,
-    order_status: Optional[str] = None
+    order_status: Optional[str] = None,
+    allowed_emails: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     
     # 1. Fetch Call Logs
@@ -29,6 +73,11 @@ def get_telecaller_dashboard(
     if order_status:
         orders_query = orders_query.eq("status", order_status)
     orders = orders_query.execute().data or []
+
+    # Apply role filter using centralized helper
+    call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
+    attendance = filter_by_allowed_emails(attendance, "user_email", allowed_emails)
+    orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
 
     # 4. Fetch Duty Days
     duty_days = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
@@ -116,12 +165,6 @@ def get_telecaller_dashboard(
         customers_resp = db.table("customers").select("customer_id, district, village").in_("customer_id", list(customer_ids)).execute()
         customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
 
-    print("--- GEOGRAPHICAL ANALYSIS DEBUG ---")
-    print(f"Total call_logs fetched: {len(call_logs)}")
-    print(f"Total telecaller_orders fetched: {len(orders)}")
-    print(f"Number of unique customer_ids extracted: {len(customer_ids)}")
-    print(f"Number of customer records successfully matched: {len(customers_dict)}")
-
     dist_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0})
     vill_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0, "district": ""})
 
@@ -145,7 +188,6 @@ def get_telecaller_dashboard(
         cid = ord.get("customer_id")
         cust = customers_dict.get(cid, {}) if cid else {}
         
-        # Fallback to customer_village if missing customer_id
         if not cid and ord.get("customer_village"):
             vill = ord.get("customer_village")
             dist = "Not Available"
@@ -167,10 +209,10 @@ def get_telecaller_dashboard(
         district_breakdown.append({
             "rank": rank,
             "label": dist,
-            "orders": calls,           # Frontend expects DimensionRow format (calls -> orders)
-            "revenue": conn,           # connected -> revenue
-            "liters": ords,            # orders -> liters
-            "pct": round(conv, 1)      # conversion pct -> pct
+            "orders": calls,
+            "revenue": conn,
+            "liters": ords,
+            "pct": round(conv, 1)
         })
 
     village_breakdown = []
@@ -195,13 +237,8 @@ def get_telecaller_dashboard(
     total_time = sum(tc_time.values())
     total_time_count = sum(tc_time_count.values())
     
-    present_today_count = 0 # Approximated as total unique telecallers present during this period if looking at 1 day. Let's just sum unique present telecallers.
-    # Actually, the user asked for "Present / Total" -> "14/17". This usually implies "today" or "avg per day".
-    # Since we are aggregating over a date range, "Present Telecallers" can be the average per day, or unique telecallers who were present at least once.
-    # We will use sum of all present records / total duty days. Or we can just count telecallers who have >0 present days if period is large.
-    # Let's count unique telecallers present in this period.
     present_telecallers = sum(1 for v in tc_present.values() if v > 0)
-    total_telecallers_count = len(all_telecallers)
+    total_telecallers_count = len(allowed_emails) if allowed_emails is not None else len(all_telecallers)
 
     summary = {
         "total_calls": total_calls,
@@ -236,7 +273,6 @@ def get_telecaller_dashboard(
         time_cnt = tc_time_count[email]
         pres = tc_present[email]
         
-        # Performance
         performance_list.append({
             "email": email,
             "calls": calls,
@@ -251,14 +287,12 @@ def get_telecaller_dashboard(
             "avg_duration": round((time_sum / time_cnt) if time_cnt else 0, 1)
         })
         
-        # Attendance
         attendance_list.append({
             "email": email,
             "present_days": pres,
             "attendance_pct": round((pres / total_duty_days * 100), 1)
         })
         
-        # Orders
         appr = tc_orders_approved[email]
         pend = tc_orders_pending[email]
         rej = tc_orders_rejected[email]
@@ -271,7 +305,6 @@ def get_telecaller_dashboard(
             "approval_rate": round((appr / ords * 100) if ords else 0, 1)
         })
 
-    # Sort Performance by Total Calls DESC
     performance_list.sort(key=lambda x: x["calls"], reverse=True)
     
     response_data = {
@@ -283,14 +316,10 @@ def get_telecaller_dashboard(
         "district_breakdown": district_breakdown,
         "village_breakdown": village_breakdown
     }
-    print("--- GEOGRAPHICAL BREAKDOWN OUTPUT ---")
-    print(f"District records: {len(district_breakdown)}")
-    print(f"Village records: {len(village_breakdown)}")
-    
     return response_data
 
-def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None):
-    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
+def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
+    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
     performance = dashboard_data.get("performance", [])
     
     headers = ["Rank", "Telecaller", "Calls", "Connected %", "Orders", "Attendance %", "Avg Duration (s)"]
@@ -307,11 +336,10 @@ def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: st
         ])
     return headers, rows
 
-def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None):
-    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
+def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
+    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
     attendance = dashboard_data.get("attendance", [])
     
-    # We also need the total duty days for this period to calculate absent days accurately
     duty_days = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
     total_duty_days = max(len(duty_days), 1)
 
@@ -328,13 +356,13 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
         ])
     return headers, rows
 
-def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None):
+def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
     query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes, customer:customers(name)").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
     if telecaller_email:
         query = query.eq("user_email", telecaller_email)
     
-    # Fetch paginated to avoid limits if data is huge, but usually export limits to what's fetched
     call_logs = query.execute().data or []
+    call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
     
     headers = ["Date", "Time", "Telecaller", "Customer", "Outcome", "Duration (s)", "Notes"]
     rows = []
@@ -358,7 +386,7 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
         ])
     return headers, rows
 
-def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None):
+def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
     query = db.table("telecaller_orders").select("*").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
     if telecaller_email:
         query = query.eq("telecaller_email", telecaller_email)
@@ -366,6 +394,7 @@ def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, te
         query = query.eq("status", order_status)
     
     orders = query.execute().data or []
+    orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
     
     headers = ["Telecaller", "Customer", "Status", "Created Date", "Confirmation Date", "Products", "Notes"]
     rows = []
@@ -393,10 +422,112 @@ def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, te
         ])
     return headers, rows
 
-def get_telecaller_charts(db: SupabaseClient, start_date: str, end_date: str, view_by: str = 'daily', telecaller_email: Optional[str] = None) -> Dict[str, Any]:
+def build_python_telecaller_charts(
+    db: SupabaseClient,
+    start_date: str,
+    end_date: str,
+    view_by: str = 'daily',
+    telecaller_email: Optional[str] = None,
+    allowed_emails: Optional[Set[str]] = None
+) -> Dict[str, Any]:
+    """Fallback and role-filtered calculation for telecaller charts."""
+    cl_query = db.table("call_logs").select("user_email, call_outcome, called_at").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    if telecaller_email:
+        cl_query = cl_query.eq("user_email", telecaller_email)
+    call_logs = cl_query.execute().data or []
+    call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
+
+    ord_query = db.table("telecaller_orders").select("telecaller_email, created_at").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
+    if telecaller_email:
+        ord_query = ord_query.eq("telecaller_email", telecaller_email)
+    orders = ord_query.execute().data or []
+    orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
+
+    def get_period_key(dt_str: str) -> str:
+        if not dt_str:
+            return ""
+        date_part = dt_str.split("T")[0]
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(date_part, "%Y-%m-%d")
+            if view_by == "weekly":
+                return f"{dt.strftime('%Y')}-W{dt.strftime('%W')}"
+            elif view_by == "monthly":
+                return dt.strftime("%Y-%m")
+            return date_part
+        except Exception:
+            return date_part
+
+    calls_by_period = defaultdict(int)
+    outcomes_by_period = defaultdict(lambda: {"connected": 0, "callback": 0, "not_reachable": 0, "wrong_number": 0})
+    for log in call_logs:
+        period = get_period_key(log.get("called_at", ""))
+        if not period:
+            continue
+        calls_by_period[period] += 1
+        
+        outcome = (log.get("call_outcome") or "").lower()
+        if "connect" in outcome:
+            outcomes_by_period[period]["connected"] += 1
+        elif "callback" in outcome:
+            outcomes_by_period[period]["callback"] += 1
+        elif "reach" in outcome:
+            outcomes_by_period[period]["not_reachable"] += 1
+        elif "wrong" in outcome:
+            outcomes_by_period[period]["wrong_number"] += 1
+
+    orders_by_period = defaultdict(int)
+    orders_by_tc = defaultdict(int)
+    for ord_row in orders:
+        period = get_period_key(ord_row.get("created_at", ""))
+        if period:
+            orders_by_period[period] += 1
+        tc = ord_row.get("telecaller_email")
+        if tc:
+            orders_by_tc[tc] += 1
+
+    all_periods = sorted(set(calls_by_period.keys()).union(orders_by_period.keys()).union(outcomes_by_period.keys()))
+
+    calls_trend = [{"period": p, "calls": calls_by_period[p]} for p in all_periods]
+    orders_trend = [{"period": p, "orders": orders_by_period[p]} for p in all_periods]
+    outcomes_trend = [
+        {
+            "period": p,
+            "connected": outcomes_by_period[p]["connected"],
+            "callback": outcomes_by_period[p]["callback"],
+            "not_reachable": outcomes_by_period[p]["not_reachable"],
+            "wrong_number": outcomes_by_period[p]["wrong_number"],
+        }
+        for p in all_periods
+    ]
+
+    top_telecallers = [
+        {"telecaller_email": tc, "orders_generated": cnt}
+        for tc, cnt in sorted(orders_by_tc.items(), key=lambda x: x[1], reverse=True)[:10]
+    ]
+
+    return {
+        "calls_trend": calls_trend,
+        "orders_trend": orders_trend,
+        "outcomes_trend": outcomes_trend,
+        "top_telecallers": top_telecallers,
+    }
+
+def get_telecaller_charts(
+    db: SupabaseClient,
+    start_date: str,
+    end_date: str,
+    view_by: str = 'daily',
+    telecaller_email: Optional[str] = None,
+    allowed_emails: Optional[Set[str]] = None
+) -> Dict[str, Any]:
     """
-    Fetch aggregated charts data from the dedicated RPC.
+    Fetch aggregated charts data. Uses Python aggregation when role/allowed_emails filtering is active,
+    or falls back to RPC if allowed_emails is None.
     """
+    if allowed_emails is not None:
+        return build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)
+
     params = {
         "p_start_date": start_date,
         "p_end_date": end_date,
@@ -406,34 +537,17 @@ def get_telecaller_charts(db: SupabaseClient, start_date: str, end_date: str, vi
         params["p_telecaller_email"] = telecaller_email
         
     try:
-        print(f"DEBUG: Executing RPC get_telecaller_charts_data with params: {params}")
         result = db.rpc('get_telecaller_charts_data', params)
-        print(f"DEBUG: Raw RPC result type: {type(result)}")
-        print(f"DEBUG: Raw RPC result: {result}")
-        
-        # PostgREST sometimes returns a list of objects or a single value for JSONB RPCs
         if isinstance(result, list) and len(result) > 0:
             result = result[0]
-            print(f"DEBUG: Extracted first element from list: {result}")
             
-        # Ensure fallback lists if null
         parsed_result = {
             "calls_trend": result.get("calls_trend") if isinstance(result, dict) else [],
             "orders_trend": result.get("orders_trend") if isinstance(result, dict) else [],
             "outcomes_trend": result.get("outcomes_trend") if isinstance(result, dict) else [],
             "top_telecallers": result.get("top_telecallers") if isinstance(result, dict) else []
         }
-        print(f"DEBUG: Final parsed charts data: {parsed_result}")
         return parsed_result
     except Exception as e:
-        import traceback
-        print(f"Error fetching telecaller charts data: {str(e)}")
-        traceback.print_exc()
-        # Return empty structure on failure
-        return {
-            "calls_trend": [],
-            "orders_trend": [],
-            "outcomes_trend": [],
-            "top_telecallers": []
-        }
-
+        print(f"Error fetching telecaller charts RPC data, falling back to Python aggregation: {str(e)}")
+        return build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)

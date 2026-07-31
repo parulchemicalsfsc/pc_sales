@@ -15,7 +15,8 @@ from services.telecaller_reports import (
     prepare_performance_export,
     prepare_attendance_export,
     prepare_call_logs_export,
-    prepare_orders_export
+    prepare_orders_export,
+    get_role_emails
 )
 import io
 
@@ -1343,10 +1344,12 @@ def get_telecaller_dashboard_route(
     end_date: str,
     telecaller_email: Optional[str] = None,
     order_status: Optional[str] = None,
+    role: Optional[str] = None,
     db: SupabaseClient = Depends(get_db),
 ):
     try:
-        data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
+        allowed_emails = get_role_emails(db, role)
+        data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
         return data
     except Exception as e:
         print(f"Error generating telecaller dashboard: {e}")
@@ -1360,6 +1363,7 @@ def download_telecaller_report(
     end_date: str,
     telecaller_email: Optional[str] = None,
     order_status: Optional[str] = None,
+    role: Optional[str] = None,
     db: SupabaseClient = Depends(get_db),
 ):
     try:
@@ -1367,7 +1371,15 @@ def download_telecaller_report(
         if format not in ["pdf", "excel"]:
             raise HTTPException(status_code=400, detail="Invalid format. Use 'pdf' or 'excel'.")
             
+        allowed_emails = get_role_emails(db, role)
+
         filters = []
+        if role and role.lower() != "all":
+            role_title = role.replace("_", " ").title()
+            filters.append(f"Role: {role_title}")
+        else:
+            filters.append("Role: All Roles")
+
         if telecaller_email:
             filters.append(f"Telecaller: {telecaller_email}")
         else:
@@ -1380,16 +1392,16 @@ def download_telecaller_report(
         subtitle = f"Period: {start_date} to {end_date}"
         
         if report_type == "performance":
-            headers, rows = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status)
+            headers, rows = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
             title = "Telecaller Performance Report"
         elif report_type == "attendance":
-            headers, rows = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status)
+            headers, rows = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
             title = "Telecaller Attendance Report"
         elif report_type == "call-logs":
-            headers, rows = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status)
+            headers, rows = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
             title = "Telecaller Call Logs Report"
         elif report_type == "orders":
-            headers, rows = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status)
+            headers, rows = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
             title = "Telecaller Orders Report"
         else:
             raise HTTPException(status_code=400, detail="Invalid report type.")
@@ -1434,6 +1446,7 @@ def get_telecaller_charts_api(
     end_date: Optional[str] = None,
     view_by: str = "daily",
     telecaller_email: Optional[str] = None,
+    role: Optional[str] = None,
     user_email: str = Depends(get_user_email),
     db: SupabaseClient = Depends(get_db),
 ):
@@ -1445,12 +1458,14 @@ def get_telecaller_charts_api(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
             
+        allowed_emails = get_role_emails(db, role)
         return get_telecaller_charts(
             db=db,
             start_date=start_date,
             end_date=end_date,
             view_by=view_by,
-            telecaller_email=telecaller_email
+            telecaller_email=telecaller_email,
+            allowed_emails=allowed_emails
         )
     except HTTPException as he:
         raise he
