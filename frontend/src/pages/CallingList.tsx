@@ -422,8 +422,13 @@ export default function CallingList() {
         fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
       }
 
-      // Backend orders by persisted sort_order (drag-and-drop) first, then assignment_id desc.
-      // No client-side re-sort here — it would undo the user's custom ordering.
+      // Called tab: sort newest-first by last call / completion time.
+      // (To Call tab keeps the persisted drag-and-drop order, so it is not re-sorted here.)
+      if (tab === 1) {
+        const getTime = (a: any) => new Date(a.last_call?.created_at || a.updated_at || a.assigned_date || 0).getTime();
+        fetched.sort((a: any, b: any) => getTime(b) - getTime(a));
+      }
+
       setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
     } catch (e: any) {
@@ -1430,7 +1435,7 @@ export default function CallingList() {
                               </Typography>
                             )}
                           </Stack>
-                          {item.status !== "Pending" && item.notes && (
+                          {item.status !== "Pending" && item.notes && !(tab === 1 && item.last_call) && (
                             <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
                               {item.notes}
                             </Typography>
