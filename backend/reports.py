@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.lib.pagesizes import A4, letter
+from reportlab.lib.pagesizes import A4, letter, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
@@ -25,6 +25,33 @@ from reportlab.platypus import (
 
 matplotlib.use("Agg")  # Use non-interactive backend
 
+
+REPORT_THEMES = {
+    "performance": {
+        "primary_color": "#1E40AF",
+        "header_bg": "1E40AF",
+        "card_bg": "#F8FAFC",
+        "card_border": "#CBD5E1",
+    },
+    "attendance": {
+        "primary_color": "#059669",
+        "header_bg": "059669",
+        "card_bg": "#ECFDF5",
+        "card_border": "#A7F3D0",
+    },
+    "orders": {
+        "primary_color": "#EA580C",
+        "header_bg": "EA580C",
+        "card_bg": "#FFF7ED",
+        "card_border": "#FED7AA",
+    },
+    "call_logs": {
+        "primary_color": "#7C3AED",
+        "header_bg": "7C3AED",
+        "card_bg": "#F5F3FF",
+        "card_border": "#DDD6FE",
+    },
+}
 
 class ReportGenerator:
     """Generate beautiful reports in PDF and Excel formats"""
@@ -1353,54 +1380,148 @@ class ReportGenerator:
         subtitle: str,
         headers: List[str],
         data_rows: List[List[Any]],
-        metadata_filters: List[str]
+        metadata_filters: List[str],
+        summary_cards: Optional[List[Dict[str, Any]]] = None,
+        summary_paragraph: Optional[str] = None,
+        theme: Optional[Dict[str, str]] = None,
+        col_widths: Optional[List[float]] = None,
     ) -> bytes:
-        """Generic PDF generator for a standard table of rows"""
+        """Generic PDF generator for a standard table of rows with optional summary cards, narrative summary, and Paragraph cell wrapping."""
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5 * inch,
-                                leftMargin=0.4 * inch, rightMargin=0.4 * inch)
+        
+        primary_hex = theme.get("primary_color", "#1e40af") if theme else "#1e40af"
+        card_bg_hex = theme.get("card_bg", "#f8fafc") if theme else "#f8fafc"
+        card_border_hex = theme.get("card_border", "#cbd5e1") if theme else "#cbd5e1"
+        header_bg_hex = theme.get("header_bg", "1e40af") if theme else "1e40af"
+
+        # Select orientation: Landscape for tables with > 5 columns, Portrait for <= 5
+        is_landscape = len(headers) > 5
+        page_size = landscape(A4) if is_landscape else A4
+        page_width, page_height = page_size
+        
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=page_size,
+            topMargin=0.4 * inch,
+            bottomMargin=0.4 * inch,
+            leftMargin=0.4 * inch,
+            rightMargin=0.4 * inch
+        )
         elements = []
 
-        # Header
-        self._add_header(elements, title, " | ".join(metadata_filters))
+        # 1. Header & Applied Filters
+        filter_str = " | ".join(metadata_filters) if metadata_filters else ""
+        self._add_header(elements, title, filter_str)
 
         if subtitle:
             elements.append(Paragraph(subtitle, self.styles["CustomSubtitle"]))
 
-        if not data_rows:
-            elements.append(Spacer(1, 0.5 * inch))
-            elements.append(Paragraph("No records found for the selected filters.", self.styles["CustomTitle"]))
-        else:
-            # Prepare table data
-            table_data = [headers]
-            for row in data_rows:
-                table_data.append([str(item) if item is not None else "" for item in row])
-
-            # Calculate standard table style
-            # Create a clean table style
-            style = TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
-                ("ALIGN", (0, 0), (-1, 0), "LEFT"),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                ("TOPPADDING", (0, 0), (-1, 0), 12),
-                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
-                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#374151")),
-                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 1), (-1, -1), 9),
-                ("ALIGN", (0, 1), (-1, -1), "LEFT"),
-                ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#e5e7eb")),
+        # 2. KPI Summary Cards Grid (if provided)
+        if summary_cards:
+            cards_elements = []
+            for card in summary_cards:
+                lbl = card.get("label", "")
+                val = card.get("value", "")
+                sub = card.get("subLabel", "")
+                
+                card_html = f"<b><font size=8 color='#6b7280'>{lbl}</font></b><br/>" \
+                            f"<b><font size=13 color='{primary_hex}'>{val}</font></b>"
+                if sub:
+                    card_html += f"<br/><font size=7 color='#9ca3af'>{sub}</font>"
+                    
+                p = Paragraph(card_html, ParagraphStyle(
+                    name="CardStyle",
+                    parent=self.styles["Normal"],
+                    alignment=TA_CENTER,
+                    leading=14
+                ))
+                cards_elements.append(p)
+                
+            avail_card_w = page_width - 0.8 * inch
+            card_col_w = avail_card_w / max(len(cards_elements), 1)
+            cards_table = Table([cards_elements], colWidths=[card_col_w] * len(cards_elements))
+            cards_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(card_bg_hex)),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor(card_border_hex)),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor(card_border_hex)),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ])
-            
-            # Determine column widths based on page width
-            available_width = A4[0] - 0.8 * inch
-            col_width = available_width / max(len(headers), 1)
+            ]))
+            elements.append(cards_table)
+            elements.append(Spacer(1, 0.15 * inch))
 
-            t = Table(table_data, colWidths=[col_width] * len(headers), repeatRows=1)
-            t.setStyle(style)
+        # 3. Narrative Summary Paragraph (if provided)
+        if summary_paragraph:
+            p_narrative = Paragraph(
+                summary_paragraph,
+                ParagraphStyle(
+                    name="SummaryNarrative",
+                    parent=self.styles["Normal"],
+                    fontSize=9,
+                    textColor=colors.HexColor("#334155"),
+                    fontName="Helvetica-Oblique",
+                    leading=13,
+                )
+            )
+            elements.append(p_narrative)
+            elements.append(Spacer(1, 0.2 * inch))
+
+        # 4. Main Data Table
+        if not data_rows:
+            elements.append(Spacer(1, 0.3 * inch))
+            elements.append(Paragraph("No records found for the selected filters.", self.styles["Normal"]))
+        else:
+            header_style = ParagraphStyle(
+                name="PDFHeaderStyle",
+                parent=self.styles["Normal"],
+                fontSize=9,
+                textColor=colors.whitesmoke,
+                fontName="Helvetica-Bold",
+                alignment=TA_LEFT
+            )
+            cell_style = ParagraphStyle(
+                name="PDFCellStyle",
+                parent=self.styles["Normal"],
+                fontSize=8.5,
+                textColor=colors.HexColor("#374151"),
+                fontName="Helvetica",
+                leading=11,
+                alignment=TA_LEFT
+            )
+
+            table_data = []
+            # Header Row
+            hdr_cells = [Paragraph(str(h), header_style) for h in headers]
+            table_data.append(hdr_cells)
+
+            # Data Rows
+            for row in data_rows:
+                row_cells = []
+                for item in row:
+                    item_str = str(item) if item is not None else ""
+                    row_cells.append(Paragraph(item_str, cell_style))
+                table_data.append(row_cells)
+
+            # Determine fixed column widths
+            avail_width = page_width - 0.8 * inch
+            if col_widths and len(col_widths) == len(headers):
+                widths = col_widths
+            else:
+                widths = [avail_width / max(len(headers), 1)] * len(headers)
+
+            t = Table(table_data, colWidths=widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(f"#{header_bg_hex}")),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                ("TOPPADDING", (0, 0), (-1, 0), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
+                ("TOPPADDING", (0, 1), (-1, -1), 5),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+            ]))
             elements.append(t)
 
         doc.build(elements)
@@ -1411,17 +1532,69 @@ class ReportGenerator:
         self,
         sheet_name: str,
         headers: List[str],
-        data_rows: List[List[Any]]
+        data_rows: List[List[Any]],
+        metadata_filters: Optional[List[str]] = None,
+        theme: Optional[Dict[str, str]] = None,
     ) -> bytes:
-        """Generic Excel generator for a standard table of rows"""
+        """Generic Excel generator with openpyxl theme fills, freeze panes, auto-filters, and clean cell formatting."""
         buffer = io.BytesIO()
+        header_bg_hex = theme.get("header_bg", "1E40AF") if theme else "1E40AF"
+
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            if data_rows:
-                df = pd.DataFrame(data_rows, columns=headers)
+            if not data_rows:
+                df = pd.DataFrame([["No records found for the selected filters."]], columns=["Status"])
                 df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
             else:
-                # Output a single cell stating no records found
-                df = pd.DataFrame([["No records found."]], columns=["Message"])
+                df = pd.DataFrame(data_rows, columns=headers)
                 df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+
+            wb = writer.book
+            ws = writer.sheets[sheet_name[:31]]
+
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            
+            header_fill = PatternFill(start_color=header_bg_hex, end_color=header_bg_hex, fill_type="solid")
+            header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            cell_font = Font(name="Calibri", size=10)
+            thin_border = Border(
+                left=Side(style='thin', color='E5E7EB'),
+                right=Side(style='thin', color='E5E7EB'),
+                top=Side(style='thin', color='E5E7EB'),
+                bottom=Side(style='thin', color='E5E7EB')
+            )
+
+            # Freeze top header row & enable AutoFilter
+            ws.freeze_panes = "A2"
+            if data_rows:
+                ws.auto_filter.ref = ws.dimensions
+
+            # Style headers
+            for col_idx in range(1, len(headers) + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # Style data cells & auto-adjust column widths
+            for col in ws.columns:
+                max_len = 0
+                col_letter = col[0].column_letter
+                hdr_name = str(col[0].value or "").lower()
+                
+                for cell in col:
+                    cell.border = thin_border
+                    if cell.row > 1:
+                        cell.font = cell_font
+                        # Center align numeric / status / rank columns
+                        if any(k in hdr_name for k in ["rank", "%", "days", "date", "status", "items", "calls", "orders"]):
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                        else:
+                            cell.alignment = Alignment(horizontal="left", vertical="center")
+                            
+                    val_str = str(cell.value or "")
+                    if len(val_str) > max_len:
+                        max_len = len(val_str)
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
         buffer.seek(0)
         return buffer.getvalue()

@@ -1,8 +1,137 @@
 from typing import List, Dict, Any, Optional, Set
 from collections import defaultdict
+import logging
 from supabase_db import SupabaseClient
 
+logger = logging.getLogger(__name__)
+
 VALID_ROLES = {"all", "telecaller", "sales_manager"}
+
+def format_duration_str(seconds: Optional[float]) -> str:
+    if not seconds or seconds <= 0:
+        return "0s"
+    sec = int(round(seconds))
+    if sec < 60:
+        return f"{sec}s"
+    m = sec // 60
+    s = sec % 60
+    return f"{m}m {s}s" if s > 0 else f"{m}m"
+
+def format_call_duration_hms(seconds: Optional[float]) -> str:
+    if not seconds or seconds <= 0:
+        return "0s"
+    sec = int(round(seconds))
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    if h > 0:
+        return f"{h}h {m}m {s}s" if s > 0 else (f"{h}h {m}m" if m > 0 else f"{h}h")
+    elif m > 0:
+        return f"{m}m {s}s" if s > 0 else f"{m}m"
+    else:
+        return f"{s}s"
+
+def extract_name_from_email(email: str) -> str:
+    if not email:
+        return ""
+    name_part = email.split("@")[0]
+    return name_part.replace(".", " ").replace("_", " ").title()
+
+def calculate_attendance_metrics(
+    attendance_records: List[Dict[str, Any]],
+    duty_dates: Set[str],
+    user_emails: Set[str],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Pure calculation helper for attendance metrics (no DB operations performed inside).
+    Encapsulates all user attendance, total working days, zero-attendance user counts, and overall team attendance %.
+    """
+    att_dates = {a["attendance_date"] for a in attendance_records if a.get("attendance_date")}
+    
+    missing_in_duty = att_dates - duty_dates
+    missing_in_attendance = duty_dates - att_dates
+    
+    if missing_in_duty:
+        logger.warning(
+            f"[ATTENDANCE] Attendance exists without duty sheet for dates: {sorted(missing_in_duty)}"
+        )
+    if missing_in_attendance:
+        logger.warning(
+            f"[ATTENDANCE] Duty sheet exists without attendance for dates: {sorted(missing_in_attendance)}"
+        )
+
+    effective_duty_dates = duty_dates | att_dates
+    total_duty_days = len(effective_duty_dates)
+    
+    present_dates = defaultdict(set)
+    for att in attendance_records:
+        email = att.get("user_email")
+        date = att.get("attendance_date")
+        if (
+            email
+            and date
+            and att.get("is_present")
+            and date in effective_duty_dates
+        ):
+            present_dates[email].add(date)
+
+    user_attendance = {}
+    present_users_count = 0
+    total_present_days_sum = 0
+
+    for email in user_emails:
+        pres = len(present_dates[email])
+        total_present_days_sum += pres
+        if pres > 0:
+            present_users_count += 1
+            
+        if pres > total_duty_days:
+            logger.warning(
+                "[ATTENDANCE ANOMALY] User=%s Present=%d Duty=%d Range=%s->%s",
+                email,
+                pres,
+                total_duty_days,
+                start_date or "N/A",
+                end_date or "N/A",
+            )
+
+        absent = max(total_duty_days - pres, 0) if total_duty_days > 0 else 0
+        att_pct = round((pres / total_duty_days * 100), 1) if total_duty_days > 0 else 0.0
+        
+        # Status Tiers
+        if att_pct >= 95.0:
+            status = "Excellent"
+        elif att_pct >= 85.0:
+            status = "Good"
+        elif att_pct >= 70.0:
+            status = "Average"
+        else:
+            status = "Needs Improvement"
+
+        user_attendance[email] = {
+            "present_days": pres,
+            "absent_days": absent,
+            "total_duty_days": total_duty_days,
+            "attendance_pct": att_pct,
+            "status": status,
+        }
+
+    total_users_count = len(user_emails)
+    zero_attendance_users_count = total_users_count - present_users_count
+    total_potential = total_duty_days * total_users_count
+    overall_attendance_pct = round((total_present_days_sum / total_potential * 100), 1) if total_potential > 0 else 0.0
+
+    return {
+        "total_duty_days": total_duty_days,
+        "total_users_count": total_users_count,
+        "present_users_count": present_users_count,
+        "zero_attendance_users_count": zero_attendance_users_count,
+        "total_present_days_sum": total_present_days_sum,
+        "overall_attendance_pct": overall_attendance_pct,
+        "user_attendance": user_attendance,
+    }
 
 def get_role_emails(db: SupabaseClient, role: Optional[str]) -> Optional[Set[str]]:
     """
@@ -61,7 +190,7 @@ def get_telecaller_dashboard(
     call_logs = call_logs_query.execute().data or []
 
     # 2. Fetch Attendance
-    attendance_query = db.table("telecaller_attendance").select("user_email, is_present").gte("attendance_date", start_date).lte("attendance_date", end_date)
+    attendance_query = db.table("telecaller_attendance").select("user_email, attendance_date, is_present").gte("attendance_date", start_date).lte("attendance_date", end_date)
     if telecaller_email:
         attendance_query = attendance_query.eq("user_email", telecaller_email)
     attendance = attendance_query.execute().data or []
@@ -80,8 +209,8 @@ def get_telecaller_dashboard(
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
 
     # 4. Fetch Duty Days
-    duty_days = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
-    total_duty_days = max(len(duty_days), 1)  # Prevent div by 0
+    duty_days_data = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
+    duty_dates = {d["duty_date"] for d in duty_days_data if d.get("duty_date")}
 
     # Initialize aggregations
     all_telecallers = set()
@@ -122,18 +251,11 @@ def get_telecaller_dashboard(
             tc_time[email] += time_taken
             tc_time_count[email] += 1
 
-    # Attendance stats per telecaller
-    tc_present = defaultdict(int)
-    tc_absent = defaultdict(int)
+    # Add emails from attendance & orders to all_telecallers
     for att in attendance:
         email = att.get("user_email")
-        if not email:
-            continue
-        all_telecallers.add(email)
-        if att.get("is_present"):
-            tc_present[email] += 1
-        else:
-            tc_absent[email] += 1
+        if email:
+            all_telecallers.add(email)
 
     # Order stats per telecaller
     tc_orders = defaultdict(int)
@@ -153,6 +275,37 @@ def get_telecaller_dashboard(
             tc_orders_rejected[email] += 1
         else:
             tc_orders_pending[email] += 1
+
+    # Resolve target user_emails set for attendance calculation
+    if allowed_emails is not None:
+        user_emails = set(allowed_emails)
+    elif telecaller_email:
+        user_emails = {telecaller_email}
+    else:
+        reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
+        try:
+            users_res = db.table("app_users").select("email, role, is_active").execute()
+            active_emails = set()
+            for u in (users_res.data or []):
+                if u.get("is_active", True) is False:
+                    continue
+                r = (u.get("role") or "").strip().lower().replace(" ", "_")
+                if r in reporting_roles or "telecaller" in r or "sales" in r:
+                    active_emails.add(u["email"])
+            user_emails = active_emails.union(all_telecallers)
+        except Exception as e:
+            logger.warning(f"Error fetching active reporting users from app_users: {e}")
+            user_emails = set(all_telecallers)
+
+    # 5. Calculate Attendance Metrics using pure helper
+    att_results = calculate_attendance_metrics(
+        attendance_records=attendance,
+        duty_dates=duty_dates,
+        user_emails=user_emails,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    user_attendance = att_results["user_attendance"]
 
     # -------------------------------------------------------------
     # GEOGRAPHICAL ANALYSIS
@@ -234,21 +387,29 @@ def get_telecaller_dashboard(
     # Build KPI Summary
     total_connected = sum(tc_connected.values())
     total_orders = len(orders)
-    total_time = sum(tc_time.values())
-    total_time_count = sum(tc_time_count.values())
+    approved_orders = sum(1 for order in orders if (order.get("status") or "").strip().lower() in ("approved", "accepted"))
+    rejected_orders = sum(1 for order in orders if (order.get("status") or "").strip().lower() == "rejected")
+    unconfirmed_orders = sum(1 for order in orders if (order.get("status") or "").strip().lower() in ("unconfirmed", "pending"))
     
-    present_telecallers = sum(1 for v in tc_present.values() if v > 0)
-    total_telecallers_count = len(allowed_emails) if allowed_emails is not None else len(all_telecallers)
+    total_call_seconds = sum(log.get("time_taken") or 0 for log in call_logs)
+    total_time_count = sum(tc_time_count.values())
+    avg_duration_seconds = round((total_call_seconds / total_time_count) if total_time_count else 0, 1)
 
     summary = {
         "total_calls": total_calls,
         "connected_calls": total_connected,
         "connected_pct": round((total_connected / total_calls * 100) if total_calls else 0, 1),
-        "present_telecallers": present_telecallers,
-        "total_telecallers": total_telecallers_count,
+        "present_telecallers": att_results["present_users_count"],
+        "total_telecallers": att_results["total_users_count"],
         "total_orders": total_orders,
+        "approved_orders": approved_orders,
+        "rejected_orders": rejected_orders,
+        "unconfirmed_orders": unconfirmed_orders,
         "conversion_rate": round((total_orders / total_calls * 100) if total_calls else 0, 1),
-        "avg_duration": round((total_time / total_time_count) if total_time_count else 0, 1)
+        "total_call_seconds": total_call_seconds,
+        "total_call_duration": format_call_duration_hms(total_call_seconds),
+        "avg_duration_seconds": avg_duration_seconds,
+        "avg_duration": format_call_duration_hms(avg_duration_seconds),
     }
 
     # Build Call Outcomes
@@ -265,13 +426,22 @@ def get_telecaller_dashboard(
     attendance_list = []
     orders_list = []
 
-    for email in all_telecallers:
+    # Display users in performance table (union of active user_emails and all_telecallers)
+    display_users = user_emails.union(all_telecallers)
+
+    for email in display_users:
         calls = tc_calls[email]
         connected = tc_connected[email]
         ords = tc_orders[email]
         time_sum = tc_time[email]
         time_cnt = tc_time_count[email]
-        pres = tc_present[email]
+        
+        att_info = user_attendance.get(email, {
+            "present_days": 0,
+            "absent_days": att_results["total_duty_days"],
+            "total_duty_days": att_results["total_duty_days"],
+            "attendance_pct": 0.0
+        })
         
         performance_list.append({
             "email": email,
@@ -283,14 +453,17 @@ def get_telecaller_dashboard(
             "wrong_number": tc_wrong_number[email],
             "orders": ords,
             "conversion_pct": round((ords / connected * 100) if connected > 0 else 0, 1),
-            "attendance_pct": round((pres / total_duty_days * 100), 1),
+            "attendance_pct": att_info["attendance_pct"],
             "avg_duration": round((time_sum / time_cnt) if time_cnt else 0, 1)
         })
         
         attendance_list.append({
             "email": email,
-            "present_days": pres,
-            "attendance_pct": round((pres / total_duty_days * 100), 1)
+            "present_days": att_info["present_days"],
+            "absent_days": att_info["absent_days"],
+            "total_duty_days": att_info["total_duty_days"],
+            "attendance_pct": att_info["attendance_pct"],
+            "status": att_info.get("status", "Needs Improvement")
         })
         
         appr = tc_orders_approved[email]
@@ -312,59 +485,119 @@ def get_telecaller_dashboard(
         "call_outcomes": call_outcomes_list,
         "performance": performance_list,
         "attendance": sorted(attendance_list, key=lambda x: x["present_days"], reverse=True),
+        "attendance_summary_metrics": att_results,
         "orders": sorted(orders_list, key=lambda x: x["total_orders"], reverse=True),
         "district_breakdown": district_breakdown,
         "village_breakdown": village_breakdown
     }
     return response_data
 
-def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
+def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
     dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
     performance = dashboard_data.get("performance", [])
+    summary = dashboard_data.get("summary", {})
     
-    headers = ["Rank", "Telecaller", "Calls", "Connected %", "Orders", "Attendance %", "Avg Duration (s)"]
+    role_clean = (role or "").strip().lower().replace(" ", "_")
+    is_sales_manager = role_clean == "sales_manager"
+
+    if is_sales_manager:
+        headers = ["Rank", "Name", "Attendance %"]
+        summary_cards = [
+            {"label": "Total Calls", "value": str(summary.get("total_calls", 0))},
+            {"label": "Connected Calls", "value": str(summary.get("connected_calls", 0)), "subLabel": f"{summary.get('connected_pct', 0)}%"},
+            {"label": "Total Call Duration", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Average Call Duration", "value": summary.get("avg_duration", "0s")},
+            {"label": "Sales Managers Present", "value": str(summary.get("present_telecallers", 0)), "subLabel": f"Out of {summary.get('total_telecallers', 0)} total"},
+            {"label": "Orders Generated", "value": str(summary.get("total_orders", 0)), "subLabel": f"{summary.get('conversion_rate', 0)}% Conv."},
+            {"label": "Approved Orders", "value": str(summary.get("approved_orders", 0))},
+            {"label": "Rejected Orders", "value": str(summary.get("rejected_orders", 0))},
+        ]
+        rows = []
+        for i, row in enumerate(performance):
+            rows.append([
+                i + 1,
+                extract_name_from_email(row.get("email", "")),
+                f"{row.get('attendance_pct', 0)}%"
+            ])
+    else:
+        headers = ["Rank", "Name", "Calls", "Connected %", "Orders", "Attendance %", "Avg Duration"]
+        summary_cards = [
+            {"label": "Total Calls", "value": str(summary.get("total_calls", 0))},
+            {"label": "Connected Calls", "value": str(summary.get("connected_calls", 0)), "subLabel": f"{summary.get('connected_pct', 0)}%"},
+            {"label": "Total Call Duration", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Average Call Duration", "value": summary.get("avg_duration", "0s")},
+            {"label": "Present Users", "value": str(summary.get("present_telecallers", 0)), "subLabel": f"Out of {summary.get('total_telecallers', 0)} total"},
+            {"label": "Orders Generated", "value": str(summary.get("total_orders", 0)), "subLabel": f"{summary.get('conversion_rate', 0)}% Conv."},
+            {"label": "Approved Orders", "value": str(summary.get("approved_orders", 0))},
+            {"label": "Rejected Orders", "value": str(summary.get("rejected_orders", 0))},
+        ]
+        rows = []
+        for i, row in enumerate(performance):
+            rows.append([
+                i + 1,
+                extract_name_from_email(row.get("email", "")),
+                row.get("calls", 0),
+                f"{row.get('connected_pct', 0)}%",
+                row.get("orders", 0),
+                f"{row.get('attendance_pct', 0)}%",
+                format_call_duration_hms(row.get("avg_duration", 0))
+            ])
+            
+    return headers, rows, summary_cards
+
+def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
+    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
+    att_summary = dashboard_data.get("attendance_summary_metrics", {})
+    attendance_list = dashboard_data.get("attendance", [])
+
+    summary_cards = [
+        {"label": "Total Users", "value": str(att_summary.get("total_users_count", 0))},
+        {"label": "Present Users", "value": str(att_summary.get("present_users_count", 0))},
+        {"label": "Users with Zero Attendance", "value": str(att_summary.get("zero_attendance_users_count", 0))},
+        {"label": "Overall Att %", "value": f"{att_summary.get('overall_attendance_pct', 0.0)}%"},
+        {"label": "Total Working Days", "value": str(att_summary.get("total_duty_days", 0))},
+    ]
+
+    summary_paragraph = (
+        f"During the selected reporting period ({start_date} to {end_date}), {att_summary.get('total_duty_days', 0)} official working days "
+        f"were recorded. Out of {att_summary.get('total_users_count', 0)} monitored users, {att_summary.get('present_users_count', 0)} registered "
+        f"attendance during the period, resulting in an overall attendance rate of {att_summary.get('overall_attendance_pct', 0.0)}%."
+    )
+
+    headers = ["Rank", "Name", "Present Days", "Absent Days", "Total Days", "Attendance %", "Status"]
     rows = []
-    for i, row in enumerate(performance):
+    for i, row in enumerate(attendance_list):
         rows.append([
             i + 1,
-            row.get("email", ""),
-            row.get("calls", 0),
-            f"{row.get('connected_pct', 0)}%",
-            row.get("orders", 0),
+            extract_name_from_email(row.get("email", "")),
+            row.get("present_days", 0),
+            row.get("absent_days", 0),
+            row.get("total_duty_days", 0),
             f"{row.get('attendance_pct', 0)}%",
-            row.get("avg_duration", 0)
+            row.get("status", "Needs Improvement")
         ])
-    return headers, rows
 
-def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
-    dashboard_data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
-    attendance = dashboard_data.get("attendance", [])
-    
-    duty_days = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
-    total_duty_days = max(len(duty_days), 1)
+    return headers, rows, summary_cards, summary_paragraph
 
-    headers = ["Telecaller", "Present Days", "Absent Days", "Attendance %"]
-    rows = []
-    for row in attendance:
-        present = row.get("present_days", 0)
-        absent = total_duty_days - present if len(duty_days) > 0 else 0
-        rows.append([
-            row.get("email", ""),
-            present,
-            absent,
-            f"{row.get('attendance_pct', 0)}%"
-        ])
-    return headers, rows
-
-def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
-    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes, customer:customers(name)").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
     if telecaller_email:
         query = query.eq("user_email", telecaller_email)
     
     call_logs = query.execute().data or []
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
     
-    headers = ["Date", "Time", "Telecaller", "Customer", "Outcome", "Duration (s)", "Notes"]
+    # Fetch customers separately to prevent PostgREST relationship errors
+    customer_ids = list({log.get("customer_id") for log in call_logs if log.get("customer_id")})
+    customers_map = {}
+    if customer_ids:
+        try:
+            cust_res = db.table("customers").select("customer_id, name").in_("customer_id", customer_ids).execute()
+            customers_map = {c["customer_id"]: c.get("name") for c in (cust_res.data or []) if c.get("customer_id")}
+        except Exception as e:
+            logger.warning(f"Failed to fetch customer names for call logs export: {e}")
+
+    headers = ["Date", "Time", "Name", "Customer", "Outcome", "Duration", "Notes"]
     rows = []
     for log in call_logs:
         called_at = log.get("called_at", "")
@@ -372,21 +605,21 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
         date_part = dt[0] if len(dt) > 0 else ""
         time_part = dt[1][:8] if len(dt) > 1 else ""
         
-        customer_info = log.get("customer") or {}
-        customer_name = customer_info.get("name") if isinstance(customer_info, dict) else str(customer_info)
+        cid = log.get("customer_id")
+        customer_name = customers_map.get(cid) or cid or "N/A"
         
         rows.append([
             date_part,
             time_part,
-            log.get("user_email", ""),
-            customer_name or log.get("customer_id", ""),
-            log.get("call_outcome", ""),
-            log.get("time_taken", 0),
+            extract_name_from_email(log.get("user_email", "")),
+            customer_name,
+            log.get("call_outcome", "") or "",
+            format_duration_str(log.get("time_taken", 0)),
             log.get("notes", "") or ""
         ])
-    return headers, rows
+    return headers, rows, None
 
-def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None):
+def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
     query = db.table("telecaller_orders").select("*").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
     if telecaller_email:
         query = query.eq("telecaller_email", telecaller_email)
@@ -396,7 +629,7 @@ def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, te
     orders = query.execute().data or []
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
     
-    headers = ["Telecaller", "Customer", "Status", "Created Date", "Confirmation Date", "Products", "Notes"]
+    headers = ["Date", "Name", "Customer", "Village", "Status", "Total Items", "Products", "Notes"]
     rows = []
     
     import json
@@ -405,22 +638,32 @@ def prepare_orders_export(db: SupabaseClient, start_date: str, end_date: str, te
         created_date = dt[0] if len(dt) > 0 else ""
         
         products_raw = order.get("products_json") or "[]"
+        total_items = 0
         try:
             products_list = json.loads(products_raw) if isinstance(products_raw, str) else products_raw
-            products_str = ", ".join([f"{p.get('name', 'Item')} (x{p.get('quantity', 1)})" for p in products_list])
-        except:
+            formatted_prods = []
+            if isinstance(products_list, list):
+                for p in products_list:
+                    qty = p.get("quantity", 1)
+                    total_items += qty
+                    formatted_prods.append(f"{p.get('name', 'Item')} (x{qty})")
+                products_str = ", ".join(formatted_prods)
+            else:
+                products_str = str(products_raw)
+        except Exception:
             products_str = str(products_raw)
             
         rows.append([
-            order.get("telecaller_email", ""),
-            order.get("customer_name", ""),
-            (order.get("status") or "").upper(),
             created_date,
-            order.get("confirmation_date", ""),
+            extract_name_from_email(order.get("telecaller_email", "")),
+            order.get("customer_name", "") or "N/A",
+            order.get("customer_village", "") or "N/A",
+            (order.get("status") or "").upper(),
+            total_items,
             products_str,
             order.get("notes", "") or ""
         ])
-    return headers, rows
+    return headers, rows, None
 
 def build_python_telecaller_charts(
     db: SupabaseClient,

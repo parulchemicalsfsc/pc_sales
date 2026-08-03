@@ -46,6 +46,8 @@ import {
   Timeline as TimelineIcon,
   LocationOn as LocationIcon,
   Storefront as StoreIcon,
+  ThumbUp as ThumbUpIcon,
+  Cancel as CancelIcon,
 } from "@mui/icons-material";
 import { DimensionTable } from "./DimensionTable";
 import { KpiCard } from "./KpiCard";
@@ -177,7 +179,7 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
     userFilterPlaceholder: "All Sales Managers",
     presentKpiLabel: "Sales Managers Present",
     userTableColumnHeader: "Sales Manager",
-    showCallKpis: false,
+    showCallKpis: true,
     showCallTableColumns: false,
     showSecondaryCards: false,
     showGeography: false,
@@ -447,7 +449,8 @@ export default function TelecallerReports() {
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {config.showCallKpis && (
           <>
-            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+            {/* Row 1: Call Metrics */}
+            <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
                 label="Total Calls"
                 value={summary.total_calls || "0"}
@@ -456,7 +459,7 @@ export default function TelecallerReports() {
                 loading={loading}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
                 label="Connected Calls"
                 value={summary.connected_calls || "0"}
@@ -466,9 +469,29 @@ export default function TelecallerReports() {
                 loading={loading}
               />
             </Grid>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
+              <KpiCard
+                label="Total Call Duration"
+                value={summary.total_call_duration || "0s"}
+                icon={<TimeIcon fontSize="medium" />}
+                color="#0284c7"
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
+              <KpiCard
+                label="Avg Call Duration"
+                value={summary.avg_duration || "0s"}
+                icon={<TimeIcon fontSize="medium" />}
+                color="#9c27b0"
+                loading={loading}
+              />
+            </Grid>
           </>
         )}
-        <Grid item xs={12} sm={6} md={4} lg={config.showCallKpis ? 2.4 : 12}>
+
+        {/* Row 2: Attendance & Orders */}
+        <Grid item xs={12} sm={6} md={3} lg={config.showCallKpis ? 3 : 12}>
           <KpiCard
             label={config.presentKpiLabel}
             value={summary.present_telecallers || "0"}
@@ -480,7 +503,7 @@ export default function TelecallerReports() {
         </Grid>
         {config.showCallKpis && (
           <>
-            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
                 label="Orders Generated"
                 value={summary.total_orders || "0"}
@@ -490,12 +513,21 @@ export default function TelecallerReports() {
                 loading={loading}
               />
             </Grid>
-            <Grid item xs={12} sm={6} md={4} lg={2.4}>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
-                label="Avg Call Duration"
-                value={summary.avg_duration ? formatDuration(summary.avg_duration) : "0s"}
-                icon={<TimeIcon fontSize="medium" />}
-                color="#9c27b0"
+                label="Approved Orders"
+                value={summary.approved_orders || "0"}
+                icon={<ThumbUpIcon fontSize="medium" />}
+                color={theme.palette.success.dark}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
+              <KpiCard
+                label="Rejected Orders"
+                value={summary.rejected_orders || "0"}
+                icon={<CancelIcon fontSize="medium" />}
+                color={theme.palette.error.main}
                 loading={loading}
               />
             </Grid>

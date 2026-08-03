@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from supabase_db import SupabaseClient, get_db
-from reports import ReportGenerator
+from reports import ReportGenerator, REPORT_THEMES
 from rbac_utils import verify_permission
 from services.telecaller_reports import (
     get_telecaller_dashboard,
@@ -1388,23 +1388,42 @@ def download_telecaller_report(
         if order_status and order_status != "all":
             filters.append(f"Status: {order_status.title()}")
             
-        title = ""
         subtitle = f"Period: {start_date} to {end_date}"
-        
+        role_clean = (role or "").strip().lower().replace(" ", "_")
+        if role_clean == "sales_manager":
+            role_prefix = "Sales Manager"
+        elif role_clean == "telecaller":
+            role_prefix = "Telecaller"
+        else:
+            role_prefix = "Performance"
+
+        report_key = report_type.replace("-", "_")
+        theme = REPORT_THEMES.get(report_key, REPORT_THEMES["performance"])
+
+        summary_cards = None
+        summary_paragraph = None
+
         if report_type == "performance":
-            headers, rows = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
-            title = "Telecaller Performance Report"
+            res = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Performance Report" if role_prefix != "Performance" else "Performance Report"
         elif report_type == "attendance":
-            headers, rows = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
-            title = "Telecaller Attendance Report"
+            res = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Attendance Report" if role_prefix != "Performance" else "Attendance Report"
         elif report_type == "call-logs":
-            headers, rows = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
-            title = "Telecaller Call Logs Report"
+            res = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Call Logs Report" if role_prefix != "Performance" else "Call Logs Report"
         elif report_type == "orders":
-            headers, rows = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
-            title = "Telecaller Orders Report"
+            res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Orders Report" if role_prefix != "Performance" else "Orders Report"
         else:
             raise HTTPException(status_code=400, detail="Invalid report type.")
+
+        if len(res) == 4:
+            headers, rows, summary_cards, summary_paragraph = res
+        elif len(res) == 3:
+            headers, rows, summary_cards = res
+        else:
+            headers, rows = res
 
         safe_start = start_date.replace("-", "")
         safe_end = end_date.replace("-", "")
@@ -1416,7 +1435,10 @@ def download_telecaller_report(
                 subtitle=subtitle,
                 headers=headers,
                 data_rows=rows,
-                metadata_filters=filters
+                metadata_filters=filters,
+                summary_cards=summary_cards,
+                summary_paragraph=summary_paragraph,
+                theme=theme,
             )
             return StreamingResponse(
                 io.BytesIO(pdf_bytes),
@@ -1427,7 +1449,9 @@ def download_telecaller_report(
             excel_bytes = report_generator.generate_generic_table_excel(
                 sheet_name=title,
                 headers=headers,
-                data_rows=rows
+                data_rows=rows,
+                metadata_filters=filters,
+                theme=theme,
             )
             return StreamingResponse(
                 io.BytesIO(excel_bytes),
