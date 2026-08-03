@@ -586,7 +586,7 @@ def get_my_assignments(
                 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -596,6 +596,7 @@ def get_my_assignments(
                         "village": c.get("village"),
                         "taluka": c.get("taluka"),
                         "district": c.get("district"),
+                        "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None"
                     }
@@ -639,6 +640,7 @@ def get_my_assignments(
                 "village": c.get("village", ""),
                 "taluka": c.get("taluka", ""),
                 "district": c.get("district", ""),
+                "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
                 "last_call": last_call,
@@ -768,7 +770,7 @@ def get_my_callbacks(
 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -776,6 +778,7 @@ def get_my_callbacks(
                         "name": c.get("name"),
                         "mobile": c.get("mobile"),
                         "village": c.get("village"),
+                        "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None",
                     }
@@ -796,6 +799,7 @@ def get_my_callbacks(
                 "name": c.get("name", "Unknown"),
                 "mobile": c.get("mobile", ""),
                 "village": c.get("village", ""),
+                "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
             })

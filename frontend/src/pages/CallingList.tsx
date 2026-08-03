@@ -81,6 +81,7 @@ interface Assignment {
   village: string;
   taluka?: string;
   district?: string;
+  customer_code?: string;
   priority_label?: string;
   priority_score?: number;
   updated_at?: string;
@@ -135,6 +136,12 @@ function parseOrderProducts(order: any): any[] {
     try { return JSON.parse(order.products); } catch { return []; }
   }
   return [];
+}
+
+/** Display name with customer code appended in brackets, e.g. "Dipakbhai (202927)". */
+function displayName(item: { name?: string; customer_code?: string }): string {
+  if (!item.name) return "Unknown";
+  return item.customer_code ? `${item.name} (${item.customer_code})` : item.name;
 }
 
 // ── Live Timer Hook ────────────────────────────────────
@@ -1129,7 +1136,7 @@ export default function CallingList() {
                     }}
                   >
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{item.name || "Unknown"}</Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{displayName(item)}</Typography>
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
@@ -1392,7 +1399,7 @@ export default function CallingList() {
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Stack direction="row" spacing={1} alignItems="center">
                             <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {item.name || "Unknown"}
+                              {displayName(item)}
                             </Typography>
                             {/* Priority Badge */}
                             {pLabel !== "NONE" && (
@@ -1518,7 +1525,7 @@ export default function CallingList() {
               {(historyItem?.name || "?")[0].toUpperCase()}
             </Avatar>
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{historyItem?.name || "Unknown"}</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{displayName(historyItem || {})}</Typography>
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }}>
                 {historyItem?.mobile && (
                   <Typography variant="caption" sx={{ opacity: .85, display: "flex", alignItems: "center", gap: 0.3 }}>
@@ -1676,7 +1683,7 @@ export default function CallingList() {
                 : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
               return (
                 <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
-                  {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
+                  {displayName(item || {})} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
                 </Typography>
               );
             })()}
