@@ -381,15 +381,16 @@ export default function CallingList() {
       dragIndexRef.current = null;
       return;
     }
-    setAssignments(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(dropIndex, 0, moved);
-      return next;
-    });
+    const next = [...assignments];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(dropIndex, 0, moved);
+    setAssignments(next);
     setDragOverIndex(null);
     setIsDraggingCard(false);
     dragIndexRef.current = null;
+    // Persist the new order so it survives tab switches / re-fetches.
+    automationAPI.reorderAssignments(next.map(a => a.assignment_id))
+      .catch(err => console.error("Failed to persist reorder:", err));
   };
 
   const handleDragEnd = () => {
@@ -414,10 +415,8 @@ export default function CallingList() {
         fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
       }
 
-      // Sort assignments so newest are at the top
-      const getTime = (a: any) => new Date(a.last_call?.created_at || a.updated_at || a.assigned_date || 0).getTime();
-      fetched.sort((a: any, b: any) => getTime(b) - getTime(a));
-
+      // Backend orders by persisted sort_order (drag-and-drop) first, then assignment_id desc.
+      // No client-side re-sort here — it would undo the user's custom ordering.
       setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
     } catch (e: any) {
@@ -1108,7 +1107,7 @@ export default function CallingList() {
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
                   <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                    Followbacks scheduled for today will appear here.
+                    Followbacks you schedule will appear here.
                   </Typography>
                 </Box>
               ) : (

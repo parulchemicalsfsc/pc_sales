@@ -683,6 +683,10 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
+  reorderAssignments: async (assignmentIds: number[]) => {
+    const response = await apiClient.post("/api/automation/reorder-assignments", { assignment_ids: assignmentIds });
+    return response.data;
+  },
   getMyCallbacks: async (date?: string) => {
     const response = await apiClient.get("/api/automation/my-callbacks", { params: { date } });
     return response.data;
