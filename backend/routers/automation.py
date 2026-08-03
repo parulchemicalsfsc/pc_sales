@@ -699,8 +699,8 @@ def reorder_assignments(
     try:
         for idx, assignment_id in enumerate(body.assignment_ids):
             db.table("calling_assignments") \
-                .update({"sort_order": idx}) \
                 .eq("assignment_id", assignment_id) \
+                .update({"sort_order": idx}) \
                 .execute()
         logger.info(f"[REORDER] user={user_email} saved order for {len(body.assignment_ids)} assignments")
         return {"message": "Reorder saved", "status": "success", "count": len(body.assignment_ids)}
