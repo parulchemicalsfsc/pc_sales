@@ -1373,20 +1373,47 @@ def download_telecaller_report(
             
         allowed_emails = get_role_emails(db, role)
 
-        filters = []
-        if role and role.lower() != "all":
-            role_title = role.replace("_", " ").title()
-            filters.append(f"Role: {role_title}")
-        else:
-            filters.append("Role: All Roles")
+        if report_type == "user-orders":
+            if not telecaller_email or telecaller_email.lower() == "all":
+                raise HTTPException(status_code=400, detail="Please select a user before downloading the User Order List.")
+            if allowed_emails is not None and telecaller_email.strip().lower() not in {e.strip().lower() for e in allowed_emails}:
+                raise HTTPException(status_code=400, detail="Selected user does not belong to the chosen role.")
 
-        if telecaller_email:
-            filters.append(f"Telecaller: {telecaller_email}")
+        # Batch resolve user display name if telecaller_email is present
+        user_display_name = ""
+        if telecaller_email and telecaller_email.lower() != "all":
+            try:
+                user_res = db.table("app_users").select("name").eq("email", telecaller_email).execute()
+                if user_res.data and user_res.data[0].get("name"):
+                    user_display_name = user_res.data[0]["name"]
+                else:
+                    from services.telecaller_reports import extract_name_from_email
+                    user_display_name = extract_name_from_email(telecaller_email)
+            except Exception:
+                from services.telecaller_reports import extract_name_from_email
+                user_display_name = extract_name_from_email(telecaller_email)
+
+        filters = []
+        if report_type == "user-orders":
+            filters.append(f"User: {user_display_name}")
+            filters.append(f"Email: {telecaller_email}")
+            filters.append(f"Role: {role.replace('_', ' ').title() if role and role != 'all' else 'All Roles'}")
+            filters.append(f"Date Range: {start_date} to {end_date}")
+            filters.append(f"Order Status: {order_status.title() if order_status and order_status != 'all' else 'All'}")
         else:
-            filters.append("Telecaller: All")
-            
-        if order_status and order_status != "all":
-            filters.append(f"Status: {order_status.title()}")
+            if role and role.lower() != "all":
+                role_title = role.replace("_", " ").title()
+                filters.append(f"Role: {role_title}")
+            else:
+                filters.append("Role: All Roles")
+
+            if telecaller_email and telecaller_email.lower() != "all":
+                filters.append(f"Telecaller: {user_display_name} ({telecaller_email})")
+            else:
+                filters.append("Telecaller: All")
+                
+            if order_status and order_status != "all":
+                filters.append(f"Status: {order_status.title()}")
             
         subtitle = f"Period: {start_date} to {end_date}"
         role_clean = (role or "").strip().lower().replace(" ", "_")
@@ -1397,7 +1424,7 @@ def download_telecaller_report(
         else:
             role_prefix = "Performance"
 
-        report_key = report_type.replace("-", "_")
+        report_key = "orders" if report_type == "user-orders" else report_type.replace("-", "_")
         theme = REPORT_THEMES.get(report_key, REPORT_THEMES["performance"])
 
         summary_cards = None
@@ -1414,7 +1441,10 @@ def download_telecaller_report(
             title = f"{role_prefix} Call Logs Report" if role_prefix != "Performance" else "Call Logs Report"
         elif report_type == "orders":
             res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
-            title = f"{role_prefix} Orders Report" if role_prefix != "Performance" else "Orders Report"
+            title = f"{role_prefix} User Order Details Report" if role_prefix != "Performance" else "User Order Details Report"
+        elif report_type == "user-orders":
+            res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, single_user=True)
+            title = "Selected User Order List"
         else:
             raise HTTPException(status_code=400, detail="Invalid report type.")
 

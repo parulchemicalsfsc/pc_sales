@@ -138,7 +138,7 @@ interface RoleConfig {
   showGeography: boolean;
   showAnalytics: boolean;
   showCallOutcomesChart: boolean;
-  showTopPerformersChart: boolean;
+  showLongestCallsChart: boolean;
 }
 
 const ROLE_CONFIGS: Record<string, RoleConfig> = {
@@ -155,7 +155,7 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
     showGeography: true,
     showAnalytics: true,
     showCallOutcomesChart: true,
-    showTopPerformersChart: true,
+    showLongestCallsChart: true,
   },
   telecaller: {
     title: "Telecaller Performance",
@@ -170,7 +170,7 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
     showGeography: true,
     showAnalytics: true,
     showCallOutcomesChart: true,
-    showTopPerformersChart: true,
+    showLongestCallsChart: true,
   },
   sales_manager: {
     title: "Sales Manager Performance",
@@ -183,9 +183,9 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
     showCallTableColumns: false,
     showSecondaryCards: false,
     showGeography: false,
-    showAnalytics: false,
-    showCallOutcomesChart: false,
-    showTopPerformersChart: false,
+    showAnalytics: true,
+    showCallOutcomesChart: true,
+    showLongestCallsChart: true,
   },
 };
 
@@ -285,7 +285,7 @@ export default function TelecallerReports() {
     } finally {
       setLoading(false);
     }
-  }, [user, filters]);
+  }, [user?.email, filters]);
 
   useEffect(() => {
     loadAll();
@@ -582,6 +582,7 @@ export default function TelecallerReports() {
                         {config.showCallTableColumns && (
                           <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
                         )}
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Talk Time</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -649,6 +650,11 @@ export default function TelecallerReports() {
                               </Typography>
                             </TableCell>
                           )}
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {row.total_talk_time || "0s"}
+                            </Typography>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -956,25 +962,70 @@ export default function TelecallerReports() {
               </Grid>
             )}
 
-            {/* Top Performing Telecallers (Horizontal Bar) */}
-            {config.showTopPerformersChart && (
+            {/* Top 5 Longest Calls (Compact Table) */}
+            {config.showLongestCallsChart && (
               <Grid item xs={12} md={6}>
                 <Card sx={{ height: "100%", borderRadius: 2 }}>
-                  <CardContent>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>Top Performing Telecallers</Typography>
-                    <Box sx={{ width: "100%", height: 300 }}>
-                      {loading ? <Skeleton variant="rectangular" width="100%" height="100%" /> : (
-                        <ResponsiveContainer>
-                          <BarChart layout="vertical" data={chartsData?.top_telecallers?.map((t: any) => ({ ...t, name: extractNameFromEmail(t.telecaller_email) })) || []} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                            <XAxis type="number" tick={{ fontSize: 12 }} />
-                            <YAxis dataKey="name" type="category" tick={{ fontSize: 12 }} width={80} />
-                            <RechartsTooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                            <Bar dataKey="orders_generated" name="Orders Generated" fill={theme.palette.secondary.main} radius={[0, 4, 4, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      )}
+                  <CardContent sx={{ p: 0 }}>
+                    <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                      <TimeIcon color="primary" />
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        Top 5 Longest Calls
+                      </Typography>
+                      <Chip label={chartsData?.longest_calls?.length || 0} size="small" sx={{ ml: "auto" }} />
                     </Box>
+                    {loading ? (
+                      <Box sx={{ p: 2 }}>{[...Array(5)].map((_, i) => <Skeleton key={i} height={38} sx={{ mb: 0.5 }} />)}</Box>
+                    ) : !chartsData?.longest_calls || chartsData.longest_calls.length === 0 ? (
+                      <Box sx={{ p: 4, textAlign: "center" }}>
+                        <Typography color="text.secondary" variant="body2">No call log data available for selected filters</Typography>
+                      </Box>
+                    ) : (
+                      <TableContainer sx={{ maxHeight: 300 }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ fontWeight: 700, width: 44 }}>Rank</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>User</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }} align="right">Duration</TableCell>
+                              <TableCell sx={{ fontWeight: 700 }} align="center">Outcome</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {chartsData.longest_calls.map((call: any) => (
+                              <TableRow key={call.log_id || call.rank} hover sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}>
+                                <TableCell>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                    {call.rank === 1 ? "🥇 1" : call.rank === 2 ? "🥈 2" : call.rank === 3 ? "🥉 3" : `#${call.rank}`}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{call.user_name}</Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: "0.7rem" }}>
+                                    {call.user_email}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>
+                                  <Typography variant="body2">{call.customer_name}</Typography>
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Chip label={call.duration} size="small" color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Chip
+                                    label={call.call_outcome}
+                                    size="small"
+                                    color={call.call_outcome.toLowerCase().includes("connect") ? "success" : "default"}
+                                    sx={{ fontSize: "0.72rem", height: 20 }}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
@@ -1001,31 +1052,49 @@ export default function TelecallerReports() {
           </Box>
           <Grid container spacing={2}>
             {[
-              { key: "performance", label: "Performance PDF", format: "pdf", color: "primary" as const, icon: <PdfIcon /> },
-              { key: "performance", label: "Performance Excel", format: "excel", color: "success" as const, icon: <ExcelIcon /> },
-              { key: "attendance", label: "Attendance PDF", format: "pdf", color: "info" as const, icon: <PdfIcon /> },
-              { key: "attendance", label: "Attendance Excel", format: "excel", color: "success" as const, icon: <ExcelIcon /> },
-              { key: "call-logs", label: "Call Logs PDF", format: "pdf", color: "secondary" as const, icon: <PdfIcon /> },
-              { key: "call-logs", label: "Call Logs Excel", format: "excel", color: "success" as const, icon: <ExcelIcon /> },
-              { key: "orders", label: "Orders PDF", format: "pdf", color: "warning" as const, icon: <PdfIcon /> },
-              { key: "orders", label: "Orders Excel", format: "excel", color: "success" as const, icon: <ExcelIcon /> },
-            ].map((item, idx) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={idx}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  color={item.color}
-                  startIcon={
-                    downloading === `${item.key}-${item.format}` ? <CircularProgress size={16} color="inherit" /> : item.icon
-                  }
-                  onClick={() => handleDownload(item.key, item.format as "pdf" | "excel")}
-                  disabled={downloading !== null}
-                  sx={{ fontWeight: 600, py: 1 }}
-                >
-                  {item.label}
-                </Button>
-              </Grid>
-            ))}
+              { key: "performance", label: "Performance PDF", format: "pdf", color: "primary" as const, icon: <PdfIcon />, requiresUser: false },
+              { key: "performance", label: "Performance Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
+              { key: "attendance", label: "Attendance PDF", format: "pdf", color: "info" as const, icon: <PdfIcon />, requiresUser: false },
+              { key: "attendance", label: "Attendance Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
+              { key: "call-logs", label: "Call Logs PDF", format: "pdf", color: "secondary" as const, icon: <PdfIcon />, requiresUser: false },
+              { key: "call-logs", label: "Call Logs Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
+              { key: "orders", label: "Orders PDF", format: "pdf", color: "warning" as const, icon: <PdfIcon />, requiresUser: false },
+              { key: "orders", label: "Orders Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
+              { key: "user-orders", label: "Selected User Order List (PDF)", format: "pdf", color: "warning" as const, icon: <PdfIcon />, requiresUser: true },
+              { key: "user-orders", label: "Selected User Order List (Excel)", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: true },
+            ].map((item, idx) => {
+              const hasSelectedUser = Boolean(filters.telecaller_email) && filters.telecaller_email !== "all";
+              const isDisabled = downloading !== null || (item.requiresUser && !hasSelectedUser);
+              const btnNode = (
+                <span>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    color={item.color}
+                    startIcon={
+                      downloading === `${item.key}-${item.format}` ? <CircularProgress size={16} color="inherit" /> : item.icon
+                    }
+                    onClick={() => handleDownload(item.key, item.format as "pdf" | "excel")}
+                    disabled={isDisabled}
+                    sx={{ fontWeight: 600, py: 1 }}
+                  >
+                    {item.label}
+                  </Button>
+                </span>
+              );
+
+              return (
+                <Grid item xs={12} sm={6} md={4} lg={3} key={idx}>
+                  {item.requiresUser && !hasSelectedUser ? (
+                    <Tooltip title="Select a user to download their order list.">
+                      {btnNode}
+                    </Tooltip>
+                  ) : (
+                    btnNode
+                  )}
+                </Grid>
+              );
+            })}
           </Grid>
         </CardContent>
       </Card>
