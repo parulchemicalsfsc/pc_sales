@@ -637,6 +637,89 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
         ])
     return headers, rows, None
 
+def prepare_notes_export(
+    db: SupabaseClient,
+    start_date: str,
+    end_date: str,
+    telecaller_email: Optional[str] = None,
+    order_status: Optional[str] = None,
+    allowed_emails: Optional[Set[str]] = None,
+    role: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
+):
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    if telecaller_email and telecaller_email.lower() != "all":
+        query = query.eq("user_email", telecaller_email)
+    
+    call_logs = query.execute().data or []
+    
+    # 1. Apply role filtering
+    call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
+    
+    # 2. Filter empty and whitespace-only notes
+    non_empty_logs = []
+    for log in call_logs:
+        notes = log.get("notes")
+        if (notes or "").strip():
+            non_empty_logs.append(log)
+            
+    call_logs = non_empty_logs
+    
+    # 3. Batch resolve customers
+    customer_ids = list({log.get("customer_id") for log in call_logs if log.get("customer_id")})
+    customers_map = {}
+    if customer_ids:
+        try:
+            cust_res = db.table("customers").select("customer_id, name, district, village").in_("customer_id", customer_ids).execute()
+            customers_map = {c["customer_id"]: c for c in (cust_res.data or []) if c.get("customer_id")}
+        except Exception as e:
+            logger.warning(f"Failed to fetch customer names for notes export: {e}")
+            
+    # 4. & 5. Apply district and village filters and build rows
+    headers = ["Date", "Customer", "District", "Village", "User", "Call Outcome", "Notes"]
+    rows = []
+    
+    district_filter = district.strip().lower() if district and district.lower() != "all" else None
+    village_filter = village.strip().lower() if village and village.lower() != "all" else None
+    
+    for log in call_logs:
+        cid = log.get("customer_id")
+        cust = customers_map.get(cid) or {}
+        
+        c_dist = cust.get("district") or ""
+        c_vill = cust.get("village") or ""
+        
+        if district_filter and c_dist.strip().lower() != district_filter:
+            continue
+        if village_filter and c_vill.strip().lower() != village_filter:
+            continue
+            
+        called_at = log.get("called_at", "")
+        dt = called_at.split("T")
+        date_part = dt[0] if len(dt) > 0 else ""
+        
+        customer_name = cust.get("name") or cid or "N/A"
+        
+        rows.append([
+            date_part,
+            customer_name,
+            c_dist,
+            c_vill,
+            extract_name_from_email(log.get("user_email", "")),
+            (log.get("call_outcome", "") or "").title().replace("_", " "),
+            log.get("notes", "").strip()
+        ])
+        
+    summary_cards = [
+        {"label": "Total Notes", "value": str(len(rows))},
+        {"label": "District(s)", "value": district if district and district.lower() != "all" else "All"},
+        {"label": "Village(s)", "value": village if village and village.lower() != "all" else "All"},
+        {"label": "Reporting Period", "value": f"{start_date} to {end_date}"}
+    ]
+        
+    return headers, rows, summary_cards, None
+
 def prepare_orders_export(
     db: SupabaseClient,
     start_date: str,
@@ -743,7 +826,7 @@ def prepare_orders_export(
             ])
 
     return headers, rows, summary_cards
-
+    
 def prepare_selected_user_orders_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
     return prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, single_user=True)
 

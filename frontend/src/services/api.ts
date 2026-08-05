@@ -391,6 +391,8 @@ export const reportsAPI = {
     telecaller_email?: string;
     order_status?: string;
     role?: string;
+    district?: string;
+    village?: string;
   }) => {
     const { report, format, ...queryParams } = params;
     const response = await apiClient.get(`/api/reports/telecaller/${report}/${format}`, {

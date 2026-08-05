@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Box,
   Card,
@@ -62,7 +62,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useAuth } from "../../contexts/AuthContext";
-import { reportsAPI } from "../../services/api";
+import { reportsAPI, apiClient } from "../../services/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -203,8 +203,47 @@ export default function TelecallerReports() {
     end_date: thisMonth.end,
     telecaller_email: null as string | null,
     order_status: "all",
+    district: "all",
+    village: "all",
     view_by: "daily" as "daily" | "weekly" | "monthly",
   });
+
+  const [locationsHierarchy, setLocationsHierarchy] = useState<any>({});
+  
+  useEffect(() => {
+    apiClient.get("/api/automation/locations").then(res => {
+      setLocationsHierarchy(res.data || {});
+    }).catch(err => {
+      console.error("Failed to load locations hierarchy:", err);
+    });
+  }, []);
+
+  const masterDistricts = useMemo(() => {
+    const districts = new Set<string>();
+    for (const state of Object.keys(locationsHierarchy)) {
+      const distMap = locationsHierarchy[state] || {};
+      for (const d of Object.keys(distMap)) {
+        districts.add(d);
+      }
+    }
+    return Array.from(districts).sort();
+  }, [locationsHierarchy]);
+
+  const masterVillages = useMemo(() => {
+    const villages = new Set<string>();
+    for (const state of Object.keys(locationsHierarchy)) {
+      const distMap = locationsHierarchy[state] || {};
+      for (const [d, talukaMap] of Object.entries(distMap)) {
+        if (filters.district !== "all" && d !== filters.district) continue;
+        const tMap = (talukaMap as any) || {};
+        for (const taluka of Object.keys(tMap)) {
+          const vills = tMap[taluka] || [];
+          vills.forEach((v: string) => villages.add(v));
+        }
+      }
+    }
+    return Array.from(villages).sort();
+  }, [locationsHierarchy, filters.district]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,6 +269,8 @@ export default function TelecallerReports() {
         telecaller_email: filters.telecaller_email || undefined,
         order_status: filters.order_status === "all" ? undefined : filters.order_status,
         role: filters.role === "all" ? undefined : filters.role,
+        district: filters.district === "all" ? undefined : filters.district,
+        village: filters.village === "all" ? undefined : filters.village,
       });
 
       // Handle the blob download
@@ -424,6 +465,28 @@ export default function TelecallerReports() {
               <MenuItem value="pending">Pending</MenuItem>
               <MenuItem value="approved">Approved</MenuItem>
               <MenuItem value="rejected">Rejected</MenuItem>
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="District"
+              value={filters.district}
+              onChange={(e) => setFilters((f) => ({ ...f, district: e.target.value, village: "all" }))}
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="all">All Districts</MenuItem>
+              {masterDistricts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Village"
+              value={filters.village}
+              onChange={(e) => setFilters((f) => ({ ...f, village: e.target.value }))}
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="all">All Villages</MenuItem>
+              {masterVillages.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
             </TextField>
 
             <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
@@ -1060,6 +1123,8 @@ export default function TelecallerReports() {
               { key: "call-logs", label: "Call Logs Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
               { key: "orders", label: "Orders PDF", format: "pdf", color: "warning" as const, icon: <PdfIcon />, requiresUser: false },
               { key: "orders", label: "Orders Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
+              { key: "notes", label: "Notes Report PDF", format: "pdf", color: "secondary" as const, icon: <PdfIcon />, requiresUser: false },
+              { key: "notes", label: "Notes Report Excel", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: false },
               { key: "user-orders", label: "Selected User Order List (PDF)", format: "pdf", color: "warning" as const, icon: <PdfIcon />, requiresUser: true },
               { key: "user-orders", label: "Selected User Order List (Excel)", format: "excel", color: "success" as const, icon: <ExcelIcon />, requiresUser: true },
             ].map((item, idx) => {

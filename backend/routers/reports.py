@@ -16,6 +16,7 @@ from services.telecaller_reports import (
     prepare_attendance_export,
     prepare_call_logs_export,
     prepare_orders_export,
+    prepare_notes_export,
     get_role_emails
 )
 import io
@@ -1364,6 +1365,8 @@ def download_telecaller_report(
     telecaller_email: Optional[str] = None,
     order_status: Optional[str] = None,
     role: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
     db: SupabaseClient = Depends(get_db),
 ):
     try:
@@ -1425,7 +1428,12 @@ def download_telecaller_report(
             role_prefix = "Performance"
 
         report_key = "orders" if report_type == "user-orders" else report_type.replace("-", "_")
-        theme = REPORT_THEMES.get(report_key, REPORT_THEMES["performance"])
+        
+        # Default to performance theme, but notes gets call_logs (purple) theme
+        if report_key == "notes":
+            theme = REPORT_THEMES.get("call_logs", REPORT_THEMES["performance"])
+        else:
+            theme = REPORT_THEMES.get(report_key, REPORT_THEMES["performance"])
 
         summary_cards = None
         summary_paragraph = None
@@ -1445,6 +1453,9 @@ def download_telecaller_report(
         elif report_type == "user-orders":
             res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, single_user=True)
             title = "Selected User Order List"
+        elif report_type == "notes":
+            res = prepare_notes_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, district=district, village=village)
+            title = f"{role_prefix} Notes Report" if role_prefix != "Performance" else "Notes Report"
         else:
             raise HTTPException(status_code=400, detail="Invalid report type.")
 
