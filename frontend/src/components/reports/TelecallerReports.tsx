@@ -48,6 +48,7 @@ import {
   Storefront as StoreIcon,
   ThumbUp as ThumbUpIcon,
   Cancel as CancelIcon,
+  Assignment as AssignmentIcon,
 } from "@mui/icons-material";
 import { DimensionTable } from "./DimensionTable";
 import { KpiCard } from "./KpiCard";
@@ -597,6 +598,84 @@ export default function TelecallerReports() {
           </>
         )}
       </Grid>
+
+      {/* ── Assigned Calls Analytics ── */}
+      {data?.assignment_analytics && (
+        <Card sx={{ mb: 4 }}>
+          <CardContent>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+              <AssignmentIcon color="primary" />
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                Assigned Calls Analytics
+              </Typography>
+            </Box>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={5}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 700 }}>
+                  Assignment Status
+                </Typography>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>Total Assigned</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{data.assignment_analytics.total_assigned}</Typography>
+                  </Box>
+                  <Divider />
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: "success.main" }}>Completed</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: "success.main" }}>{data.assignment_analytics.completed} ({data.assignment_analytics.completed_pct}%)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: "warning.main" }}>Pending</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: "warning.main" }}>{data.assignment_analytics.pending} ({data.assignment_analytics.pending_pct}%)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: "error.main" }}>Skipped</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: "error.main" }}>{data.assignment_analytics.skipped} ({data.assignment_analytics.skipped_pct}%)</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: "text.secondary" }}>Unknown</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>{data.assignment_analytics.unknown} ({data.assignment_analytics.unknown_pct}%)</Typography>
+                  </Box>
+                </Box>
+              </Grid>
+              
+              <Grid item xs={12} md={7}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 700 }}>
+                  Assignment Modes
+                </Typography>
+                <Grid container spacing={2}>
+                  {[
+                    { label: "Auto", key: "auto", color: "primary.main" },
+                    { label: "Historical Affinity", key: "historical_affinity", color: "secondary.main" },
+                    { label: "Location", key: "location", color: "info.main" },
+                    { label: "Manual", key: "manual", color: "warning.main" },
+                    { label: "Other", key: "other", color: "text.secondary" },
+                  ].map((mode) => {
+                    const modeData = data.assignment_analytics.assignment_modes[mode.key] || { count: 0, pct: 0 };
+                    return (
+                      <Grid item xs={12} sm={6} key={mode.key}>
+                        <Box sx={{ p: 1.5, border: `1px solid ${theme.palette.divider}`, borderRadius: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: mode.color, display: "block", mb: 0.5 }}>
+                            {mode.label}
+                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1 }}>
+                              {modeData.count}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
+                              ({modeData.pct}%)
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Main Tables Area ── */}
       <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, mt: 4, display: "flex", alignItems: "center", gap: 1 }}>

@@ -185,7 +185,7 @@ def get_telecaller_dashboard(
 ) -> Dict[str, Any]:
     
     t_start = time.perf_counter()
-    q_counts = {"call_logs": 0, "telecaller_orders": 0, "telecaller_attendance": 0, "customers": 0, "app_users": 0, "duty_sheet_log": 0}
+    q_counts = {"call_logs": 0, "telecaller_orders": 0, "telecaller_attendance": 0, "customers": 0, "app_users": 0, "duty_sheet_log": 0, "calling_assignments": 0}
 
     # 1. Fetch Call Logs
     call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
@@ -214,6 +214,14 @@ def get_telecaller_dashboard(
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
     attendance = filter_by_allowed_emails(attendance, "user_email", allowed_emails)
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
+
+    # 4. Fetch Assignments
+    assignments_query = db.table("calling_assignments").select("user_email, status, reason").gte("assigned_date", start_date).lte("assigned_date", end_date)
+    if telecaller_email:
+        assignments_query = assignments_query.eq("user_email", telecaller_email)
+    q_counts["calling_assignments"] += 1
+    assignments = assignments_query.execute().data or []
+    assignments = filter_by_allowed_emails(assignments, "user_email", allowed_emails)
 
     # 4. Fetch Duty Days
     q_counts["duty_sheet_log"] += 1
@@ -490,6 +498,52 @@ def get_telecaller_dashboard(
             "approval_rate": round((appr / ords * 100) if ords else 0, 1)
         })
 
+    # Calculate Assignment Analytics
+    assigned_status_counts = {"completed": 0, "pending": 0, "skipped": 0, "unknown": 0}
+    assigned_mode_counts = {"auto": 0, "historical_affinity": 0, "location": 0, "manual": 0, "other": 0}
+    total_assigned = len(assignments)
+
+    for assign in assignments:
+        status = (assign.get("status") or "").strip().lower()
+        if status == "called":
+            assigned_status_counts["completed"] += 1
+        elif status == "pending":
+            assigned_status_counts["pending"] += 1
+        elif status == "skipped":
+            assigned_status_counts["skipped"] += 1
+        else:
+            assigned_status_counts["unknown"] += 1
+
+        reason = (assign.get("reason") or "").strip().lower()
+        if reason == "auto-assigned":
+            assigned_mode_counts["auto"] += 1
+        elif reason == "historical affinity":
+            assigned_mode_counts["historical_affinity"] += 1
+        elif reason == "location assignment":
+            assigned_mode_counts["location"] += 1
+        elif reason == "adhoc call":
+            assigned_mode_counts["manual"] += 1
+        else:
+            assigned_mode_counts["other"] += 1
+
+    assignment_analytics = {
+        "total_assigned": total_assigned,
+        "completed": assigned_status_counts["completed"],
+        "completed_pct": round((assigned_status_counts["completed"] / total_assigned * 100) if total_assigned else 0, 1),
+        "pending": assigned_status_counts["pending"],
+        "pending_pct": round((assigned_status_counts["pending"] / total_assigned * 100) if total_assigned else 0, 1),
+        "skipped": assigned_status_counts["skipped"],
+        "skipped_pct": round((assigned_status_counts["skipped"] / total_assigned * 100) if total_assigned else 0, 1),
+        "unknown": assigned_status_counts["unknown"],
+        "unknown_pct": round((assigned_status_counts["unknown"] / total_assigned * 100) if total_assigned else 0, 1),
+        "assignment_modes": {
+            mode: {
+                "count": count,
+                "pct": round((count / total_assigned * 100) if total_assigned else 0, 1)
+            } for mode, count in assigned_mode_counts.items()
+        }
+    }
+
     t_end = time.perf_counter()
     logger.info(f"[PERF] Total dashboard ....... {t_end - t_start:.2f}s")
     logger.info("[PERF] Database Queries (Dashboard):\n" + "\n".join([f"{k:.<22} {v}" for k, v in q_counts.items()]))
@@ -504,7 +558,8 @@ def get_telecaller_dashboard(
         "attendance_summary_metrics": att_results,
         "orders": sorted(orders_list, key=lambda x: x["total_orders"], reverse=True),
         "district_breakdown": district_breakdown,
-        "village_breakdown": village_breakdown
+        "village_breakdown": village_breakdown,
+        "assignment_analytics": assignment_analytics
     }
     return response_data
 
