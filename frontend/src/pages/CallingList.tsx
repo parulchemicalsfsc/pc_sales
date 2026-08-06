@@ -81,6 +81,7 @@ interface Assignment {
   village: string;
   taluka?: string;
   district?: string;
+  customer_code?: string;
   priority_label?: string;
   priority_score?: number;
   updated_at?: string;
@@ -135,6 +136,12 @@ function parseOrderProducts(order: any): any[] {
     try { return JSON.parse(order.products); } catch { return []; }
   }
   return [];
+}
+
+/** Display name with customer code appended in brackets, e.g. "Dipakbhai (202927)". */
+function displayName(item: { name?: string; customer_code?: string }): string {
+  if (!item.name) return "Unknown";
+  return item.customer_code ? `${item.name} (${item.customer_code})` : item.name;
 }
 
 // ── Live Timer Hook ────────────────────────────────────
@@ -381,15 +388,16 @@ export default function CallingList() {
       dragIndexRef.current = null;
       return;
     }
-    setAssignments(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(dropIndex, 0, moved);
-      return next;
-    });
+    const next = [...assignments];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(dropIndex, 0, moved);
+    setAssignments(next);
     setDragOverIndex(null);
     setIsDraggingCard(false);
     dragIndexRef.current = null;
+    // Persist the new order so it survives tab switches / re-fetches.
+    automationAPI.reorderAssignments(next.map(a => a.assignment_id))
+      .catch(err => console.error("Failed to persist reorder:", err));
   };
 
   const handleDragEnd = () => {
@@ -414,9 +422,12 @@ export default function CallingList() {
         fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
       }
 
-      // Sort assignments so newest are at the top
-      const getTime = (a: any) => new Date(a.last_call?.created_at || a.updated_at || a.assigned_date || 0).getTime();
-      fetched.sort((a: any, b: any) => getTime(b) - getTime(a));
+      // Called tab: sort newest-first by last call / completion time.
+      // (To Call tab keeps the persisted drag-and-drop order, so it is not re-sorted here.)
+      if (tab === 1) {
+        const getTime = (a: any) => new Date(a.last_call?.created_at || a.updated_at || a.assigned_date || 0).getTime();
+        fetched.sort((a: any, b: any) => getTime(b) - getTime(a));
+      }
 
       setAssignments(fetched);
       setPagination(res.pagination || { page: 1, limit: 20, total: 0, total_pages: 1 });
@@ -1108,7 +1119,7 @@ export default function CallingList() {
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
                   <Typography variant="body2" sx={{ color: "text.disabled", mt: 0.5 }}>
-                    Followbacks scheduled for today will appear here.
+                    Followbacks you schedule will appear here.
                   </Typography>
                 </Box>
               ) : (
@@ -1130,7 +1141,7 @@ export default function CallingList() {
                     }}
                   >
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{item.name || "Unknown"}</Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{displayName(item)}</Typography>
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
@@ -1393,7 +1404,7 @@ export default function CallingList() {
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Stack direction="row" spacing={1} alignItems="center">
                             <Typography variant="subtitle2" sx={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {item.name || "Unknown"}
+                              {displayName(item)}
                             </Typography>
                             {/* Priority Badge */}
                             {pLabel !== "NONE" && (
@@ -1424,7 +1435,7 @@ export default function CallingList() {
                               </Typography>
                             )}
                           </Stack>
-                          {item.status !== "Pending" && item.notes && (
+                          {item.status !== "Pending" && item.notes && !(tab === 1 && item.last_call) && (
                             <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
                               {item.notes}
                             </Typography>
@@ -1519,7 +1530,7 @@ export default function CallingList() {
               {(historyItem?.name || "?")[0].toUpperCase()}
             </Avatar>
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{historyItem?.name || "Unknown"}</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{displayName(historyItem || {})}</Typography>
               <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }}>
                 {historyItem?.mobile && (
                   <Typography variant="caption" sx={{ opacity: .85, display: "flex", alignItems: "center", gap: 0.3 }}>
@@ -1677,7 +1688,7 @@ export default function CallingList() {
                 : isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
               return (
                 <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400 }}>
-                  {item?.name} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
+                  {displayName(item || {})} · {item?.mobile} {item?.village ? `· ${item?.village}` : ""}
                 </Typography>
               );
             })()}

@@ -81,7 +81,7 @@ class SupabaseTable:
         # Use the shared session from SupabaseClient if provided
         self._session = session or requests.Session()
         self._filters = []
-        self._order = None
+        self._orders = []
         self._limit = None
         self._offset = None
         self._count = None
@@ -155,9 +155,18 @@ class SupabaseTable:
         self._filters.append(f"or=({filters})")
         return self
 
-    def order(self, column: str, desc: bool = False):
-        """Order results"""
-        self._order = f"{column}.{'desc' if desc else 'asc'}"
+    def order(self, column: str, desc: bool = False, nulls: str = None):
+        """Order results.
+
+        Args:
+            column: Column to order by.
+            desc: Descending if True.
+            nulls: Optional "nullsfirst" or "nullslast".
+        """
+        order_str = f"{column}.{'desc' if desc else 'asc'}"
+        if nulls:
+            order_str = f"{order_str}.{nulls}"
+        self._orders.append(order_str)
         return self
 
     def limit(self, count: int):
@@ -190,8 +199,8 @@ class SupabaseTable:
             params.append((key, value))
 
         # Add order
-        if self._order:
-            params.append(("order", self._order))
+        if self._orders:
+            params.append(("order", ",".join(self._orders)))
 
         # Add limit
         if self._limit:

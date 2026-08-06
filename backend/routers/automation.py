@@ -53,6 +53,9 @@ class AdhocCallRequest(BaseModel):
     notes: Optional[str] = None
     callback_date: Optional[str] = None
 
+class ReorderAssignmentsRequest(BaseModel):
+    assignment_ids: list[int]
+
 VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
 
 # ─── Distribution Logic ──────────────────────────────────
@@ -531,16 +534,18 @@ def get_my_assignments(
 
         # Sorting
         if status:
+            # Respect a user's custom drag-and-drop order first (sort_order, nulls last),
+            # then fall back to newest-first by assignment_id.
             if status == "completed":
                 query = query.neq("status", "Pending")
                 count_query = count_query.neq("status", "Pending")
-                query = query.order("assignment_id", desc=True)
+                query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
             else:
                 query = query.eq("status", status)
                 count_query = count_query.eq("status", status)
-                query = query.order("assignment_id", desc=True)
+                query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
         else:
-            query = query.order("assignment_id", desc=True)
+            query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
 
         query = query.limit(limit).offset(offset)
         res = query.execute()
@@ -581,7 +586,7 @@ def get_my_assignments(
                 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -591,6 +596,7 @@ def get_my_assignments(
                         "village": c.get("village"),
                         "taluka": c.get("taluka"),
                         "district": c.get("district"),
+                        "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None"
                     }
@@ -634,6 +640,7 @@ def get_my_assignments(
                 "village": c.get("village", ""),
                 "taluka": c.get("taluka", ""),
                 "district": c.get("district", ""),
+                "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
                 "last_call": last_call,
@@ -677,6 +684,33 @@ def get_my_assignments(
         return {"assignments": [], "error": str(e), "pagination": {"page": 1, "limit": 20, "total": 0, "total_pages": 1}, "summary": {"total": 0, "pending": 0, "called": 0}}
 
 
+@router.post("/reorder-assignments", dependencies=[Depends(verify_permission("view_calling_list"))])
+def reorder_assignments(
+    body: ReorderAssignmentsRequest,
+    user_email: str = Header(..., alias="x-user-email"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Persist a user's custom drag-and-drop order for their calling list.
+
+    The provided assignment_ids are stored top-to-bottom, each receiving an
+    incrementing sort_order. /my-assignments orders by sort_order (nulls last)
+    so reordered calls stay in place across page/tab navigation.
+    """
+    if not body.assignment_ids:
+        raise HTTPException(status_code=400, detail="assignment_ids must not be empty")
+    try:
+        for idx, assignment_id in enumerate(body.assignment_ids):
+            db.table("calling_assignments") \
+                .eq("assignment_id", assignment_id) \
+                .update({"sort_order": idx}) \
+                .execute()
+        logger.info(f"[REORDER] user={user_email} saved order for {len(body.assignment_ids)} assignments")
+        return {"message": "Reorder saved", "status": "success", "count": len(body.assignment_ids)}
+    except Exception as e:
+        logger.error(f"[REORDER] ❌ Failed to save order: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save order: {e}")
+
+
 @router.get("/my-callbacks", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_callbacks(
     date: Optional[str] = Query(None),
@@ -686,7 +720,7 @@ def get_my_callbacks(
     """
     Get pending assignments flagged as 'Scheduled Callback' for the logged-in user.
     If 'date' is provided, returns callbacks scheduled for that specific date.
-    Otherwise, returns callbacks due today or earlier.
+    Otherwise, returns all pending scheduled callbacks (today + upcoming).
     """
     try:
         if user_email:
@@ -694,23 +728,21 @@ def get_my_callbacks(
         if not user_email:
             raise HTTPException(status_code=401, detail="User email required")
 
-        IST = pytz.timezone("Asia/Kolkata")
-        
         q = db.table("calling_assignments").select("*") \
             .eq("user_email", user_email) \
             .eq("status", "Pending") \
             .eq("reason", "Scheduled Callback")
-            
+
         if date:
+            # When a specific date is requested, only show callbacks scheduled that day.
             start_of_date = f"{date}T00:00:00"
             end_of_date = f"{date}T23:59:59"
             q = q.gte("assigned_date", start_of_date).lte("assigned_date", end_of_date)
-        else:
-            today_ist = datetime.now(IST).strftime("%Y-%m-%d")
-            end_of_today = f"{today_ist}T23:59:59"
-            q = q.lte("assigned_date", end_of_today)
+        # Otherwise show ALL pending scheduled callbacks (today + upcoming) so a
+        # just-scheduled follow-up is always visible.
 
-        q = q.order("assignment_id", desc=True)
+        # Soonest follow-up first.
+        q = q.order("assigned_date", desc=False)
 
         res = q.execute()
         assignments = res.data or []
@@ -738,7 +770,7 @@ def get_my_callbacks(
 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile") \
+                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -746,6 +778,7 @@ def get_my_callbacks(
                         "name": c.get("name"),
                         "mobile": c.get("mobile"),
                         "village": c.get("village"),
+                        "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None",
                     }
@@ -766,6 +799,7 @@ def get_my_callbacks(
                 "name": c.get("name", "Unknown"),
                 "mobile": c.get("mobile", ""),
                 "village": c.get("village", ""),
+                "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
             })
@@ -786,12 +820,15 @@ def get_calling_summary(
     try:
         role = get_user_role_cached(user_email, db)
         
-        # Standard counts
+        # Standard counts — no entity_type filter here so callbacks for both
+        # distributor and customer entity types are included in the summary.
         all_query = db.table("calling_assignments").select("status, reason, assigned_date")
         if role == "sales_manager":
             all_query = all_query.eq("user_email", user_email).eq("entity_type", "distributor")
         else:
-            all_query = all_query.eq("user_email", user_email).eq("entity_type", "customer")
+            # For telecallers and other roles: count ALL assignments regardless of entity_type
+            # (they may have callbacks for distributors if the system calls distributors)
+            all_query = all_query.eq("user_email", user_email)
             
         all_res = all_query.execute()
         all_assignments = all_res.data or []
@@ -811,14 +848,10 @@ def get_calling_summary(
         }
         
         if role == "telecaller":
-            # Add callbacks count (only Scheduled Callbacks due today or earlier)
-            IST = pytz.timezone("Asia/Kolkata")
-            today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+            # Add callbacks count (all pending Scheduled Callbacks — today + upcoming)
             callbacks = sum(
                 1 for x in pending_assignments
                 if x.get("reason") == "Scheduled Callback"
-                and x.get("assigned_date")
-                and str(x.get("assigned_date"))[:10] <= today_ist
             )
             
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
