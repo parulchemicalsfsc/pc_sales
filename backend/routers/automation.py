@@ -539,17 +539,28 @@ def get_my_assignments(
             if status == "completed":
                 query = query.neq("status", "Pending")
                 count_query = count_query.neq("status", "Pending")
-                query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
+                query = query.order("assignment_id", desc=True)
+                paginate_in_python = True
             else:
                 query = query.eq("status", status)
                 count_query = count_query.eq("status", status)
                 query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
+                paginate_in_python = False
         else:
             query = query.order("sort_order", desc=False, nulls="nullslast").order("assignment_id", desc=True)
+            paginate_in_python = False
 
-        query = query.limit(limit).offset(offset)
-        res = query.execute()
-        assignments = res.data or []
+        if paginate_in_python:
+            # Completed tab: fetch ALL matching rows, then sort newest-first by the last-call
+            # time in Python (the call time lives in call_logs, not on the assignment row)
+            # and paginate afterwards. This ensures page 1 always shows the most recent calls
+            # instead of dropping them onto later pages by assignment_id order.
+            full_res = query.execute()
+            assignments = full_res.data or []
+        else:
+            query = query.limit(limit).offset(offset)
+            res = query.execute()
+            assignments = res.data or []
         logger.info(f"[MY-ASSIGN] Raw assignments fetched: {len(assignments)} rows")
 
         # Total count
@@ -645,6 +656,11 @@ def get_my_assignments(
                 "priority_label": c.get("priority_label", "LOW"),
                 "last_call": last_call,
             })
+
+        # Completed tab: sort newest-first by the last-call time, then paginate in Python.
+        if paginate_in_python:
+            enhanced.sort(key=lambda a: str((a.get("last_call") or {}).get("created_at") or a.get("assigned_date") or ""), reverse=True)
+            enhanced = enhanced[offset:offset + limit]
 
         # Summary counts
         all_query = db.table("calling_assignments").select("status")
