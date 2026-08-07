@@ -8,14 +8,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from supabase_db import SupabaseClient, get_db
-from reports import ReportGenerator
+from reports import ReportGenerator, REPORT_THEMES
 from rbac_utils import verify_permission
 from services.telecaller_reports import (
     get_telecaller_dashboard,
     prepare_performance_export,
     prepare_attendance_export,
     prepare_call_logs_export,
-    prepare_orders_export
+    prepare_orders_export,
+    prepare_notes_export,
+    get_role_emails
 )
 import io
 
@@ -1343,10 +1345,12 @@ def get_telecaller_dashboard_route(
     end_date: str,
     telecaller_email: Optional[str] = None,
     order_status: Optional[str] = None,
+    role: Optional[str] = None,
     db: SupabaseClient = Depends(get_db),
 ):
     try:
-        data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status)
+        allowed_emails = get_role_emails(db, role)
+        data = get_telecaller_dashboard(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails)
         return data
     except Exception as e:
         print(f"Error generating telecaller dashboard: {e}")
@@ -1360,6 +1364,9 @@ def download_telecaller_report(
     end_date: str,
     telecaller_email: Optional[str] = None,
     order_status: Optional[str] = None,
+    role: Optional[str] = None,
+    district: Optional[str] = None,
+    village: Optional[str] = None,
     db: SupabaseClient = Depends(get_db),
 ):
     try:
@@ -1367,32 +1374,97 @@ def download_telecaller_report(
         if format not in ["pdf", "excel"]:
             raise HTTPException(status_code=400, detail="Invalid format. Use 'pdf' or 'excel'.")
             
+        allowed_emails = get_role_emails(db, role)
+
+        if report_type == "user-orders":
+            if not telecaller_email or telecaller_email.lower() == "all":
+                raise HTTPException(status_code=400, detail="Please select a user before downloading the User Order List.")
+            if allowed_emails is not None and telecaller_email.strip().lower() not in {e.strip().lower() for e in allowed_emails}:
+                raise HTTPException(status_code=400, detail="Selected user does not belong to the chosen role.")
+
+        # Batch resolve user display name if telecaller_email is present
+        user_display_name = ""
+        if telecaller_email and telecaller_email.lower() != "all":
+            try:
+                user_res = db.table("app_users").select("name").eq("email", telecaller_email).execute()
+                if user_res.data and user_res.data[0].get("name"):
+                    user_display_name = user_res.data[0]["name"]
+                else:
+                    from services.telecaller_reports import extract_name_from_email
+                    user_display_name = extract_name_from_email(telecaller_email)
+            except Exception:
+                from services.telecaller_reports import extract_name_from_email
+                user_display_name = extract_name_from_email(telecaller_email)
+
         filters = []
-        if telecaller_email:
-            filters.append(f"Telecaller: {telecaller_email}")
+        if report_type == "user-orders":
+            filters.append(f"User: {user_display_name}")
+            filters.append(f"Email: {telecaller_email}")
+            filters.append(f"Role: {role.replace('_', ' ').title() if role and role != 'all' else 'All Roles'}")
+            filters.append(f"Date Range: {start_date} to {end_date}")
+            filters.append(f"Order Status: {order_status.title() if order_status and order_status != 'all' else 'All'}")
         else:
-            filters.append("Telecaller: All")
+            if role and role.lower() != "all":
+                role_title = role.replace("_", " ").title()
+                filters.append(f"Role: {role_title}")
+            else:
+                filters.append("Role: All Roles")
+
+            if telecaller_email and telecaller_email.lower() != "all":
+                filters.append(f"Telecaller: {user_display_name} ({telecaller_email})")
+            else:
+                filters.append("Telecaller: All")
+                
+            if order_status and order_status != "all":
+                filters.append(f"Status: {order_status.title()}")
             
-        if order_status and order_status != "all":
-            filters.append(f"Status: {order_status.title()}")
-            
-        title = ""
         subtitle = f"Period: {start_date} to {end_date}"
+        role_clean = (role or "").strip().lower().replace(" ", "_")
+        if role_clean == "sales_manager":
+            role_prefix = "Sales Manager"
+        elif role_clean == "telecaller":
+            role_prefix = "Telecaller"
+        else:
+            role_prefix = "Performance"
+
+        report_key = "orders" if report_type == "user-orders" else report_type.replace("-", "_")
         
+        # Default to performance theme, but notes gets call_logs (purple) theme
+        if report_key == "notes":
+            theme = REPORT_THEMES.get("call_logs", REPORT_THEMES["performance"])
+        else:
+            theme = REPORT_THEMES.get(report_key, REPORT_THEMES["performance"])
+
+        summary_cards = None
+        summary_paragraph = None
+
         if report_type == "performance":
-            headers, rows = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status)
-            title = "Telecaller Performance Report"
+            res = prepare_performance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Performance Report" if role_prefix != "Performance" else "Performance Report"
         elif report_type == "attendance":
-            headers, rows = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status)
-            title = "Telecaller Attendance Report"
+            res = prepare_attendance_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Attendance Report" if role_prefix != "Performance" else "Attendance Report"
         elif report_type == "call-logs":
-            headers, rows = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status)
-            title = "Telecaller Call Logs Report"
+            res = prepare_call_logs_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} Call Logs Report" if role_prefix != "Performance" else "Call Logs Report"
         elif report_type == "orders":
-            headers, rows = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status)
-            title = "Telecaller Orders Report"
+            res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role)
+            title = f"{role_prefix} User Order Details Report" if role_prefix != "Performance" else "User Order Details Report"
+        elif report_type == "user-orders":
+            res = prepare_orders_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, single_user=True)
+            title = "Selected User Order List"
+        elif report_type == "notes":
+            res = prepare_notes_export(db, start_date, end_date, telecaller_email, order_status, allowed_emails=allowed_emails, role=role, district=district, village=village)
+            title = f"{role_prefix} Notes Report" if role_prefix != "Performance" else "Notes Report"
         else:
             raise HTTPException(status_code=400, detail="Invalid report type.")
+
+        if len(res) == 4:
+            headers, rows, summary_cards, summary_paragraph = res
+        elif len(res) == 3:
+            headers, rows, summary_cards = res
+        else:
+            headers, rows = res
 
         safe_start = start_date.replace("-", "")
         safe_end = end_date.replace("-", "")
@@ -1404,7 +1476,10 @@ def download_telecaller_report(
                 subtitle=subtitle,
                 headers=headers,
                 data_rows=rows,
-                metadata_filters=filters
+                metadata_filters=filters,
+                summary_cards=summary_cards,
+                summary_paragraph=summary_paragraph,
+                theme=theme,
             )
             return StreamingResponse(
                 io.BytesIO(pdf_bytes),
@@ -1415,7 +1490,9 @@ def download_telecaller_report(
             excel_bytes = report_generator.generate_generic_table_excel(
                 sheet_name=title,
                 headers=headers,
-                data_rows=rows
+                data_rows=rows,
+                metadata_filters=filters,
+                theme=theme,
             )
             return StreamingResponse(
                 io.BytesIO(excel_bytes),
@@ -1434,6 +1511,7 @@ def get_telecaller_charts_api(
     end_date: Optional[str] = None,
     view_by: str = "daily",
     telecaller_email: Optional[str] = None,
+    role: Optional[str] = None,
     user_email: str = Depends(get_user_email),
     db: SupabaseClient = Depends(get_db),
 ):
@@ -1445,12 +1523,14 @@ def get_telecaller_charts_api(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
             
+        allowed_emails = get_role_emails(db, role)
         return get_telecaller_charts(
             db=db,
             start_date=start_date,
             end_date=end_date,
             view_by=view_by,
-            telecaller_email=telecaller_email
+            telecaller_email=telecaller_email,
+            allowed_emails=allowed_emails
         )
     except HTTPException as he:
         raise he
