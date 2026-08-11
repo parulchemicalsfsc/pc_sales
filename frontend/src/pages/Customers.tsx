@@ -60,6 +60,20 @@ export default function Customers() {
   const [duplicateRecord, setDuplicateRecord] = useState<any>(null);
   const [pendingSubmitFn, setPendingSubmitFn] = useState<(() => Promise<void>) | null>(null);
 
+  // Server-side pagination and search state
+  const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: 25 });
+  const [rowCountState, setRowCountState] = useState(0);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      // Reset page to 0 when search changes
+      setPaginationModel((prev) => ({ ...prev, page: 0 }));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   // ── Phone validation helper ────────────────────────────────────────────────
   const INDIAN_MOBILE_RE = /^[0-9]{10}$/;
   const validatePhone = (value: string): string => {
@@ -84,22 +98,31 @@ export default function Customers() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+  }, [paginationModel.page, paginationModel.pageSize, debouncedSearchTerm]);
 
   const loadCustomers = async () => {
     try {
       setLoading(true);
       setError(null);
+      
+      const skip = paginationModel.page * paginationModel.pageSize;
+      
       const [custResult, regionsResult] = await Promise.allSettled([
-        customerAPI.getAll({ limit: 1000 }),
+        customerAPI.getAll({ 
+          skip, 
+          limit: paginationModel.pageSize, 
+          search: debouncedSearchTerm 
+        }),
         apiClient.get("/api/products/config/regions"),
       ]);
 
       if (custResult.status === "fulfilled") {
-        setCustomers(Array.isArray(custResult.value) ? custResult.value : (custResult.value?.data || []));
+        const cd = custResult.value;
+        setCustomers(Array.isArray(cd) ? cd : (cd?.data || []));
+        setRowCountState(cd?.total || 0);
       } else {
-        setError(custResult.reason instanceof Error ? custResult.reason.message : t("customers.loadError", "Failed to load Sabhasad"));
-        console.error("Error loading Sabhasad:", custResult.reason);
+        console.error("Failed to load customers:", custResult.reason);
+        setError("Failed to load customers.");
       }
 
       if (regionsResult.status === "fulfilled") {
@@ -397,12 +420,6 @@ export default function Customers() {
     },
   ];
 
-  const filteredCustomers = customers.filter((customer) =>
-    Object.values(customer).some((value) =>
-      value?.toString().toLowerCase().includes(searchTerm.toLowerCase()),
-    ),
-  );
-
   return (
     <PermissionGate permission={PERMISSIONS.VIEW_CUSTOMERS} page permissionLabel="view customers">
       <Box>
@@ -473,15 +490,14 @@ export default function Customers() {
                 <TableSkeleton rows={10} columns={5} />
               ) : (
                 <DataGrid
-                  rows={filteredCustomers}
+                  rows={customers}
                   columns={columns}
                   getRowId={(row) => row.customer_id}
                   pageSizeOptions={[10, 25, 50, 100]}
-                  initialState={{
-                    pagination: {
-                      paginationModel: { pageSize: 25 },
-                    },
-                  }}
+                  paginationModel={paginationModel}
+                  onPaginationModelChange={setPaginationModel}
+                  paginationMode="server"
+                  rowCount={rowCountState}
                   disableRowSelectionOnClick
                   sx={{
                     "& .MuiDataGrid-cell:focus": {

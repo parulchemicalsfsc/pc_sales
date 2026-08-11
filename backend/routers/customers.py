@@ -49,27 +49,39 @@ def check_customer_phone(
 
 
 @router.get("/", dependencies=[Depends(verify_permission("view_customers"))])
-def get_customers(db: SupabaseClient = Depends(get_db)):
-    """Get all customers — paginated to bypass Supabase's 1000-row server cap"""
+def get_customers(
+    skip: int = 0,
+    limit: int = 25,
+    search: Optional[str] = None,
+    db: SupabaseClient = Depends(get_db)
+):
+    """Get customers with pagination and optional search."""
+    import re
     try:
-        all_rows = []
-        batch = 1000
-        offset = 0
-        while True:
-            resp = (
-                db.table("customers")
-                .select("*")
-                .order("created_at", desc=True)
-                .range(offset, offset + batch - 1)
-                .execute()
+        query = db.table("customers").select("*", count="exact")
+        
+        if search:
+            # Sanitize input: remove characters that break PostgREST .or_ syntax
+            clean_search = re.sub(r'[,.()"\']', '', search)
+            # Escape SQL wildcards so they are treated as literals
+            clean_search = clean_search.replace("%", "\\%").replace("_", "\\_")
+            term = f"%{clean_search.strip()}%"
+            
+            # Apply 7-field ilike search
+            query = query.or_(
+                f"name.ilike.{term},"
+                f"mobile.ilike.{term},"
+                f"village.ilike.{term},"
+                f"taluka.ilike.{term},"
+                f"district.ilike.{term},"
+                f"state.ilike.{term},"
+                f"customer_code.ilike.{term}"
             )
-            if not resp.data:
-                break
-            all_rows.extend(resp.data)
-            if len(resp.data) < batch:
-                break
-            offset += batch
-        return {"data": all_rows, "total": len(all_rows)}
+            
+        # Apply pagination
+        resp = query.order("created_at", desc=True).range(skip, skip + limit - 1).execute()
+        
+        return {"data": resp.data or [], "total": resp.count or 0}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error fetching customers: {str(e)}"
