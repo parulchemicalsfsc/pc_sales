@@ -600,7 +600,7 @@ export default function Layout({
 
   useEffect(() => {
     fetchRecentActivity();
-    const interval = setInterval(fetchRecentActivity, 5000); // Check every 5 seconds (faster)
+    const interval = setInterval(fetchRecentActivity, 60000); // Check every 60 seconds (slower)
     return () => clearInterval(interval);
   }, [user?.email]);
 
