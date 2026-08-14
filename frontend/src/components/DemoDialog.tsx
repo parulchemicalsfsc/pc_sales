@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogTitle,
@@ -44,13 +45,43 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [distributors, setDistributors] = useState<Distributor[]>([]);
-
-  const [doctors, setDoctors] = useState<any[]>([]);
-  const [shopkeepers, setShopkeepers] = useState<any[]>([]);
   const [buyerType, setBuyerType] = useState<string>("mantri");
   const [entityId, setEntityId] = useState<number>(0);
+
+  // ── Entity caches via React Query (shared with Sales page — zero extra HTTP) ──
+  const { data: products = [] } = useQuery<Product[]>({
+    queryKey: ["products-active"],
+    queryFn: () => productAPI.getAll(),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: distributors = [] } = useQuery<Distributor[]>({
+    queryKey: ["distributors-all"],
+    queryFn: async () => {
+      const res = await distributorAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: doctors = [] } = useQuery<any[]>({
+    queryKey: ["doctors-all"],
+    queryFn: async () => {
+      const res = await doctorAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: shopkeepers = [] } = useQuery<any[]>({
+    queryKey: ["shopkeepers-all"],
+    queryFn: async () => {
+      const res = await shopkeeperAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
 
   const [formData, setFormData] = useState({
     demo_date: new Date(),
@@ -81,36 +112,11 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
   }, [customerSearch, buyerType, open]);
 
   useEffect(() => {
-    if (open) {
-      loadFormData();
-      if (initialData) {
-        setBuyerType(initialData.buyerType);
-        setEntityId(initialData.entityId);
-      }
+    if (open && initialData) {
+      setBuyerType(initialData.buyerType);
+      setEntityId(initialData.entityId);
     }
   }, [open, initialData]);
-
-  const loadFormData = async () => {
-    try {
-      setLoading(true);
-      const [customersData, productsData, distributorsData, doctorsData, shopkeepersData] = await Promise.all([
-        customerAPI.getAll({ limit: 25 }), // Initial fast load
-        productAPI.getAll(),
-        distributorAPI.getAll({ limit: 1000 }),
-        doctorAPI.getAll({ limit: 1000 }),
-        shopkeeperAPI.getAll({ limit: 1000 }),
-      ]);
-      setCustomers(Array.isArray(customersData) ? customersData : customersData.data || []);
-      setProducts(productsData || []);
-      setDistributors(Array.isArray(distributorsData) ? distributorsData : distributorsData.data || []);
-      setDoctors(Array.isArray(doctorsData) ? doctorsData : doctorsData.data || []);
-      setShopkeepers(Array.isArray(shopkeepersData) ? shopkeepersData : shopkeepersData.data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load form data");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getEntityOptions = () => {
     if (buyerType === "mantri") {
