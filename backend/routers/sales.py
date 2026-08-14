@@ -79,7 +79,7 @@ def get_sales(
         )
         distributors_dict = fetch_by_ids(
             "distributors", "distributor_id", distributor_ids,
-            "distributor_id, name, mantri_name, village, mobile, mantri_mobile, contact_mobile"
+            "distributor_id, name, mantri_name, village, mantri_mobile"
         )
         doctors_dict = fetch_by_ids(
             "doctors", "doctor_id", doctor_ids,
