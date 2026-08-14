@@ -79,7 +79,7 @@ def get_sales(
         )
         distributors_dict = fetch_by_ids(
             "distributors", "distributor_id", distributor_ids,
-            "distributor_id, name, mantri_name, village, mantri_mobile"
+            "distributor_id, mantri_name, village, mantri_mobile"
         )
         doctors_dict = fetch_by_ids(
             "doctors", "doctor_id", doctor_ids,
@@ -109,17 +109,17 @@ def get_sales(
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 result.append({
                     **sale,
-                    "customer_name": entity.get("mantri_name") or entity.get("name", ""),
+                    "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             elif buyer_type == "distributor" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
                 result.append({
                     **sale,
-                    "customer_name": entity.get("name", ""),
+                    "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or "",
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             elif buyer_type == "doctor" and sale.get("doctor_id"):
                 entity = doctors_dict.get(sale["doctor_id"], {})
