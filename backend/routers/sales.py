@@ -668,8 +668,29 @@ def create_sale(
             except Exception as log_err:
                 print(f"Warning: Failed to log activity: {str(log_err)}")
 
-        # NOTE: Demo auto-conversion is deferred to POST /confirm endpoint
-        converted_demos = []
+        # NOTE: Demo auto-conversion is deferred to POST /confirm endpoint for telecallers
+        converted_demos = 0
+
+        # Auto-confirm for non-telecaller users
+        try:
+            user_role = "unknown"
+            if user_email:
+                user_res = db.table("app_users").select("role").eq("email", user_email).execute()
+                if user_res.data:
+                    user_role = user_res.data[0].get("role", "unknown")
+            
+            if user_role != "telecaller":
+                confirm_resp = confirm_sales({"sale_ids": [sale_id]}, db, user_email)
+                if confirm_resp.get("succeeded"):
+                    succeeded_info = confirm_resp["succeeded"][0]
+                    invoice_no = succeeded_info.get("invoice_no")
+                    
+                    created_sale["invoice_no"] = invoice_no
+                    created_sale["sale_stage"] = "confirmed"
+                    created_sale["sale_code"] = succeeded_info.get("sale_code")
+                    converted_demos = succeeded_info.get("converted_demos", 0)
+        except Exception as auto_confirm_err:
+            print(f"[create_sale] Warning: Failed to auto-confirm sale {sale_id}: {auto_confirm_err}")
 
         # Handle Initial Payment
         if sale.paid_amount and sale.paid_amount > 0:
@@ -719,10 +740,10 @@ def create_sale(
 
 
         return {
-            "message": "Pre-sale created successfully",
+            "message": "Sale created successfully" if created_sale.get("sale_stage") == "confirmed" else "Pre-sale created successfully",
             "sale": created_sale,
             "items_count": len(sale_items_data),
-            "converted_demos": 0,
+            "converted_demos": converted_demos,
             "demo_ids": [],
         }
     except HTTPException:
