@@ -63,6 +63,8 @@ export default function Sales() {
   const location = useLocation();
   const [sales, setSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [distributors, setDistributors] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
@@ -236,6 +238,21 @@ export default function Sales() {
     }
   }, [location.state, customers, distributors, openDialog, navigate]);
 
+  useEffect(() => {
+    if (!openDialog || customerMode !== "existing") return;
+    const timer = setTimeout(async () => {
+      setLoadingCustomers(true);
+      try {
+        const res = await customerAPI.getAll({ limit: 25, search: customerSearch });
+        setCustomers(Array.isArray(res) ? res : res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch customers:", err);
+      } finally {
+        setLoadingCustomers(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [customerSearch, openDialog, customerMode]);
 
   const loadData = async (background = false) => {
     try {
@@ -245,7 +262,7 @@ export default function Sales() {
       // Load each independently — a 403 on products shouldn't block the sales list
       const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult, locationsResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
-        customerAPI.getAll({ limit: 1000 }),
+        customerAPI.getAll({ limit: 25 }), // Initial fast load
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
         doctorAPI.getAll({ limit: 1000 }),
@@ -508,8 +525,9 @@ export default function Sales() {
 
   const fetchDropdownData = async () => {
     try {
+      setLoadingCustomers(true);
       const [customersResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult] = await Promise.allSettled([
-        customerAPI.getAll({ limit: 1000 }),
+        customerAPI.getAll({ limit: 25, search: customerSearch }),
         distributorAPI.getAll({ limit: 1000 }),
         doctorAPI.getAll({ limit: 1000 }),
         shopkeeperAPI.getAll({ limit: 1000 }),
@@ -1016,7 +1034,7 @@ export default function Sales() {
             } else {
               const newCustomer = await customerAPI.create(newCustomerData as Customer);
               customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
-              const customersData = await customerAPI.getAll({ limit: 1000 });
+              const customersData = await customerAPI.getAll({ limit: 25, search: customerSearch });
               setCustomers(Array.isArray(customersData) ? customersData : (customersData?.data || []));
             }
           }
@@ -1782,6 +1800,20 @@ export default function Sales() {
                         setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
                         recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
                       }}
+                      onInputChange={(_e: any, newInputValue: string) => {
+                        if (customerCategory === "Sabhasad") {
+                          setCustomerSearch(newInputValue);
+                        }
+                      }}
+                      filterOptions={(options, state) => {
+                        if (customerCategory === "Sabhasad") return options; // Server-side filtering
+                        return options.filter(o => 
+                          (o.label && o.label.toLowerCase().includes(state.inputValue.toLowerCase())) || 
+                          (o.name && o.name.toLowerCase().includes(state.inputValue.toLowerCase())) ||
+                          (o.mobile && o.mobile.toLowerCase().includes(state.inputValue.toLowerCase()))
+                        );
+                      }}
+                      loading={customerCategory === "Sabhasad" ? loadingCustomers : false}
                       renderInput={(params: any) => (
                         <TextField
                           {...params}

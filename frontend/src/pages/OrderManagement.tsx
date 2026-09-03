@@ -138,14 +138,12 @@ export default function OrderManagement() {
       setLoading(true);
 
       // Load each independently — a 403 on one shouldn't break the whole page
-      const [salesResult, customersResult, notesResult] = await Promise.allSettled([
+      const [salesResult, notesResult] = await Promise.allSettled([
         salesAPI.getAll(),
-        customerAPI.getAll(),
         notesAPI.getAll({ requires_pickup: true }),
       ]);
 
       let salesData: any[] = [];
-      let customersData: Customer[] = [];
       let notesData: any[] = [];
 
       if (salesResult.status === "fulfilled") {
@@ -154,31 +152,15 @@ export default function OrderManagement() {
         console.error("Error fetching sales:", salesResult.reason?.response?.data?.detail || salesResult.reason?.message);
       }
 
-      if (customersResult.status === "fulfilled") {
-        customersData = customersResult.value.data || [];
-      } else {
-        console.error("Error fetching customers:", customersResult.reason?.response?.data?.detail || customersResult.reason?.message);
-      }
-
-      // The backend GET /api/sales already enriches each sale with
-      // customer_name, village, mobile — use those directly.
-      // Fall back to the customers map only when buyer_type === 'customer'
-      // and customer_name is missing (shouldn't normally happen).
-      const customersMap = new Map<number, Customer>(
-        customersData.map((c: Customer) => [c.customer_id, c]),
-      );
-
       const ordersData = salesData
         .filter((sale: any) => sale.sale_stage !== "pre_sale")
         .map((sale: any) => {
-        // Use backend-resolved name if present, else fall back to customers map
-        const fallback = customersMap.get(sale.customer_id) || ({} as Customer);
         return {
           ...sale,
           customer_name:
-            sale.customer_name || fallback.name || "Unknown",
+            sale.customer_name || "Unknown",
           customer_mobile:
-            sale.mobile || sale.customer_mobile || fallback.mobile || "N/A",
+            sale.mobile || sale.customer_mobile || "N/A",
           order_status: sale.order_status || "pending",
           shipment_status: sale.shipment_status || "not_shipped",
         };
@@ -193,7 +175,6 @@ export default function OrderManagement() {
       const salesMap = new Map<number, any>(salesData.map(s => [s.sale_id, s]));
       const mappedReturns = notesData.map((note: any) => {
         const sale = salesMap.get(note.sale_id) || {};
-        const fallback = customersMap.get(sale.customer_id) || ({} as Customer);
         
         // Map pickup_status to order_status equivalents for the UI
         let mappedStatus = "pending";
@@ -208,8 +189,8 @@ export default function OrderManagement() {
           sale_id: note.sale_id,
           invoice_no: `CR-${note.note_id} (Sale ${sale.invoice_no || note.sale_id})`,
           customer_id: sale.customer_id,
-          customer_name: sale.customer_name || fallback.name || "Unknown",
-          customer_mobile: sale.mobile || fallback.mobile || "N/A",
+          customer_name: sale.customer_name || "Unknown",
+          customer_mobile: sale.mobile || "N/A",
           buyer_type: sale.buyer_type || "customer",
           sale_date: note.issue_date,
           total_amount: note.amount,
@@ -224,7 +205,7 @@ export default function OrderManagement() {
 
       setOrders(ordersData);
       setReturnNotes(mappedReturns);
-      setCustomers(customersData);
+      setCustomers([]); // Clear since we don't fetch them here anymore
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {

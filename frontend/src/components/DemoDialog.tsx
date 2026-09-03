@@ -61,6 +61,25 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
     notes: "",
   });
 
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+
+  useEffect(() => {
+    if (!open || buyerType !== "customer") return;
+    const timer = setTimeout(async () => {
+      setLoadingCustomers(true);
+      try {
+        const res = await customerAPI.getAll({ limit: 25, search: customerSearch });
+        setCustomers(Array.isArray(res) ? res : res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch customers:", err);
+      } finally {
+        setLoadingCustomers(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [customerSearch, buyerType, open]);
+
   useEffect(() => {
     if (open) {
       loadFormData();
@@ -75,7 +94,7 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
     try {
       setLoading(true);
       const [customersData, productsData, distributorsData, doctorsData, shopkeepersData] = await Promise.all([
-        customerAPI.getAll({ limit: 1000 }),
+        customerAPI.getAll({ limit: 25 }), // Initial fast load
         productAPI.getAll(),
         distributorAPI.getAll({ limit: 1000 }),
         doctorAPI.getAll({ limit: 1000 }),
@@ -214,6 +233,19 @@ export default function DemoDialog({ open, onClose, onSuccess, initialData }: De
                   onChange={(_e: any, newValue: any) => {
                     setEntityId(newValue ? newValue.id : 0);
                   }}
+                  onInputChange={(_e: any, newInputValue: string) => {
+                    if (buyerType === "customer") {
+                      setCustomerSearch(newInputValue);
+                    }
+                  }}
+                  filterOptions={(options, state) => {
+                    if (buyerType === "customer") return options; // Server-side filtering
+                    return options.filter(o => 
+                      o.label?.toLowerCase().includes(state.inputValue.toLowerCase()) || 
+                      o.name?.toLowerCase().includes(state.inputValue.toLowerCase())
+                    );
+                  }}
+                  loading={buyerType === "customer" ? loadingCustomers : false}
                   renderInput={(params: any) => (
                     <TextField
                       {...params}
