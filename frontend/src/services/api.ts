@@ -1097,8 +1097,10 @@ export const rbacAPI = {
 
 // Activity API
 export const activityAPI = {
-  getMyLogs: async (date?: string) => {
-    const params = date ? { date } : {};
+  getMyLogs: async (date?: string, limit?: number) => {
+    const params: Record<string, any> = {};
+    if (date) params.date = date;
+    if (limit !== undefined) params.limit = limit;
     const response = await apiClient.get("/api/admin/my-logs", { params });
     return response.data;
   },
