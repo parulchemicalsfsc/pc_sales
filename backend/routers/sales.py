@@ -20,73 +20,81 @@ router = APIRouter()
 
 
 @router.get("/", dependencies=[Depends(verify_permission("view_sales"))])
-def get_sales(db: SupabaseClient = Depends(get_supabase)):
-    """Get all sales with customer/distributor information"""
+def get_sales(
+    skip: int = 0,
+    limit: int = 1000,
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Get sales with entity info — paginated, fetches only referenced entity IDs."""
     try:
-        # Helper to paginate past Supabase's 1000-row server cap
-        def fetch_all(table, select="*", order_col=None, order_desc=False):
-            all_rows = []
-            batch = 1000
-            offset = 0
-            while True:
-                q = db.table(table).select(select).range(offset, offset + batch - 1)
-                if order_col:
-                    q = q.order(order_col, desc=order_desc)
-                resp = q.execute()
-                if not resp.data:
-                    break
-                all_rows.extend(resp.data)
-                if len(resp.data) < batch:
-                    break
-                offset += batch
-            return all_rows
-
-        sales = fetch_all("sales", "*", order_col="created_at", order_desc=True)
+        # ── 1. Fetch only the requested page of sales ────────────────────────
+        sales_resp = (
+            db.table("sales")
+            .select("*")
+            .order("created_at", desc=True)
+            .range(skip, skip + limit - 1)
+            .execute()
+        )
+        sales = sales_resp.data or []
         if not sales:
             return []
 
-        # ── Diagnostic: show actual columns present in the sales table ──
-        if sales:
-            actual_cols = set(sales[0].keys())
-            for expected_col in ("buyer_type", "distributor_id", "doctor_id", "shopkeeper_id"):
-                if expected_col not in actual_cols:
-                    print(f"[GET /sales] ⚠️  Column '{expected_col}' MISSING from sales table. "
-                          f"Run database/migrations/add_doctor_shopkeeper_buyer_type.sql in Supabase.")
-            print(f"[GET /sales] Actual sales columns: {sorted(actual_cols)}")
+        # ── 2. Collect only the entity IDs referenced in this page ──────────
+        customer_ids: set = set()
+        distributor_ids: set = set()
+        doctor_ids: set = set()
+        shopkeeper_ids: set = set()
 
-        # Fetch ALL customers, distributors, doctors, shopkeepers via pagination
-        customers_list = fetch_all("customers", "customer_id, name, village, mobile")
-        customers_dict = {c["customer_id"]: c for c in customers_list}
-
-        distributors_list = fetch_all("distributors")
-        distributors_dict = {d["distributor_id"]: d for d in distributors_list}
-
-        # Fetch doctors and shopkeepers (graceful fallback if table missing)
-        # NOTE: doctors/shopkeepers tables use 'mantri_mobile', not 'mobile'
-        try:
-            doctors_list = fetch_all("doctors", "doctor_id, name, village, mantri_mobile")
-            doctors_dict = {d["doctor_id"]: d for d in doctors_list}
-        except Exception as e:
-            print(f"[GET /sales] ⚠️  Could not fetch doctors: {e}")
-            doctors_dict = {}
-
-        try:
-            shopkeepers_list = fetch_all("shopkeepers", "shopkeeper_id, name, village, mantri_mobile")
-            shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
-        except Exception as e:
-            print(f"[GET /sales] ⚠️  Could not fetch shopkeepers: {e}")
-            shopkeepers_dict = {}
-
-        print(f"[GET /sales] Loaded {len(sales)} sales, {len(customers_dict)} customers, "
-              f"{len(distributors_dict)} distributors, {len(doctors_dict)} doctors, "
-              f"{len(shopkeepers_dict)} shopkeepers")
-
-        result = []
         for sale in sales:
-            # Infer buyer_type if column is missing from DB or NULL
             raw_buyer_type = sale.get("buyer_type")
             if not raw_buyer_type:
-                # Fallback: guess from which FK column is set
+                if sale.get("doctor_id"):
+                    raw_buyer_type = "doctor"
+                elif sale.get("shopkeeper_id"):
+                    raw_buyer_type = "shopkeeper"
+                elif sale.get("distributor_id"):
+                    raw_buyer_type = "distributor"
+                else:
+                    raw_buyer_type = "customer"
+
+            if raw_buyer_type in ("distributor", "mantri") and sale.get("distributor_id"):
+                distributor_ids.add(sale["distributor_id"])
+            elif raw_buyer_type == "doctor" and sale.get("doctor_id"):
+                doctor_ids.add(sale["doctor_id"])
+            elif raw_buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+                shopkeeper_ids.add(sale["shopkeeper_id"])
+            elif sale.get("customer_id"):
+                customer_ids.add(sale["customer_id"])
+
+        # ── 3. Fetch only the rows we actually need (targeted IN queries) ────
+        def fetch_by_ids(table, id_col, ids, select_cols):
+            if not ids:
+                return {}
+            resp = db.table(table).select(select_cols).in_(id_col, list(ids)).execute()
+            return {row[id_col]: row for row in (resp.data or [])}
+
+        customers_dict = fetch_by_ids(
+            "customers", "customer_id", customer_ids,
+            "customer_id, name, village, mobile"
+        )
+        distributors_dict = fetch_by_ids(
+            "distributors", "distributor_id", distributor_ids,
+            "distributor_id, mantri_name, village, mantri_mobile"
+        )
+        doctors_dict = fetch_by_ids(
+            "doctors", "doctor_id", doctor_ids,
+            "doctor_id, name, village, mantri_mobile"
+        )
+        shopkeepers_dict = fetch_by_ids(
+            "shopkeepers", "shopkeeper_id", shopkeeper_ids,
+            "shopkeeper_id, name, village, mantri_mobile"
+        )
+
+        # ── 4. Build enriched response ─────────────────────────────────────
+        result = []
+        for sale in sales:
+            raw_buyer_type = sale.get("buyer_type")
+            if not raw_buyer_type:
                 if sale.get("doctor_id"):
                     raw_buyer_type = "doctor"
                 elif sale.get("shopkeeper_id"):
@@ -96,26 +104,22 @@ def get_sales(db: SupabaseClient = Depends(get_supabase)):
                 else:
                     raw_buyer_type = "customer"
             buyer_type = raw_buyer_type
+
             if buyer_type == "mantri" and sale.get("distributor_id"):
-                # Mantri: name stored in mantri_name field on the distributor row
                 entity = distributors_dict.get(sale["distributor_id"], {})
-                resolved_name = entity.get("mantri_name") or entity.get("name", "")
-                if not resolved_name:
-                    print(f"[GET /sales] WARNING: Blank name for mantri sale {sale.get('sale_id')} / dist_id={sale['distributor_id']}")
                 result.append({
                     **sale,
-                    "customer_name": resolved_name,
+                    "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": entity.get("mantri_mobile") or entity.get("mobile") or "",
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             elif buyer_type == "distributor" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
-                mobile = entity.get("mantri_mobile") or entity.get("mobile") or entity.get("contact_mobile") or ""
                 result.append({
                     **sale,
-                    "customer_name": entity.get("name", ""),
+                    "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
-                    "mobile": mobile,
+                    "mobile": entity.get("mantri_mobile", ""),
                 })
             elif buyer_type == "doctor" and sale.get("doctor_id"):
                 entity = doctors_dict.get(sale["doctor_id"], {})

@@ -82,7 +82,7 @@ def get_collected_payments(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        # FIX-6: Filter at DB level — only fetch rows matching the date range
+        # Only fetch the amount column — minimal payload, filtered at DB level
         response = (
             db.table("payments")
             .select("amount")
@@ -91,9 +91,7 @@ def get_collected_payments(
             .execute()
         )
 
-        payments = response.data or []
-        total_amount = sum(p.get("amount", 0) or 0 for p in payments)
-
+        total_amount = sum(p.get("amount", 0) or 0 for p in (response.data or []))
         return {"total_amount": total_amount}
     except HTTPException:
         raise

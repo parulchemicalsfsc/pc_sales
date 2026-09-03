@@ -477,13 +477,13 @@ export default function Layout({
     }
   };
 
-  // Fetch unread count on mount and periodically
+  // Fetch unread count on mount — Supabase Realtime handles live updates,
+  // so the periodic interval is removed to save bandwidth.
   useEffect(() => {
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000); // Every 30 seconds
 
     // Add realtime listener so the bell icon instantly pops up when mentioned
-    if (!user?.email) return () => clearInterval(interval);
+    if (!user?.email) return;
 
     const channel = supabase
       .channel(`notifications-${user.email}`)
@@ -511,10 +511,22 @@ export default function Layout({
           }
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "notifications",
+          filter: `user_email=eq.${user.email}`,
+        },
+        () => {
+          // Re-sync count when a notification is marked read/unread
+          fetchUnreadCount();
+        },
+      )
       .subscribe();
 
     return () => {
-      clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, [user?.email]);
@@ -570,10 +582,13 @@ export default function Layout({
 
   const fetchRecentActivity = async () => {
     if (!user?.email) return;
+    // Skip when tab is hidden — no need to poll in the background
+    if (document.hidden) return;
     try {
-      // Only fetch 1 to make it light
+      // Fetch only 1 row — just enough to detect a new activity ID
       const res = await activityAPI.getMyLogs(
         new Date().toISOString().split("T")[0],
+        1,
       );
       if (res.logs && res.logs.length > 0) {
         const latest = res.logs[0];
@@ -600,7 +615,7 @@ export default function Layout({
 
   useEffect(() => {
     fetchRecentActivity();
-    const interval = setInterval(fetchRecentActivity, 60000); // Check every 60 seconds (slower)
+    const interval = setInterval(fetchRecentActivity, 60000); // Check every 60 seconds
     return () => clearInterval(interval);
   }, [user?.email]);
 

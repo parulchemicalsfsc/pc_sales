@@ -448,7 +448,10 @@ export default function CallingList() {
 
   useEffect(() => {
     fetchSummary();
-    const interval = setInterval(fetchSummary, 30000);
+    const interval = setInterval(() => {
+      // Skip background polls to save bandwidth
+      if (!document.hidden) fetchSummary();
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchSummary]);
 
@@ -480,7 +483,10 @@ export default function CallingList() {
 
   useEffect(() => {
     if (tab !== 3 || role !== "telecaller") return;
-    const interval = setInterval(loadConfirmationOrders, 30000);
+    const interval = setInterval(() => {
+      // Skip background polls to save bandwidth
+      if (!document.hidden) loadConfirmationOrders();
+    }, 30000);
     return () => clearInterval(interval);
   }, [tab, role, loadConfirmationOrders]);
   

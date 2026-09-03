@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box,
@@ -61,15 +62,59 @@ export default function Sales() {
   const { hasPermission, role } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [sales, setSales] = useState<Sale[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
-  const [distributors, setDistributors] = useState<any[]>([]);
-  const [doctors, setDoctors] = useState<any[]>([]);
-  const [shopkeepers, setShopkeepers] = useState<any[]>([]);
-  const [regions, setRegions] = useState<string[]>([]);
+
+  // ── Entity lookup caches via React Query (fetched once, reused everywhere) ───
+  const { data: distributors = [] } = useQuery<any[]>({
+    queryKey: ["distributors-all"],
+    queryFn: async () => {
+      const res = await distributorAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: doctors = [] } = useQuery<any[]>({
+    queryKey: ["doctors-all"],
+    queryFn: async () => {
+      const res = await doctorAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: shopkeepers = [] } = useQuery<any[]>({
+    queryKey: ["shopkeepers-all"],
+    queryFn: async () => {
+      const res = await shopkeeperAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: regions = [] } = useQuery<string[]>({
+    queryKey: ["product-regions"],
+    queryFn: async () => {
+      const res = await apiClient.get("/api/products/config/regions");
+      return (res.data || []).map((r: any) => r.name);
+    },
+    staleTime: Infinity, // regions never change
+    gcTime: Infinity,
+  });
+  const { data: locationsHierarchy = {} } = useQuery<any>({
+    queryKey: ["locations-hierarchy"],
+    queryFn: async () => {
+      const res = await apiClient.get("/api/automation/locations");
+      return res.data || {};
+    },
+    staleTime: Infinity, // locations never change mid-session
+    gcTime: Infinity,
+  });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +182,7 @@ export default function Sales() {
   const [tcOrderDistrictFilter, setTcOrderDistrictFilter] = useState<string>("");
   const [tcOrderTalukaFilter, setTcOrderTalukaFilter] = useState<string>("");
   const [tcOrderVillageFilter, setTcOrderVillageFilter] = useState<string>("");
-  const [locationsHierarchy, setLocationsHierarchy] = useState<any>({});
+  // locationsHierarchy is now managed by the React Query hook above.
 
   const tcOrderLocations = useMemo(() => {
     const states = Object.keys(locationsHierarchy || {}).sort();
@@ -259,16 +304,12 @@ export default function Sales() {
       if (!background) setLoading(true);
       setError(null);
 
-      // Load each independently — a 403 on products shouldn't block the sales list
-      const [salesResult, customersResult, productsResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult, locationsResult] = await Promise.allSettled([
+      // Load sales and notes only — entity lookups (distributors, doctors,
+      // shopkeepers, regions, locations) are handled by React Query above.
+      const [salesResult, customersResult, productsResult] = await Promise.allSettled([
         salesAPI.getAll({ limit: 1000 }),
         customerAPI.getAll({ limit: 25 }), // Initial fast load
         productAPI.getAll(),
-        distributorAPI.getAll({ limit: 1000 }),
-        doctorAPI.getAll({ limit: 1000 }),
-        shopkeeperAPI.getAll({ limit: 1000 }),
-        apiClient.get("/api/products/config/regions"),
-        apiClient.get("/api/automation/locations"),
       ]);
 
       if (salesResult.status === "fulfilled") {
@@ -306,35 +347,6 @@ export default function Sales() {
         setProducts(productsResult.value);
       } else {
         console.warn("Could not load products (user may lack view_products permission):", productsResult.reason?.message);
-      }
-      if (distributorsResult.status === "fulfilled") {
-        const distData = distributorsResult.value;
-        setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
-      } else {
-        console.warn("Could not load distributors:", distributorsResult.reason?.message);
-      }
-      if (doctorsResult.status === "fulfilled") {
-        const docData = doctorsResult.value;
-        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
-      } else {
-        console.warn("Could not load doctors:", doctorsResult.reason?.message);
-      }
-      if (shopkeepersResult.status === "fulfilled") {
-        const skData = shopkeepersResult.value;
-        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
-      } else {
-        console.warn("Could not load shopkeepers:", shopkeepersResult.reason?.message);
-      }
-      if (regionsResult.status === "fulfilled") {
-        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
-        setRegions(rNames);
-      } else {
-        console.warn("Could not load regions:", regionsResult.reason?.message);
-      }
-      if (locationsResult.status === "fulfilled") {
-        setLocationsHierarchy(locationsResult.value.data || {});
-      } else {
-        console.warn("Could not load global locations:", locationsResult.reason?.message);
       }
     } catch (err: any) {
       console.error("Error loading sales data:", err);
@@ -523,39 +535,12 @@ export default function Sales() {
     loadTelecallerOrders();
   };
 
+  // fetchDropdownData is no longer needed — React Query handles entity caching.
+  // handleOpenDialog calls it as a fire-and-forget; now it's a no-op kept to
+  // avoid removing all call sites in one pass.
   const fetchDropdownData = async () => {
-    try {
-      setLoadingCustomers(true);
-      const [customersResult, distributorsResult, doctorsResult, shopkeepersResult, regionsResult] = await Promise.allSettled([
-        customerAPI.getAll({ limit: 25, search: customerSearch }),
-        distributorAPI.getAll({ limit: 1000 }),
-        doctorAPI.getAll({ limit: 1000 }),
-        shopkeeperAPI.getAll({ limit: 1000 }),
-        apiClient.get("/api/products/config/regions"),
-      ]);
-      if (customersResult.status === "fulfilled") {
-        const cd = customersResult.value;
-        setCustomers(Array.isArray(cd) ? cd : (cd?.data || []));
-      }
-      if (distributorsResult.status === "fulfilled") {
-        const distData = distributorsResult.value;
-        setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
-      }
-      if (doctorsResult.status === "fulfilled") {
-        const docData = doctorsResult.value;
-        setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
-      }
-      if (shopkeepersResult.status === "fulfilled") {
-        const skData = shopkeepersResult.value;
-        setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
-      }
-      if (regionsResult.status === "fulfilled") {
-        const rNames = (regionsResult.value.data || []).map((r: any) => r.name);
-        setRegions(rNames);
-      }
-    } catch (e) {
-      console.warn("Background fetch failed", e);
-    }
+    // Entity data (distributors, doctors, shopkeepers, regions, locations)
+    // is cached by React Query hooks above. No HTTP calls needed here.
   };
 
   const handleOpenDialog = () => {
@@ -1001,8 +986,8 @@ export default function Sales() {
               };
               const newDist = await distributorAPI.create(newDistributorData);
               customerId = newDist.distributor?.distributor_id || newDist.data?.distributor_id || newDist.distributor_id || 0;
-              const distData = await distributorAPI.getAll({ limit: 1000 });
-              setDistributors(Array.isArray(distData) ? distData : (distData?.data || []));
+              // Invalidate React Query cache so the new entry appears in the dropdown
+              queryClient.invalidateQueries({ queryKey: ["distributors-all"] });
             } else if (isDoctorCategory) {
               const newDoctorData = {
                 name: newCustomerData.name,
@@ -1015,8 +1000,8 @@ export default function Sales() {
               };
               const newDoc = await doctorAPI.create(newDoctorData);
               customerId = newDoc.doctor?.doctor_id || newDoc.data?.doctor_id || newDoc.doctor_id || 0;
-              const docData = await doctorAPI.getAll({ limit: 1000 });
-              setDoctors(Array.isArray(docData) ? docData : (docData?.data || []));
+              // Invalidate React Query cache so the new entry appears in the dropdown
+              queryClient.invalidateQueries({ queryKey: ["doctors-all"] });
             } else if (isShopkeeperCategory) {
               const newShopkeeperData = {
                 name: newCustomerData.name,
@@ -1029,8 +1014,8 @@ export default function Sales() {
               };
               const newSk = await shopkeeperAPI.create(newShopkeeperData);
               customerId = newSk.shopkeeper?.shopkeeper_id || newSk.data?.shopkeeper_id || newSk.shopkeeper_id || 0;
-              const skData = await shopkeeperAPI.getAll({ limit: 1000 });
-              setShopkeepers(Array.isArray(skData) ? skData : (skData?.data || []));
+              // Invalidate React Query cache so the new entry appears in the dropdown
+              queryClient.invalidateQueries({ queryKey: ["shopkeepers-all"] });
             } else {
               const newCustomer = await customerAPI.create(newCustomerData as Customer);
               customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
