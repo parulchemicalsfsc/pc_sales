@@ -534,28 +534,8 @@ def get_my_assignments(
             query = query.neq("reason", "Scheduled Callback")
             count_query = count_query.neq("reason", "Scheduled Callback")
 
-        if from_date:
-            try:
-                # Assuming input is IST, convert to UTC for querying
-                tz = pytz.timezone("Asia/Kolkata")
-                dt = datetime.strptime(from_date, "%Y-%m-%d")
-                dt = tz.localize(dt).astimezone(pytz.utc)
-                query = query.gte("updated_at", dt.isoformat())
-                count_query = count_query.gte("updated_at", dt.isoformat())
-            except ValueError:
-                pass
-        
-        if to_date:
-            try:
-                tz = pytz.timezone("Asia/Kolkata")
-                # To date should cover the end of the day
-                dt = datetime.strptime(to_date, "%Y-%m-%d")
-                dt = dt.replace(hour=23, minute=59, second=59)
-                dt = tz.localize(dt).astimezone(pytz.utc)
-                query = query.lte("updated_at", dt.isoformat())
-                count_query = count_query.lte("updated_at", dt.isoformat())
-            except ValueError:
-                pass
+        # Date range filter will be applied in Python after enrichment with call_logs
+        # (last_call.called_at is the correct timestamp, not updated_at on calling_assignments)
 
         # Sorting
         if status:
@@ -682,9 +662,44 @@ def get_my_assignments(
                 "last_call": last_call,
             })
 
-        # Completed tab: sort newest-first by the last-call time, then paginate in Python.
+        # Completed tab: sort newest-first by the last-call time, then filter by date range, then paginate in Python.
         if paginate_in_python:
             enhanced.sort(key=lambda a: str((a.get("last_call") or {}).get("created_at") or a.get("assigned_date") or ""), reverse=True)
+
+            # Apply date range filter on last_call.created_at (IST-aware)
+            if from_date or to_date:
+                tz = pytz.timezone("Asia/Kolkata")
+                from_dt = None
+                to_dt = None
+                try:
+                    if from_date:
+                        from_dt = tz.localize(datetime.strptime(from_date, "%Y-%m-%d"))
+                    if to_date:
+                        to_dt_naive = datetime.strptime(to_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+                        to_dt = tz.localize(to_dt_naive)
+                except ValueError:
+                    pass
+
+                def _in_range(a):
+                    raw = (a.get("last_call") or {}).get("created_at")
+                    if not raw:
+                        return False
+                    try:
+                        ts_raw = raw.replace("Z", "+00:00")
+                        ts = datetime.fromisoformat(ts_raw)
+                        # Convert to IST for comparison
+                        ts_ist = ts.astimezone(tz)
+                        if from_dt and ts_ist < from_dt:
+                            return False
+                        if to_dt and ts_ist > to_dt:
+                            return False
+                        return True
+                    except Exception:
+                        return False
+
+                enhanced = [a for a in enhanced if _in_range(a)]
+                total = len(enhanced)
+
             enhanced = enhanced[offset:offset + limit]
 
         # Summary counts
