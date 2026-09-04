@@ -498,8 +498,9 @@ def get_user_role_cached(email: str, db: SupabaseClient) -> str:
 @router.get("/my-assignments", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_assignments(
     status: Optional[str] = Query(None),
+    date: Optional[str] = Query(None, description="Filter assignments by date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     target_email: Optional[str] = Query(None, description="Admin only: view assignments for specific user"),
     user_email: str = Header(..., alias="x-user-email"),
     user_role: str = Header(None, alias="x-user-role"),
@@ -531,6 +532,10 @@ def get_my_assignments(
         if role == "telecaller" and status == "Pending":
             query = query.neq("reason", "Scheduled Callback")
             count_query = count_query.neq("reason", "Scheduled Callback")
+
+        if date:
+            query = query.gte("updated_at", f"{date}T00:00:00").lte("updated_at", f"{date}T23:59:59")
+            count_query = count_query.gte("updated_at", f"{date}T00:00:00").lte("updated_at", f"{date}T23:59:59")
 
         # Sorting
         if status:

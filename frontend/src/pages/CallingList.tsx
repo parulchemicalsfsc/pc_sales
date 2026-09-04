@@ -229,6 +229,7 @@ export default function CallingList() {
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
   const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
   const [followbackDateFilter, setFollowbackDateFilter] = useState<string>("");
+  const [calledDateFilter, setCalledDateFilter] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
   // State for followup/order confirmation call dialog
@@ -408,6 +409,44 @@ export default function CallingList() {
 
 
 
+  // ── CSV Download ─────────────────────────────────────────
+  const handleDownloadCSV = (data: any[], filename: string) => {
+    if (!data || !data.length) {
+      setToast({ msg: "No data to download", sev: "info" });
+      return;
+    }
+    const headers = ["Name", "Mobile", "Village", "Status", "Priority", "Notes", "Last Call Date"];
+    const csvRows = [headers.join(",")];
+    data.forEach(item => {
+      const row = [
+        `"${(item.name || '').replace(/"/g, '""')}"`,
+        `"${item.mobile || ''}"`,
+        `"${(item.village || '').replace(/"/g, '""')}"`,
+        `"${item.status || ''}"`,
+        `"${item.priority_label || item.priority || ''}"`,
+        `"${(item.notes || '').replace(/"/g, '""')}"`,
+        `"${item.last_call?.created_at ? new Date(item.last_call.created_at).toLocaleDateString() : (item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '')}"`
+      ];
+      csvRows.push(row.join(","));
+    });
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadCalledCSV = async () => {
+    try {
+      const res = await automationAPI.getMyAssignments({ status: "completed", page: 1, limit: 1000, date: calledDateFilter || undefined });
+      handleDownloadCSV(res.assignments || [], "Called_List");
+    } catch (e) {
+      setToast({ msg: "Failed to export data", sev: "error" });
+    }
+  };
+
   // ── Data ────────────────────────────────────────────────
   const load = useCallback(async (page = 1) => {
     if (tab === 2 || tab === 3) return;
@@ -415,7 +454,8 @@ export default function CallingList() {
       setLoading(true);
       setError(null);
       const status = tab === 0 ? "Pending" : "completed";
-      const res = await automationAPI.getMyAssignments({ status, page, limit: 20 });
+      const date = tab === 1 ? calledDateFilter || undefined : undefined;
+      const res = await automationAPI.getMyAssignments({ status, page, limit: 20, date });
       let fetched = res.assignments || [];
       // Tab 0 (To Call): exclude Scheduled Callback entries — those belong in Follow-ups
       if (tab === 0) {
@@ -436,7 +476,7 @@ export default function CallingList() {
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, calledDateFilter]);
   const fetchSummary = useCallback(async () => {
     try {
       const s = await automationAPI.getCallingSummary();
@@ -1120,6 +1160,9 @@ export default function CallingList() {
                     Clear
                   </Button>
                 )}
+                <Button variant="contained" color="secondary" size="small" startIcon={<DownloadIcon />} onClick={() => handleDownloadCSV(callbacks, "Schedule_List")}>
+                  CSV
+                </Button>
               </Box>
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
@@ -1326,6 +1369,32 @@ export default function CallingList() {
           {/* ── Tab 0 & 1: To Call / Called (with pagination) ── */}
           {(tab === 0 || tab === 1) && (
             <>
+              {tab === 1 && (
+                <Box sx={{ p: 2, pb: 0, display: "flex", gap: 2, alignItems: "center", justifyContent: "flex-end" }}>
+                  <TextField
+                    type="date"
+                    size="small"
+                    label="Filter by Date"
+                    value={calledDateFilter}
+                    onChange={(e) => {
+                      setCalledDateFilter(e.target.value);
+                      setPagination(p => ({ ...p, page: 1 }));
+                    }}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  {calledDateFilter && (
+                    <Button variant="outlined" size="small" onClick={() => {
+                      setCalledDateFilter("");
+                      setPagination(p => ({ ...p, page: 1 }));
+                    }}>
+                      Clear
+                    </Button>
+                  )}
+                  <Button variant="contained" color="secondary" size="small" startIcon={<DownloadIcon />} onClick={downloadCalledCSV}>
+                    CSV
+                  </Button>
+                </Box>
+              )}
               {loading ? (
                 <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress size={28} /></Box>
               ) : error ? (

@@ -684,7 +684,7 @@ export const demoAPI = {
 };
 
 export const automationAPI = {
-  getMyAssignments: async (params?: { status?: string; page?: number; limit?: number }) => {
+  getMyAssignments: async (params?: { status?: string; page?: number; limit?: number; date?: string }) => {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },
