@@ -498,7 +498,8 @@ def get_user_role_cached(email: str, db: SupabaseClient) -> str:
 @router.get("/my-assignments", dependencies=[Depends(verify_permission("view_calling_list"))])
 def get_my_assignments(
     status: Optional[str] = Query(None),
-    date: Optional[str] = Query(None, description="Filter assignments by date (YYYY-MM-DD)"),
+    from_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=1000),
     target_email: Optional[str] = Query(None, description="Admin only: view assignments for specific user"),
@@ -533,9 +534,28 @@ def get_my_assignments(
             query = query.neq("reason", "Scheduled Callback")
             count_query = count_query.neq("reason", "Scheduled Callback")
 
-        if date:
-            query = query.gte("updated_at", f"{date}T00:00:00").lte("updated_at", f"{date}T23:59:59")
-            count_query = count_query.gte("updated_at", f"{date}T00:00:00").lte("updated_at", f"{date}T23:59:59")
+        if from_date:
+            try:
+                # Assuming input is IST, convert to UTC for querying
+                tz = pytz.timezone("Asia/Kolkata")
+                dt = datetime.strptime(from_date, "%Y-%m-%d")
+                dt = tz.localize(dt).astimezone(pytz.utc)
+                query = query.gte("updated_at", dt.isoformat())
+                count_query = count_query.gte("updated_at", dt.isoformat())
+            except ValueError:
+                pass
+        
+        if to_date:
+            try:
+                tz = pytz.timezone("Asia/Kolkata")
+                # To date should cover the end of the day
+                dt = datetime.strptime(to_date, "%Y-%m-%d")
+                dt = dt.replace(hour=23, minute=59, second=59)
+                dt = tz.localize(dt).astimezone(pytz.utc)
+                query = query.lte("updated_at", dt.isoformat())
+                count_query = count_query.lte("updated_at", dt.isoformat())
+            except ValueError:
+                pass
 
         # Sorting
         if status:

@@ -229,7 +229,8 @@ export default function CallingList() {
   const [confirmationOrders, setConfirmationOrders] = useState<any[]>([]);
   const [confirmationDateFilter, setConfirmationDateFilter] = useState<string>("");
   const [followbackDateFilter, setFollowbackDateFilter] = useState<string>("");
-  const [calledDateFilter, setCalledDateFilter] = useState<string>("");
+  const [calledFromDate, setCalledFromDate] = useState<string>("");
+  const [calledToDate, setCalledToDate] = useState<string>("");
   const [tab3Loading, setTab3Loading] = useState(false);
   const [processingOrder, setProcessingOrder] = useState<number | null>(null);
   // State for followup/order confirmation call dialog
@@ -440,8 +441,19 @@ export default function CallingList() {
 
   const downloadCalledCSV = async () => {
     try {
-      const res = await automationAPI.getMyAssignments({ status: "completed", page: 1, limit: 1000, date: calledDateFilter || undefined });
+      const res = await automationAPI.getMyAssignments({ status: "completed", page: 1, limit: 1000, from_date: calledFromDate || undefined, to_date: calledToDate || undefined });
       handleDownloadCSV(res.assignments || [], "Called_List");
+    } catch (e) {
+      setToast({ msg: "Failed to export data", sev: "error" });
+    }
+  };
+
+  const downloadToCallCSV = async () => {
+    try {
+      const res = await automationAPI.getMyAssignments({ status: "Pending", page: 1, limit: 1000 });
+      let fetched = res.assignments || [];
+      fetched = fetched.filter((a: Assignment) => a.reason !== "Scheduled Callback");
+      handleDownloadCSV(fetched, "To_Call_List");
     } catch (e) {
       setToast({ msg: "Failed to export data", sev: "error" });
     }
@@ -454,8 +466,9 @@ export default function CallingList() {
       setLoading(true);
       setError(null);
       const status = tab === 0 ? "Pending" : "completed";
-      const date = tab === 1 ? calledDateFilter || undefined : undefined;
-      const res = await automationAPI.getMyAssignments({ status, page, limit: 20, date });
+      const from_date = tab === 1 ? calledFromDate || undefined : undefined;
+      const to_date = tab === 1 ? calledToDate || undefined : undefined;
+      const res = await automationAPI.getMyAssignments({ status, page, limit: 20, from_date, to_date });
       let fetched = res.assignments || [];
       // Tab 0 (To Call): exclude Scheduled Callback entries — those belong in Follow-ups
       if (tab === 0) {
@@ -476,7 +489,7 @@ export default function CallingList() {
     } finally {
       setLoading(false);
     }
-  }, [tab, calledDateFilter]);
+  }, [tab, calledFromDate, calledToDate]);
   const fetchSummary = useCallback(async () => {
     try {
       const s = await automationAPI.getCallingSummary();
@@ -1369,22 +1382,41 @@ export default function CallingList() {
           {/* ── Tab 0 & 1: To Call / Called (with pagination) ── */}
           {(tab === 0 || tab === 1) && (
             <>
+              {tab === 0 && (
+                <Box sx={{ p: 2, pb: 0, display: "flex", gap: 2, alignItems: "center", justifyContent: "flex-end" }}>
+                  <Button variant="contained" color="secondary" size="small" startIcon={<DownloadIcon />} onClick={downloadToCallCSV}>
+                    CSV
+                  </Button>
+                </Box>
+              )}
               {tab === 1 && (
                 <Box sx={{ p: 2, pb: 0, display: "flex", gap: 2, alignItems: "center", justifyContent: "flex-end" }}>
                   <TextField
                     type="date"
                     size="small"
-                    label="Filter by Date"
-                    value={calledDateFilter}
+                    label="From Date"
+                    value={calledFromDate}
                     onChange={(e) => {
-                      setCalledDateFilter(e.target.value);
+                      setCalledFromDate(e.target.value);
                       setPagination(p => ({ ...p, page: 1 }));
                     }}
                     InputLabelProps={{ shrink: true }}
                   />
-                  {calledDateFilter && (
+                  <TextField
+                    type="date"
+                    size="small"
+                    label="To Date"
+                    value={calledToDate}
+                    onChange={(e) => {
+                      setCalledToDate(e.target.value);
+                      setPagination(p => ({ ...p, page: 1 }));
+                    }}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  {(calledFromDate || calledToDate) && (
                     <Button variant="outlined" size="small" onClick={() => {
-                      setCalledDateFilter("");
+                      setCalledFromDate("");
+                      setCalledToDate("");
                       setPagination(p => ({ ...p, page: 1 }));
                     }}>
                       Clear
