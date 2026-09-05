@@ -172,8 +172,11 @@ def telecaller_confirm_order(
     db: SupabaseClient = Depends(get_supabase),
     user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
-    """Telecaller confirms the order, sending it to the Sales Manager."""
+    """Telecaller confirms the order, directly creating a pre-sale in the sales table."""
     try:
+        if user_email:
+            user_email = user_email.strip()
+
         order_resp = db.table("telecaller_orders").select("*").eq("order_id", order_id).execute()
         if not order_resp.data:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -182,8 +185,97 @@ def telecaller_confirm_order(
         if order.get("status") != "unconfirmed":
             raise HTTPException(status_code=400, detail=f"Order is already {order.get('status')}")
 
+        products_json = order.get("products_json", "[]")
+        if isinstance(products_json, str):
+            products = json.loads(products_json)
+        else:
+            products = products_json
+
+        if not products:
+            raise HTTPException(status_code=400, detail="Order has no products")
+
+        customer_type = order.get("customer_type", "mantri")
+        items_data = []
+        total_amount = 0.0
+        total_liters = 0.0
+
+        products_resp = db.table("products").select("product_id, capacity_ltr").execute()
+        products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
+
+        for p in products:
+            pid = p.get("product_id")
+            qty = p.get("quantity", 0)
+            rate = p.get("rate", 0)
+            amount = p.get("amount", 0)
+            if not pid or qty <= 0 or rate <= 0:
+                continue
+            items_data.append({"product_id": pid, "quantity": qty, "rate": rate, "amount": amount})
+            total_amount += amount
+            cap = (products_dict.get(pid, {}).get("capacity_ltr") or 0)
+            total_liters += cap * qty
+
+        if not items_data:
+            raise HTTPException(status_code=400, detail="No valid items in order")
+
+        sale_data = {
+            "invoice_no": None,
+            "sale_date": datetime.now().strftime("%Y-%m-%d"),
+            "total_amount": total_amount,
+            "total_liters": total_liters,
+            "payment_status": "Pending",
+            "notes": order.get("notes") or None,
+            "buyer_type": customer_type,
+            "sale_stage": "pre_sale",
+        }
+
+        if customer_type in ("mantri", "distributor"):
+            sale_data["distributor_id"] = order.get("customer_id")
+            sale_data["customer_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif customer_type == "doctor":
+            sale_data["doctor_id"] = order.get("customer_id")
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["shopkeeper_id"] = None
+        elif customer_type == "shopkeeper":
+            sale_data["shopkeeper_id"] = order.get("customer_id")
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+        else:
+            sale_data["customer_id"] = order.get("customer_id")
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
+
+        sale_resp = db.table("sales").insert(sale_data).execute()
+        if not sale_resp.data:
+            raise HTTPException(status_code=500, detail="Failed to create pre-sale")
+
+        created_sale = sale_resp.data[0]
+        sale_id = created_sale.get("sale_id")
+
+        sale_items_rows = []
+        for item in items_data:
+            row = {
+                "sale_id": sale_id,
+                "product_id": item["product_id"],
+                "quantity": item["quantity"],
+                "rate": item["rate"],
+                "amount": item["amount"],
+            }
+            if customer_type not in ("mantri", "distributor") and order.get("customer_id"):
+                row["customer_id"] = order["customer_id"]
+            sale_items_rows.append(row)
+
+        if sale_items_rows:
+            db.table("sale_items").insert(sale_items_rows).execute()
+
         db.table("telecaller_orders").eq("order_id", order_id).update({
-            "status": "pending",
+            "status": "approved",
+            "sale_id": sale_id,
+            "approved_by": user_email,
             "updated_at": datetime.now().isoformat(),
         }).execute()
 
@@ -193,17 +285,17 @@ def telecaller_confirm_order(
             for sm_email in sm_emails:
                 create_notification_helper(
                     db,
-                    title="New Telecaller Order Pending",
+                    title="New Telecaller Pre-Sale",
                     message=f"{order.get('telecaller_email')} submitted an order for {order.get('customer_name')}",
                     notification_type="info",
                     user_email=sm_email,
-                    entity_type="telecaller_order",
-                    entity_id=order_id,
+                    entity_type="sale",
+                    entity_id=sale_id,
                 )
         except Exception as n_err:
             logger.warning(f"Failed to send notification: {n_err}")
         
-        return {"message": "Order confirmed and sent to Sales Manager"}
+        return {"message": "Order confirmed and sent to Pre-Sales"}
     except HTTPException:
         raise
     except Exception as e:

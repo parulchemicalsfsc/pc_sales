@@ -184,9 +184,7 @@ export const attendanceAPI = {
 export const customerAPI = {
   getAll: async (params?: any) => {
     const response = await apiClient.get("/api/customers", { params });
-    // Backend returns { data: [...], total: N } — unwrap to plain array
-    const payload = response.data;
-    return Array.isArray(payload) ? payload : (payload?.data ?? []);
+    return response.data;
   },
   getById: async (id: number) => {
     const response = await apiClient.get(`/api/customers/${id}`);
@@ -684,7 +682,7 @@ export const demoAPI = {
 };
 
 export const automationAPI = {
-  getMyAssignments: async (params?: { status?: string; page?: number; limit?: number }) => {
+  getMyAssignments: async (params?: { status?: string; page?: number; limit?: number; from_date?: string; to_date?: string }) => {
     const response = await apiClient.get("/api/automation/my-assignments", { params });
     return response.data;
   },

@@ -1246,7 +1246,7 @@ export default function Sales() {
 
   const filteredSales = sales.filter((sale) => {
     const query = searchQuery.toLowerCase();
-    const matchesSearch = (
+    const matchesSearch = !query || (
       (sale.invoice_no && sale.invoice_no.toLowerCase().includes(query)) ||
       (sale.customer_name && sale.customer_name.toLowerCase().includes(query)) ||
       (sale.village && sale.village.toLowerCase().includes(query)) ||
