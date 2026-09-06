@@ -451,7 +451,20 @@ export default function Sales() {
     const combinedNotes = orderNotes.length > 0 ? Array.from(new Set(orderNotes)).join("; ") : "";
 
     // 4. Resolve customer category & entity
+    const rawCustomerType = (firstOrder.customer_type || "").trim().toLowerCase();
     let targetCategory = "Sabhasad";
+    if (rawCustomerType === "mantri" || rawCustomerType === "distributor") {
+      targetCategory = "Mantri";
+    } else if (rawCustomerType === "doctor") {
+      targetCategory = "Doctor";
+    } else if (rawCustomerType === "shopkeeper") {
+      targetCategory = "Shopkeeper";
+    } else if (rawCustomerType === "field officer" || rawCustomerType === "field_officer") {
+      targetCategory = "Field Officer";
+    } else {
+      targetCategory = "Sabhasad";
+    }
+
     let prefilledId: number = 0;
     let prefilledEntity: any = null;
 
@@ -473,44 +486,122 @@ export default function Sales() {
 
     if (orders.length === 1 || allSameCustomer) {
       const targetId = firstOrder.customer_id || 0;
-      const distMatch = distributors.find(d => d.distributor_id === targetId);
-      const docMatch = doctors.find(d => d.doctor_id === targetId);
-      const shopMatch = shopkeepers.find(s => s.shopkeeper_id === targetId);
 
-      if (distMatch) {
-        targetCategory = "Mantri";
-        prefilledId = distMatch.distributor_id;
-        prefilledEntity = {
-          name: distMatch.mantri_name || distMatch.name || firstOrder.customer_name,
-          village: distMatch.village || firstOrder.customer_village || "",
-          mobile: distMatch.mantri_mobile || distMatch.mobile || firstOrder.customer_mobile || "",
-        };
-      } else if (docMatch || firstOrder.customer_type?.toLowerCase() === "doctor") {
-        targetCategory = "Doctor";
-        prefilledId = docMatch ? docMatch.doctor_id : targetId;
-        prefilledEntity = {
-          name: docMatch?.name || firstOrder.customer_name,
-          village: docMatch?.village || firstOrder.customer_village || "",
-          mobile: docMatch?.mobile || firstOrder.customer_mobile || "",
-        };
-      } else if (shopMatch || firstOrder.customer_type?.toLowerCase() === "shopkeeper") {
-        targetCategory = "Shopkeeper";
-        prefilledId = shopMatch ? shopMatch.shopkeeper_id : targetId;
-        prefilledEntity = {
-          name: shopMatch?.name || firstOrder.customer_name,
-          village: shopMatch?.village || firstOrder.customer_village || "",
-          mobile: shopMatch?.mobile || firstOrder.customer_mobile || "",
-        };
+      if (targetCategory === "Mantri") {
+        const targetVillage = (firstOrder.customer_village || "").trim().toLowerCase();
+        const targetName = (firstOrder.customer_name || "").trim().toLowerCase();
+        let distMatch = distributors.find(d => d.distributor_id === targetId);
+        if (!distMatch && firstOrder.customer_mobile) {
+          distMatch = distributors.find(d => d.mantri_mobile === firstOrder.customer_mobile || d.mobile === firstOrder.customer_mobile);
+        }
+        if (!distMatch && targetName) {
+          distMatch = distributors.find(d => (d.mantri_name || d.name || "").trim().toLowerCase() === targetName);
+        }
+        if (!distMatch && targetVillage) {
+          distMatch = distributors.find(d => (d.village || "").trim().toLowerCase() === targetVillage);
+        }
+
+        if (distMatch) {
+          prefilledId = distMatch.distributor_id;
+          prefilledEntity = {
+            name: distMatch.mantri_name || distMatch.name || firstOrder.customer_name,
+            village: distMatch.village || firstOrder.customer_village || "",
+            mobile: distMatch.mantri_mobile || distMatch.mobile || firstOrder.customer_mobile || "",
+          };
+        } else {
+          prefilledId = targetId;
+          prefilledEntity = {
+            name: firstOrder.customer_name,
+            village: firstOrder.customer_village || "",
+            mobile: firstOrder.customer_mobile || "",
+          };
+          queryClient.setQueryData<any[]>(["distributors-all"], (prev = []) => {
+            if (!prev.some(d => d.distributor_id === targetId)) {
+              return [{
+                distributor_id: targetId,
+                mantri_name: firstOrder.customer_name,
+                name: firstOrder.customer_name,
+                mantri_mobile: firstOrder.customer_mobile || "",
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
+        }
+      } else if (targetCategory === "Doctor") {
+        let docMatch = doctors.find(d => d.doctor_id === targetId);
+        if (!docMatch && firstOrder.customer_mobile) {
+          docMatch = doctors.find(d => d.mobile === firstOrder.customer_mobile);
+        }
+        if (docMatch) {
+          prefilledId = docMatch.doctor_id;
+          prefilledEntity = {
+            name: docMatch.name || firstOrder.customer_name,
+            village: docMatch.village || firstOrder.customer_village || "",
+            mobile: docMatch.mobile || firstOrder.customer_mobile || "",
+          };
+        } else {
+          prefilledId = targetId;
+          prefilledEntity = {
+            name: firstOrder.customer_name,
+            village: firstOrder.customer_village || "",
+            mobile: firstOrder.customer_mobile || "",
+          };
+          queryClient.setQueryData<any[]>(["doctors-all"], (prev = []) => {
+            if (!prev.some(d => d.doctor_id === targetId)) {
+              return [{
+                doctor_id: targetId,
+                name: firstOrder.customer_name,
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
+        }
+      } else if (targetCategory === "Shopkeeper") {
+        let shopMatch = shopkeepers.find(s => s.shopkeeper_id === targetId);
+        if (!shopMatch && firstOrder.customer_mobile) {
+          shopMatch = shopkeepers.find(s => s.mobile === firstOrder.customer_mobile);
+        }
+        if (shopMatch) {
+          prefilledId = shopMatch.shopkeeper_id;
+          prefilledEntity = {
+            name: shopMatch.name || firstOrder.customer_name,
+            village: shopMatch.village || firstOrder.customer_village || "",
+            mobile: shopMatch.mobile || firstOrder.customer_mobile || "",
+          };
+        } else {
+          prefilledId = targetId;
+          prefilledEntity = {
+            name: firstOrder.customer_name,
+            village: firstOrder.customer_village || "",
+            mobile: firstOrder.customer_mobile || "",
+          };
+          queryClient.setQueryData<any[]>(["shopkeepers-all"], (prev = []) => {
+            if (!prev.some(d => d.shopkeeper_id === targetId)) {
+              return [{
+                shopkeeper_id: targetId,
+                name: firstOrder.customer_name,
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
+        }
       } else {
-        // Sabhasad (Customer)
-        targetCategory = "Sabhasad";
+        // Sabhasad or Field Officer
         prefilledId = targetId;
         prefilledEntity = {
           name: firstOrder.customer_name,
           village: firstOrder.customer_village || "",
           mobile: firstOrder.customer_mobile || "",
         };
-        // Ensure this customer is present in customers state so Autocomplete can display it immediately
         if (prefilledId && prefilledEntity) {
           setCustomers(prev => {
             if (!prev.some(c => c.customer_id === prefilledId)) {
@@ -527,14 +618,14 @@ export default function Sales() {
         }
       }
     } else {
-      // Multiple orders from different customers in the same village:
+      // Multiple orders: if they all share the same village, merge under that village's Mantri
       if (allSameVillage && commonVillage) {
         const matchingMantris = distributors.filter(
           d => (d.village || "").trim().toLowerCase() === commonVillage!.toLowerCase()
         );
-        if (matchingMantris.length === 1) {
+        targetCategory = "Mantri";
+        if (matchingMantris.length > 0) {
           const mantri = matchingMantris[0];
-          targetCategory = "Mantri";
           prefilledId = mantri.distributor_id;
           prefilledEntity = {
             name: mantri.mantri_name || mantri.name || "",
@@ -542,37 +633,51 @@ export default function Sales() {
             mobile: mantri.mantri_mobile || mantri.mobile || "",
           };
         } else {
-          targetCategory = "Sabhasad";
           prefilledId = firstOrder.customer_id || 0;
           prefilledEntity = {
             name: firstOrder.customer_name,
             village: firstOrder.customer_village || "",
             mobile: firstOrder.customer_mobile || "",
           };
-          if (prefilledId && prefilledEntity) {
-            setCustomers(prev => {
-              if (!prev.some(c => c.customer_id === prefilledId)) {
-                return [{
-                  customer_id: prefilledId,
-                  name: prefilledEntity.name,
-                  mobile: prefilledEntity.mobile,
-                  village: prefilledEntity.village,
-                  status: 'Active',
-                } as any, ...prev];
-              }
-              return prev;
-            });
-          }
+          queryClient.setQueryData<any[]>(["distributors-all"], (prev = []) => {
+            if (!prev.some(d => d.distributor_id === prefilledId)) {
+              return [{
+                distributor_id: prefilledId,
+                mantri_name: firstOrder.customer_name,
+                name: firstOrder.customer_name,
+                mantri_mobile: firstOrder.customer_mobile || "",
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
         }
       } else {
-        targetCategory = "Sabhasad";
+        targetCategory = (rawCustomerType === "mantri" || rawCustomerType === "distributor") ? "Mantri" : "Sabhasad";
         prefilledId = firstOrder.customer_id || 0;
         prefilledEntity = {
           name: firstOrder.customer_name,
           village: firstOrder.customer_village || "",
           mobile: firstOrder.customer_mobile || "",
         };
-        if (prefilledId && prefilledEntity) {
+        if (targetCategory === "Mantri") {
+          queryClient.setQueryData<any[]>(["distributors-all"], (prev = []) => {
+            if (!prev.some(d => d.distributor_id === prefilledId)) {
+              return [{
+                distributor_id: prefilledId,
+                mantri_name: firstOrder.customer_name,
+                name: firstOrder.customer_name,
+                mantri_mobile: firstOrder.customer_mobile || "",
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
+        } else {
           setCustomers(prev => {
             if (!prev.some(c => c.customer_id === prefilledId)) {
               return [{
@@ -1954,6 +2059,12 @@ export default function Sales() {
                       entityDetails = shopkeepers.find(s => s.shopkeeper_id === formData.customer_id);
                     }
                     
+                    if (!entityDetails && selectedEntity) {
+                      entityDetails = {
+                        ...selectedEntity,
+                        mantri_mobile: selectedEntity.mobile,
+                      } as any;
+                    }
                     if (!entityDetails) return null;
                     return (
                       <>

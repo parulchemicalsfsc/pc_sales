@@ -503,12 +503,76 @@ def create_sale(
         if is_distributor_sale:
             if not sale.distributor_id:
                 raise HTTPException(status_code=400, detail="distributor_id is required for Distributor/Mantri sales")
+            # Verify distributor_id exists in distributors table
+            dist_check = db.table("distributors").select("distributor_id").eq("distributor_id", sale.distributor_id).execute()
+            if not dist_check.data:
+                # If passed ID was a customer_id (e.g. from telecaller order), resolve or create distributor record
+                cust_check = db.table("customers").select("*").eq("customer_id", sale.distributor_id).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    matched_dist = None
+                    mob = c_row.get("mobile")
+                    if mob:
+                        ed = db.table("distributors").select("distributor_id").eq("mantri_mobile", mob).execute()
+                        if ed.data:
+                            matched_dist = ed.data[0]
+                    if not matched_dist and c_row.get("village") and c_row.get("name"):
+                        ed = db.table("distributors").select("distributor_id").eq("village", c_row["village"]).ilike("mantri_name", c_row["name"]).execute()
+                        if ed.data:
+                            matched_dist = ed.data[0]
+
+                    if matched_dist:
+                        sale.distributor_id = matched_dist["distributor_id"]
+                    else:
+                        new_d = db.table("distributors").insert({
+                            "mantri_name": c_row.get("name"),
+                            "mantri_mobile": c_row.get("mobile"),
+                            "village": c_row.get("village") or "",
+                            "taluka": c_row.get("taluka") or "",
+                            "district": c_row.get("district") or "",
+                            "state": c_row.get("state") or "Gujarat",
+                            "status": "Active"
+                        }).execute()
+                        if new_d.data:
+                            sale.distributor_id = new_d.data[0]["distributor_id"]
         elif is_doctor_sale:
             if not sale.doctor_id:
                 raise HTTPException(status_code=400, detail="doctor_id is required for Doctor sales")
+            doc_check = db.table("doctors").select("doctor_id").eq("doctor_id", sale.doctor_id).execute()
+            if not doc_check.data:
+                cust_check = db.table("customers").select("*").eq("customer_id", sale.doctor_id).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    new_doc = db.table("doctors").insert({
+                        "name": c_row.get("name"),
+                        "mobile": c_row.get("mobile"),
+                        "village": c_row.get("village") or "",
+                        "taluka": c_row.get("taluka") or "",
+                        "district": c_row.get("district") or "",
+                        "state": c_row.get("state") or "Gujarat",
+                        "status": "Active"
+                    }).execute()
+                    if new_doc.data:
+                        sale.doctor_id = new_doc.data[0]["doctor_id"]
         elif is_shopkeeper_sale:
             if not sale.shopkeeper_id:
                 raise HTTPException(status_code=400, detail="shopkeeper_id is required for Shopkeeper sales")
+            sk_check = db.table("shopkeepers").select("shopkeeper_id").eq("shopkeeper_id", sale.shopkeeper_id).execute()
+            if not sk_check.data:
+                cust_check = db.table("customers").select("*").eq("customer_id", sale.shopkeeper_id).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    new_sk = db.table("shopkeepers").insert({
+                        "name": c_row.get("name"),
+                        "mobile": c_row.get("mobile"),
+                        "village": c_row.get("village") or "",
+                        "taluka": c_row.get("taluka") or "",
+                        "district": c_row.get("district") or "",
+                        "state": c_row.get("state") or "Gujarat",
+                        "status": "Active"
+                    }).execute()
+                    if new_sk.data:
+                        sale.shopkeeper_id = new_sk.data[0]["shopkeeper_id"]
         else:
             if not sale.customer_id:
                 raise HTTPException(status_code=400, detail="customer_id is required for Customer/Field Officer sales")
@@ -1038,6 +1102,37 @@ def update_sale(
 
             clean_data["total_amount"] = total_amount
             clean_data["total_liters"] = total_liters
+
+        if clean_data.get("distributor_id"):
+            dist_check = db.table("distributors").select("distributor_id").eq("distributor_id", clean_data["distributor_id"]).execute()
+            if not dist_check.data:
+                cust_check = db.table("customers").select("*").eq("customer_id", clean_data["distributor_id"]).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    matched_dist = None
+                    mob = c_row.get("mobile")
+                    if mob:
+                        ed = db.table("distributors").select("distributor_id").eq("mantri_mobile", mob).execute()
+                        if ed.data:
+                            matched_dist = ed.data[0]
+                    if not matched_dist and c_row.get("village") and c_row.get("name"):
+                        ed = db.table("distributors").select("distributor_id").eq("village", c_row["village"]).ilike("mantri_name", c_row["name"]).execute()
+                        if ed.data:
+                            matched_dist = ed.data[0]
+                    if matched_dist:
+                        clean_data["distributor_id"] = matched_dist["distributor_id"]
+                    else:
+                        new_d = db.table("distributors").insert({
+                            "mantri_name": c_row.get("name"),
+                            "mantri_mobile": c_row.get("mobile"),
+                            "village": c_row.get("village") or "",
+                            "taluka": c_row.get("taluka") or "",
+                            "district": c_row.get("district") or "",
+                            "state": c_row.get("state") or "Gujarat",
+                            "status": "Active"
+                        }).execute()
+                        if new_d.data:
+                            clean_data["distributor_id"] = new_d.data[0]["distributor_id"]
 
         # Update the sales record
         response = db.table("sales").eq("sale_id", sale_id).update(clean_data).execute()
