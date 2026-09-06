@@ -398,13 +398,14 @@ export default function Sales() {
     
     // 1. Gather selected orders
     const orders = telecallerOrders.filter(o => o.order_id && selectedTelecallerOrders.has(o.order_id));
+    if (orders.length === 0) return;
     
     // 2. Aggregate products
     const productMap = new Map<number, any>();
     orders.forEach(order => {
       let prods: any[] = [];
       try {
-        prods = order.products_json ? JSON.parse(order.products_json as string) : (order.products || []);
+        prods = order.products_json ? (typeof order.products_json === "string" ? JSON.parse(order.products_json) : order.products_json) : (order.products || []);
       } catch (e) {
         prods = order.products || [];
       }
@@ -430,7 +431,30 @@ export default function Sales() {
       aggregatedItems.push({ product_id: 0, quantity: 1, rate: 0, amount: 0 });
     }
     
-    // 3. Find if all share the same village
+    // 3. Determine Date & Notes from selected orders
+    const firstOrder = orders[0];
+    const rawDate = firstOrder.confirmation_date || firstOrder.created_at;
+    let orderDateStr = new Date().toISOString().split("T")[0];
+    if (rawDate) {
+      const dt = new Date(rawDate.endsWith('Z') || rawDate.includes('+') ? rawDate : `${rawDate}Z`);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, "0");
+        const d = String(dt.getDate()).padStart(2, "0");
+        orderDateStr = `${y}-${m}-${d}`;
+      }
+    }
+
+    const orderNotes = orders
+      .map(o => o.notes?.trim())
+      .filter((n): n is string => Boolean(n && n.length > 0));
+    const combinedNotes = orderNotes.length > 0 ? Array.from(new Set(orderNotes)).join("; ") : "";
+
+    // 4. Resolve customer category & entity
+    let targetCategory = "Sabhasad";
+    let prefilledId: number = 0;
+    let prefilledEntity: any = null;
+
     let commonVillage: string | null = null;
     let allSameVillage = true;
     for (const order of orders) {
@@ -442,34 +466,139 @@ export default function Sales() {
         break;
       }
     }
-    
-    // 4. Try to find exactly one Mantri for that village
-    let prefilledMantriId: number = 0;
-    let prefilledEntity: any = null;
-    
-    if (allSameVillage && commonVillage) {
-      const matchingMantris = distributors.filter(d => (d.village || "").trim().toLowerCase() === commonVillage!.toLowerCase());
-      if (matchingMantris.length === 1) {
-        const mantri = matchingMantris[0];
-        prefilledMantriId = mantri.distributor_id;
+
+    const allSameCustomer = orders.every(
+      o => o.customer_id === firstOrder.customer_id && o.customer_name === firstOrder.customer_name
+    );
+
+    if (orders.length === 1 || allSameCustomer) {
+      const targetId = firstOrder.customer_id || 0;
+      const distMatch = distributors.find(d => d.distributor_id === targetId);
+      const docMatch = doctors.find(d => d.doctor_id === targetId);
+      const shopMatch = shopkeepers.find(s => s.shopkeeper_id === targetId);
+
+      if (distMatch) {
+        targetCategory = "Mantri";
+        prefilledId = distMatch.distributor_id;
         prefilledEntity = {
-          name: mantri.mantri_name || mantri.name || "",
-          village: mantri.village || "",
-          mobile: mantri.mantri_mobile || mantri.mobile || "",
+          name: distMatch.mantri_name || distMatch.name || firstOrder.customer_name,
+          village: distMatch.village || firstOrder.customer_village || "",
+          mobile: distMatch.mantri_mobile || distMatch.mobile || firstOrder.customer_mobile || "",
         };
+      } else if (docMatch || firstOrder.customer_type?.toLowerCase() === "doctor") {
+        targetCategory = "Doctor";
+        prefilledId = docMatch ? docMatch.doctor_id : targetId;
+        prefilledEntity = {
+          name: docMatch?.name || firstOrder.customer_name,
+          village: docMatch?.village || firstOrder.customer_village || "",
+          mobile: docMatch?.mobile || firstOrder.customer_mobile || "",
+        };
+      } else if (shopMatch || firstOrder.customer_type?.toLowerCase() === "shopkeeper") {
+        targetCategory = "Shopkeeper";
+        prefilledId = shopMatch ? shopMatch.shopkeeper_id : targetId;
+        prefilledEntity = {
+          name: shopMatch?.name || firstOrder.customer_name,
+          village: shopMatch?.village || firstOrder.customer_village || "",
+          mobile: shopMatch?.mobile || firstOrder.customer_mobile || "",
+        };
+      } else {
+        // Sabhasad (Customer)
+        targetCategory = "Sabhasad";
+        prefilledId = targetId;
+        prefilledEntity = {
+          name: firstOrder.customer_name,
+          village: firstOrder.customer_village || "",
+          mobile: firstOrder.customer_mobile || "",
+        };
+        // Ensure this customer is present in customers state so Autocomplete can display it immediately
+        if (prefilledId && prefilledEntity) {
+          setCustomers(prev => {
+            if (!prev.some(c => c.customer_id === prefilledId)) {
+              return [{
+                customer_id: prefilledId,
+                name: prefilledEntity.name,
+                mobile: prefilledEntity.mobile,
+                village: prefilledEntity.village,
+                status: 'Active',
+              } as any, ...prev];
+            }
+            return prev;
+          });
+        }
+      }
+    } else {
+      // Multiple orders from different customers in the same village:
+      if (allSameVillage && commonVillage) {
+        const matchingMantris = distributors.filter(
+          d => (d.village || "").trim().toLowerCase() === commonVillage!.toLowerCase()
+        );
+        if (matchingMantris.length === 1) {
+          const mantri = matchingMantris[0];
+          targetCategory = "Mantri";
+          prefilledId = mantri.distributor_id;
+          prefilledEntity = {
+            name: mantri.mantri_name || mantri.name || "",
+            village: mantri.village || "",
+            mobile: mantri.mantri_mobile || mantri.mobile || "",
+          };
+        } else {
+          targetCategory = "Sabhasad";
+          prefilledId = firstOrder.customer_id || 0;
+          prefilledEntity = {
+            name: firstOrder.customer_name,
+            village: firstOrder.customer_village || "",
+            mobile: firstOrder.customer_mobile || "",
+          };
+          if (prefilledId && prefilledEntity) {
+            setCustomers(prev => {
+              if (!prev.some(c => c.customer_id === prefilledId)) {
+                return [{
+                  customer_id: prefilledId,
+                  name: prefilledEntity.name,
+                  mobile: prefilledEntity.mobile,
+                  village: prefilledEntity.village,
+                  status: 'Active',
+                } as any, ...prev];
+              }
+              return prev;
+            });
+          }
+        }
+      } else {
+        targetCategory = "Sabhasad";
+        prefilledId = firstOrder.customer_id || 0;
+        prefilledEntity = {
+          name: firstOrder.customer_name,
+          village: firstOrder.customer_village || "",
+          mobile: firstOrder.customer_mobile || "",
+        };
+        if (prefilledId && prefilledEntity) {
+          setCustomers(prev => {
+            if (!prev.some(c => c.customer_id === prefilledId)) {
+              return [{
+                customer_id: prefilledId,
+                name: prefilledEntity.name,
+                mobile: prefilledEntity.mobile,
+                village: prefilledEntity.village,
+                status: 'Active',
+              } as any, ...prev];
+            }
+            return prev;
+          });
+        }
       }
     }
-    
+
     // 5. Open dialog and pre-fill
     setTelecallerOrdersDialogOpen(false);
     setSaleTab("pre_sales");
-    setCustomerCategory("Mantri");
+    setCustomerCategory(targetCategory);
     setCustomerMode("existing");
     setFormData({
-      customer_id: prefilledMantriId,
+      customer_id: prefilledId,
       invoice_no: "",
-      sale_date: new Date().toISOString().split("T")[0],
-      notes: "Merged from Telecaller Orders",
+      sale_date: orderDateStr,
+      notes: combinedNotes,
       paid_amount: 0,
     });
     setSelectedEntity(prefilledEntity);

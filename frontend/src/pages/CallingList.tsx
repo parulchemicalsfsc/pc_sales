@@ -930,7 +930,7 @@ export default function CallingList() {
     try {
       setOrderLoading(true);
       const orderData = {
-        customer_type: "Mantri",
+        customer_type: role === "sales_manager" ? "Mantri" : "Sabhasad",
         customer_id: activeItem.customer_id,
         customer_name: activeItem.name || "Unknown",
         customer_mobile: activeItem.mobile || "",
