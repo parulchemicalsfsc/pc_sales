@@ -545,13 +545,13 @@ def create_sale(
             total_liters += capacity * item.quantity
 
         # ── Pre-sale workflow ──────────────────────────────────────────────────
-        # Sales are created as pre-sales (sale_stage='pre_sale') with no
-        # invoice number. Invoice number, sale_code, and demo auto-conversion
-        # are deferred to POST /confirm when the sale is confirmed.
-        invoice_no = None
+        # If user provides a custom invoice number, preserve it; otherwise None
+        # (auto-generated on confirmation)
+        user_invoice_no = (sale.invoice_no or "").strip() or None
 
-        # Build sale record — no invoice_no yet (assigned on confirmation)
+        # Build sale record
         sale_data: dict = {
+            "invoice_no": user_invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
@@ -607,7 +607,7 @@ def create_sale(
             if "23505" in combined or "duplicate" in combined or "unique" in combined:
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Invoice number '{invoice_no}' already exists. Please try again.",
+                    detail=f"Invoice number '{user_invoice_no}' already exists. Please try again.",
                 )
             raise HTTPException(status_code=500, detail=f"Error inserting sale: {err_str}")
 
@@ -812,10 +812,19 @@ def confirm_sales(
 
             sale = sale_resp.data[0]
 
-            # ── 2. Generate invoice number via RPC ───────────────────────────
-            invoice_no = db.rpc("get_next_invoice_no", {})
-            if not invoice_no or not isinstance(invoice_no, str):
-                raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
+            # ── 2. Determine invoice number ──────────────────────────────────
+            invoice_numbers_map = payload.get("invoice_numbers") or {}
+            custom_invoice = invoice_numbers_map.get(str(sale_id)) or invoice_numbers_map.get(sale_id)
+            existing_invoice = (sale.get("invoice_no") or "").strip()
+
+            if custom_invoice and str(custom_invoice).strip():
+                invoice_no = str(custom_invoice).strip()
+            elif existing_invoice:
+                invoice_no = existing_invoice
+            else:
+                invoice_no = db.rpc("get_next_invoice_no", {})
+                if not invoice_no or not isinstance(invoice_no, str):
+                    raise ValueError(f"Unexpected RPC response: {invoice_no!r}")
 
             # ── 3. Generate sale_code (MMyy#### format) ──────────────────────
             sale_code = None

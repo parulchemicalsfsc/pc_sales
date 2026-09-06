@@ -1084,7 +1084,7 @@ export default function Sales() {
         doctor_id: isDoctorSale ? customerId : undefined,
         shopkeeper_id: isShopkeeperSale ? customerId : undefined,
         buyer_type: buyerType,
-        invoice_no: formData.invoice_no || undefined,
+        invoice_no: formData.invoice_no?.trim() || undefined,
         sale_date: formData.sale_date,
         items: items.map((item) => ({
           product_id: item.product_id!,
