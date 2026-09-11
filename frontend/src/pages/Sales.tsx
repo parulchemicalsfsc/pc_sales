@@ -47,7 +47,7 @@ import { TableSkeleton } from "../components/Skeletons";
 import NotesDialog from "../components/NotesDialog";
 import AddNoteDialog from "../components/AddNoteDialog";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, apiClient, notesAPI, telecallerOrderAPI } from "../services/api";
+import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, fieldOfficerAPI, apiClient, notesAPI, telecallerOrderAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem, TelecallerOrder, TelecallerOrderItem } from "../types";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -92,6 +92,15 @@ export default function Sales() {
     queryKey: ["shopkeepers-all"],
     queryFn: async () => {
       const res = await shopkeeperAPI.getAll({ limit: 1000 });
+      return Array.isArray(res) ? res : (res?.data || []);
+    },
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+  const { data: fieldOfficers = [] } = useQuery<any[]>({
+    queryKey: ["field-officers-all"],
+    queryFn: async () => {
+      const res = await fieldOfficerAPI.getAll({ limit: 1000 });
       return Array.isArray(res) ? res : (res?.data || []);
     },
     staleTime: 10 * 60 * 1000,
@@ -594,8 +603,40 @@ export default function Sales() {
             return prev;
           });
         }
+      } else if (targetCategory === "Field Officer") {
+        let foMatch = fieldOfficers.find(f => f.field_officer_id === targetId);
+        if (!foMatch && firstOrder.customer_mobile) {
+          foMatch = fieldOfficers.find(f => f.mobile === firstOrder.customer_mobile || f.mantri_mobile === firstOrder.customer_mobile);
+        }
+        if (foMatch) {
+          prefilledId = foMatch.field_officer_id;
+          prefilledEntity = {
+            name: foMatch.name || firstOrder.customer_name,
+            village: foMatch.village || firstOrder.customer_village || "",
+            mobile: foMatch.mobile || foMatch.mantri_mobile || firstOrder.customer_mobile || "",
+          };
+        } else {
+          prefilledId = targetId;
+          prefilledEntity = {
+            name: firstOrder.customer_name,
+            village: firstOrder.customer_village || "",
+            mobile: firstOrder.customer_mobile || "",
+          };
+          queryClient.setQueryData<any[]>(["field-officers-all"], (prev = []) => {
+            if (!prev.some(d => d.field_officer_id === targetId)) {
+              return [{
+                field_officer_id: targetId,
+                name: firstOrder.customer_name,
+                mobile: firstOrder.customer_mobile || "",
+                village: firstOrder.customer_village || "",
+                status: "Active",
+              }, ...prev];
+            }
+            return prev;
+          });
+        }
       } else {
-        // Sabhasad or Field Officer
+        // Sabhasad
         prefilledId = targetId;
         prefilledEntity = {
           name: firstOrder.customer_name,
@@ -885,6 +926,8 @@ export default function Sales() {
           entityId = sale?.doctor_id || 0;
         } else if (buyerType === "shopkeeper") {
           entityId = sale?.shopkeeper_id || 0;
+        } else if (buyerType === "field_officer" || buyerType === "field officer") {
+          entityId = sale?.field_officer_id || 0;
         } else {
           entityId = sale?.customer_id || 0;
         }
@@ -948,6 +991,11 @@ export default function Sales() {
           const sk = shopkeepers.find((s: any) => s.shopkeeper_id === entityId);
           if (sk) {
             resolvedEntity = { name: sk.name || "", village: sk.village || "", mobile: sk.mobile || sk.mantri_mobile || "" };
+          }
+        } else if ((buyerType === "field_officer" || buyerType === "field officer") && entityId) {
+          const fo = fieldOfficers.find((f: any) => f.field_officer_id === entityId);
+          if (fo) {
+            resolvedEntity = { name: fo.name || "", village: fo.village || "", mobile: fo.mobile || fo.mantri_mobile || "" };
           }
         } else if (entityId) {
           const cust = customers.find((c: any) => c.customer_id === entityId);
@@ -1089,8 +1137,17 @@ export default function Sales() {
         mobile: s.mobile || '',
         entity_type: 'shopkeeper',
       }));
+    } else if (customerCategory === "Field Officer") {
+      return fieldOfficers.map((fo: any) => ({
+        id: fo.field_officer_id,
+        label: `${fo.name || 'Unknown'}${fo.village ? ` - ${fo.village}` : ''}${fo.mobile || fo.mantri_mobile ? ` (${fo.mobile || fo.mantri_mobile})` : ''}`,
+        name: fo.name || '',
+        village: fo.village || '',
+        mobile: fo.mobile || fo.mantri_mobile || '',
+        entity_type: 'field_officer',
+      }));
     } else {
-      // Sabhasad, Field Officer
+      // Sabhasad
       return customers.map((c) => ({
         id: c.customer_id,
         label: `${c.name}${c.village ? ` - ${c.village}` : ''}${c.mobile ? ` (${c.mobile})` : ''}`,
@@ -1148,6 +1205,7 @@ export default function Sales() {
           const isDistributorCategory = customerCategory === "Mantri";
           const isDoctorCategory = customerCategory === "Doctor";
           const isShopkeeperCategory = customerCategory === "Shopkeeper";
+          const isFieldOfficerCategory = customerCategory === "Field Officer";
 
           if (isDistributorCategory) {
             const existingDistributor = distributors.find(d => {
@@ -1183,6 +1241,17 @@ export default function Sales() {
                 duplicateEntityName = existingShopkeeper.name || "";
                 duplicateEntityVillage = existingShopkeeper.village || "";
                 duplicateEntityId = existingShopkeeper.shopkeeper_id || 0;
+            }
+          } else if (isFieldOfficerCategory) {
+            const existingFo = fieldOfficers.find(f =>
+              (f.name || "").toLowerCase().trim() === newCustomerData.name.toLowerCase().trim() &&
+              (f.mobile === newCustomerData.mobile || f.mantri_mobile === newCustomerData.mobile)
+            );
+            if (existingFo) {
+                isDuplicate = true;
+                duplicateEntityName = existingFo.name || "";
+                duplicateEntityVillage = existingFo.village || "";
+                duplicateEntityId = existingFo.field_officer_id || 0;
             }
           } else {
             const existingCustomer = customers.find(
@@ -1250,6 +1319,21 @@ export default function Sales() {
               customerId = newSk.shopkeeper?.shopkeeper_id || newSk.data?.shopkeeper_id || newSk.shopkeeper_id || 0;
               // Invalidate React Query cache so the new entry appears in the dropdown
               queryClient.invalidateQueries({ queryKey: ["shopkeepers-all"] });
+            } else if (isFieldOfficerCategory) {
+              const newFoData = {
+                name: newCustomerData.name,
+                mobile: newCustomerData.mobile,
+                mantri_mobile: newCustomerData.mobile,
+                village: newCustomerData.village,
+                taluka: newCustomerData.taluka,
+                district: newCustomerData.district,
+                state: newCustomerData.state,
+                status: newCustomerData.status
+              };
+              const newFo = await fieldOfficerAPI.create(newFoData);
+              customerId = newFo.field_officer?.field_officer_id || newFo.data?.field_officer_id || newFo.field_officer_id || 0;
+              // Invalidate React Query cache so the new entry appears in the dropdown
+              queryClient.invalidateQueries({ queryKey: ["field-officers-all"] });
             } else {
               const newCustomer = await customerAPI.create(newCustomerData as Customer);
               customerId = newCustomer.data?.customer_id || newCustomer.customer_id || 0;
@@ -1302,6 +1386,7 @@ export default function Sales() {
       const isDistributorSale = customerCategory === "Mantri";
       const isDoctorSale = customerCategory === "Doctor";
       const isShopkeeperSale = customerCategory === "Shopkeeper";
+      const isFieldOfficerSale = customerCategory === "Field Officer";
 
       // Map category to backend buyer_type
       const buyerType =
@@ -1313,10 +1398,11 @@ export default function Sales() {
 
       const saleData = {
         // Route to correct FK based on category
-        customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale) ? customerId : undefined,
+        customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale && !isFieldOfficerSale) ? customerId : undefined,
         distributor_id: isDistributorSale ? customerId : undefined,
         doctor_id: isDoctorSale ? customerId : undefined,
         shopkeeper_id: isShopkeeperSale ? customerId : undefined,
+        field_officer_id: isFieldOfficerSale ? customerId : undefined,
         buyer_type: buyerType,
         invoice_no: formData.invoice_no?.trim() || undefined,
         sale_date: formData.sale_date,
@@ -1338,7 +1424,7 @@ export default function Sales() {
       if (role === "telecaller") {
         const orderData = {
           customer_type: buyerType,
-          customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale) ? customerId : (customerId || undefined),
+          customer_id: (!isDistributorSale && !isDoctorSale && !isShopkeeperSale && !isFieldOfficerSale) ? customerId : (customerId || undefined),
           customer_name: customerMode === "new" ? newCustomerData.name : (selectedEntity?.name || ""),
           customer_mobile: customerMode === "new" ? newCustomerData.mobile : (selectedEntity?.mobile || ""),
           customer_village: customerMode === "new" ? newCustomerData.village : (selectedEntity?.village || ""),
@@ -2057,6 +2143,8 @@ export default function Sales() {
                       entityDetails = doctors.find(d => d.doctor_id === formData.customer_id);
                     } else if (customerCategory === "Shopkeeper") {
                       entityDetails = shopkeepers.find(s => s.shopkeeper_id === formData.customer_id);
+                    } else if (customerCategory === "Field Officer") {
+                      entityDetails = fieldOfficers.find(f => f.field_officer_id === formData.customer_id);
                     }
                     
                     if (!entityDetails && selectedEntity) {

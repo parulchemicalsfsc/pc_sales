@@ -120,7 +120,8 @@ def get_telecaller_orders(
             "Sabhasad": set(),
             "Mantri": set(),
             "Doctor": set(),
-            "Shopkeeper": set()
+            "Shopkeeper": set(),
+            "Field Officer": set(),
         }
         for o in orders:
             ctype = o.get("customer_type")
@@ -146,6 +147,10 @@ def get_telecaller_orders(
                 res = db.table("shopkeepers").select("shopkeeper_id, state, district, taluka, village").in_("shopkeeper_id", list(ids_by_type["Shopkeeper"])).execute()
                 for r in (res.data or []):
                     locations_map[("Shopkeeper", r["shopkeeper_id"])] = r
+            if ids_by_type["Field Officer"]:
+                res = db.table("field_officers").select("field_officer_id, state, district, taluka, village").in_("field_officer_id", list(ids_by_type["Field Officer"])).execute()
+                for r in (res.data or []):
+                    locations_map[("Field Officer", r["field_officer_id"])] = r
         except Exception as e:
             logger.error(f"Error fetching locations for orders: {e}")
 
@@ -326,26 +331,37 @@ def approve_telecaller_order(
             "sale_stage": "confirmed",
         }
 
-        if customer_type in ("mantri", "distributor"):
+        cust_type_lower = (customer_type or "").lower().strip()
+        if cust_type_lower in ("mantri", "distributor"):
             sale_data["distributor_id"] = order.get("customer_id")
             sale_data["customer_id"] = None
             sale_data["doctor_id"] = None
             sale_data["shopkeeper_id"] = None
-        elif customer_type == "doctor":
+            sale_data["field_officer_id"] = None
+        elif cust_type_lower == "doctor":
             sale_data["doctor_id"] = order.get("customer_id")
             sale_data["customer_id"] = None
             sale_data["distributor_id"] = None
             sale_data["shopkeeper_id"] = None
-        elif customer_type == "shopkeeper":
+            sale_data["field_officer_id"] = None
+        elif cust_type_lower == "shopkeeper":
             sale_data["shopkeeper_id"] = order.get("customer_id")
             sale_data["customer_id"] = None
             sale_data["distributor_id"] = None
             sale_data["doctor_id"] = None
+            sale_data["field_officer_id"] = None
+        elif cust_type_lower in ("field officer", "field_officer"):
+            sale_data["field_officer_id"] = order.get("customer_id")
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
         else:
             sale_data["customer_id"] = order.get("customer_id")
             sale_data["distributor_id"] = None
             sale_data["doctor_id"] = None
             sale_data["shopkeeper_id"] = None
+            sale_data["field_officer_id"] = None
 
         sale_resp = db.table("sales").insert(sale_data).execute()
         if not sale_resp.data:

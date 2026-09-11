@@ -33,9 +33,15 @@ export interface Product {
 export interface Sale {
   sale_id?: number;
   invoice_no?: string;
-  customer_id: number;
+  customer_id?: number;
+  distributor_id?: number;
+  doctor_id?: number;
+  shopkeeper_id?: number;
+  field_officer_id?: number;
+  buyer_type?: string;
   customer_name?: string;
   village?: string;
+  mobile?: string;
   sale_date: string;
   total_amount: number;
   total_liters: number;
@@ -111,6 +117,7 @@ export interface Demo {
   distributor_id?: number;
   doctor_id?: number;
   shopkeeper_id?: number;
+  field_officer_id?: number;
   distributor_name?: string;
   demo_date: string;
   demo_time: string;
@@ -195,6 +202,39 @@ export interface Shopkeeper {
 
 export interface Doctor {
   doctor_id?: number;
+  name?: string;
+  record_date?: string;
+  state?: string;
+  village?: string;
+  taluka?: string;
+  district?: string;
+  mantri_name?: string;
+  mantri_mobile?: string;
+  sabhasad_count?: number;
+  sabhasad_morning?: number;
+  sabhasad_evening?: number;
+  dairy_type?: string;
+  dairy_time_morning?: string;
+  dairy_time_evening?: string;
+  milk_collection_morning?: number;
+  milk_collection_evening?: number;
+  nature_of_sabhasad?: string;
+  support?: string;
+  animal_delivery_period?: string;
+  payment_recovery_demo?: number;
+  payment_recovery_dispatch?: number;
+  decision_maker_availability_morning?: string;
+  decision_maker_availability_evening?: string;
+  high_holder_to_low_holder_villages?: string;
+  current_status_of_business?: string;
+  contact_in_group?: number;
+  status?: string;
+  created_date?: string;
+  updated_date?: string;
+}
+
+export interface FieldOfficer {
+  field_officer_id?: number;
   name?: string;
   record_date?: string;
   state?: string;

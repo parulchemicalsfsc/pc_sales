@@ -23,6 +23,7 @@
     "userManagement": "વપરાશકર્તા વ્યવસ્થાપન",
     "shopkeepers": "દુકાનદાર",
     "doctors": "ડોક્ટર",
+    "fieldOfficers": "ફીલ્ડ ઓફિસર",
     "leads": "Leads",
     "leadDashboard": "Lead Dashboard",
     "leadPipeline": "Lead Pipeline",
@@ -602,6 +603,23 @@
     "savedSuccessfully": "મંત્રી સફળતાપૂર્વક સંગ્રહિત",
     "deleteError": "મંત્રી કાઢી નાખવામાં નિષ્ફળ",
     "noDistributors": "કોઈ મંત્રી મળ્યાં નથી"
+  },
+  "fieldOfficers": {
+    "title": "ફીલ્ડ ઓફિસર",
+    "addFieldOfficer": "ફીલ્ડ ઓફિસર ઉમેરો",
+    "editFieldOfficer": "ફીલ્ડ ઓફિસર સંપાદિત કરો",
+    "deleteFieldOfficer": "ફીલ્ડ ઓફિસર કાઢી નાખો",
+    "contactPerson": "સંપર્ક વ્યક્તિ",
+    "mobile": "મોબાઈલ",
+    "area": "વિસ્તાર",
+    "status": "સ્થિતિ",
+    "active": "સક્રિય",
+    "inactive": "નિષ્ક્રિય",
+    "confirmDelete": "શું તમે ખરેખર આ ફીલ્ડ ઓફિસરને કાઢી નાખવા માંગો છો?",
+    "deletedSuccessfully": "ફીલ્ડ ઓફિસર સફળતાપૂર્વક કાઢી નાખવામાં આવ્યા",
+    "savedSuccessfully": "ફીલ્ડ ઓફિસર સફળતાપૂર્વક સંગ્રહિત",
+    "deleteError": "ફીલ્ડ ઓફિસર કાઢી નાખવામાં નિષ્ફળ",
+    "noFieldOfficers": "કોઈ ફીલ્ડ ઓફિસર મળ્યા નથી"
   },
   "leadWorkspace": {
     "title": "લીડ વર્કસ્પેસ",

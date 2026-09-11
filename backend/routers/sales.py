@@ -44,6 +44,7 @@ def get_sales(
         distributor_ids: set = set()
         doctor_ids: set = set()
         shopkeeper_ids: set = set()
+        field_officer_ids: set = set()
 
         for sale in sales:
             raw_buyer_type = sale.get("buyer_type")
@@ -52,6 +53,8 @@ def get_sales(
                     raw_buyer_type = "doctor"
                 elif sale.get("shopkeeper_id"):
                     raw_buyer_type = "shopkeeper"
+                elif sale.get("field_officer_id"):
+                    raw_buyer_type = "field_officer"
                 elif sale.get("distributor_id"):
                     raw_buyer_type = "distributor"
                 else:
@@ -63,6 +66,8 @@ def get_sales(
                 doctor_ids.add(sale["doctor_id"])
             elif raw_buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 shopkeeper_ids.add(sale["shopkeeper_id"])
+            elif raw_buyer_type in ("field_officer", "field officer") and sale.get("field_officer_id"):
+                field_officer_ids.add(sale["field_officer_id"])
             elif sale.get("customer_id"):
                 customer_ids.add(sale["customer_id"])
 
@@ -89,6 +94,10 @@ def get_sales(
             "shopkeepers", "shopkeeper_id", shopkeeper_ids,
             "shopkeeper_id, name, village, mantri_mobile"
         )
+        field_officers_dict = fetch_by_ids(
+            "field_officers", "field_officer_id", field_officer_ids,
+            "field_officer_id, name, village, mantri_mobile"
+        )
 
         # ── 4. Build enriched response ─────────────────────────────────────
         result = []
@@ -99,6 +108,8 @@ def get_sales(
                     raw_buyer_type = "doctor"
                 elif sale.get("shopkeeper_id"):
                     raw_buyer_type = "shopkeeper"
+                elif sale.get("field_officer_id"):
+                    raw_buyer_type = "field_officer"
                 elif sale.get("distributor_id"):
                     raw_buyer_type = "distributor"
                 else:
@@ -131,6 +142,14 @@ def get_sales(
                 })
             elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                result.append({
+                    **sale,
+                    "customer_name": entity.get("name", ""),
+                    "village": entity.get("village", ""),
+                    "mobile": entity.get("mantri_mobile", ""),
+                })
+            elif buyer_type in ("field_officer", "field officer") and sale.get("field_officer_id"):
+                entity = field_officers_dict.get(sale["field_officer_id"], {})
                 result.append({
                     **sale,
                     "customer_name": entity.get("name", ""),
@@ -192,6 +211,11 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
             shopkeepers_list = fetch_all("shopkeepers")
             shopkeepers_dict = {s["shopkeeper_id"]: s for s in shopkeepers_list}
         except: shopkeepers_dict = {}
+
+        try:
+            field_officers_list = fetch_all("field_officers")
+            field_officers_dict = {f["field_officer_id"]: f for f in field_officers_list}
+        except: field_officers_dict = {}
 
         # Get all products for summary
         products_response = db.table("products").select("product_id, product_name").limit(10000).execute()
@@ -283,6 +307,7 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
             if not buyer_type:
                 if sale.get("doctor_id"): buyer_type = "doctor"
                 elif sale.get("shopkeeper_id"): buyer_type = "shopkeeper"
+                elif sale.get("field_officer_id"): buyer_type = "field_officer"
                 elif sale.get("distributor_id"): buyer_type = "distributor"
                 else: buyer_type = "customer"
 
@@ -304,6 +329,11 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
                 mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
             elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
+            elif buyer_type in ("field_officer", "field officer") and sale.get("field_officer_id"):
+                entity = field_officers_dict.get(sale["field_officer_id"], {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
                 mobile = entity.get("mantri_mobile") or entity.get("mobile") or ""
@@ -379,6 +409,9 @@ def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
         try:
             shopkeepers_dict = {s["shopkeeper_id"]: s for s in fetch_all("shopkeepers")}
         except: shopkeepers_dict = {}
+        try:
+            field_officers_dict = {f["field_officer_id"]: f for f in fetch_all("field_officers")}
+        except: field_officers_dict = {}
 
         # Get payments and notes for balance calculation
         sale_ids = [s["sale_id"] for s in sales_response.data]
@@ -432,6 +465,7 @@ def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
             buyer_type = sale.get("buyer_type") or (
                 "doctor" if sale.get("doctor_id") else
                 "shopkeeper" if sale.get("shopkeeper_id") else
+                "field_officer" if sale.get("field_officer_id") else
                 "distributor" if sale.get("distributor_id") else "customer"
             )
 
@@ -448,6 +482,11 @@ def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
                 mobile = entity.get("mantri_mobile") or ""
             elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
                 entity = shopkeepers_dict.get(sale["shopkeeper_id"], {})
+                name = entity.get("name") or "Unknown"
+                village = entity.get("village") or ""
+                mobile = entity.get("mantri_mobile") or ""
+            elif buyer_type in ("field_officer", "field officer") and sale.get("field_officer_id"):
+                entity = field_officers_dict.get(sale["field_officer_id"], {})
                 name = entity.get("name") or "Unknown"
                 village = entity.get("village") or ""
                 mobile = entity.get("mantri_mobile") or ""
@@ -494,11 +533,13 @@ def create_sale(
             "distributor" if sale.distributor_id else
             "doctor" if sale.doctor_id else
             "shopkeeper" if sale.shopkeeper_id else
+            "field_officer" if sale.field_officer_id else
             "customer"
         )
         is_distributor_sale = buyer_type in ("distributor", "mantri")
         is_doctor_sale = buyer_type == "doctor"
         is_shopkeeper_sale = buyer_type == "shopkeeper"
+        is_field_officer_sale = buyer_type in ("field_officer", "field officer")
 
         if is_distributor_sale:
             if not sale.distributor_id:
@@ -573,9 +614,28 @@ def create_sale(
                     }).execute()
                     if new_sk.data:
                         sale.shopkeeper_id = new_sk.data[0]["shopkeeper_id"]
+        elif is_field_officer_sale:
+            if not sale.field_officer_id:
+                raise HTTPException(status_code=400, detail="field_officer_id is required for Field Officer sales")
+            fo_check = db.table("field_officers").select("field_officer_id").eq("field_officer_id", sale.field_officer_id).execute()
+            if not fo_check.data:
+                cust_check = db.table("customers").select("*").eq("customer_id", sale.field_officer_id).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    new_fo = db.table("field_officers").insert({
+                        "name": c_row.get("name"),
+                        "mobile": c_row.get("mobile"),
+                        "village": c_row.get("village") or "",
+                        "taluka": c_row.get("taluka") or "",
+                        "district": c_row.get("district") or "",
+                        "state": c_row.get("state") or "Gujarat",
+                        "status": "Active"
+                    }).execute()
+                    if new_fo.data:
+                        sale.field_officer_id = new_fo.data[0]["field_officer_id"]
         else:
             if not sale.customer_id:
-                raise HTTPException(status_code=400, detail="customer_id is required for Customer/Field Officer sales")
+                raise HTTPException(status_code=400, detail="customer_id is required for Customer sales")
 
         if not sale.items or len(sale.items) == 0:
             raise HTTPException(status_code=400, detail="At least one item is required")
@@ -631,21 +691,31 @@ def create_sale(
             sale_data["customer_id"] = None
             sale_data["doctor_id"] = None
             sale_data["shopkeeper_id"] = None
+            sale_data["field_officer_id"] = None
         elif is_doctor_sale:
             sale_data["doctor_id"] = sale.doctor_id
             sale_data["customer_id"] = None
             sale_data["distributor_id"] = None
             sale_data["shopkeeper_id"] = None
+            sale_data["field_officer_id"] = None
         elif is_shopkeeper_sale:
             sale_data["shopkeeper_id"] = sale.shopkeeper_id
             sale_data["customer_id"] = None
             sale_data["distributor_id"] = None
             sale_data["doctor_id"] = None
+            sale_data["field_officer_id"] = None
+        elif is_field_officer_sale:
+            sale_data["field_officer_id"] = sale.field_officer_id
+            sale_data["customer_id"] = None
+            sale_data["distributor_id"] = None
+            sale_data["doctor_id"] = None
+            sale_data["shopkeeper_id"] = None
         else:
             sale_data["customer_id"] = sale.customer_id
             sale_data["distributor_id"] = None
             sale_data["doctor_id"] = None
             sale_data["shopkeeper_id"] = None
+            sale_data["field_officer_id"] = None
 
         try:
             sale_response = db.table("sales").insert(sale_data).execute()
@@ -693,7 +763,7 @@ def create_sale(
                 "amount": item.amount,
             }
             # Only set customer_id on items for Sabhasad sales
-            if not is_distributor_sale and sale.customer_id:
+            if not is_distributor_sale and not is_field_officer_sale and not is_doctor_sale and not is_shopkeeper_sale and sale.customer_id:
                 item_row["customer_id"] = sale.customer_id
             sale_items_data.append(item_row)
 
@@ -715,6 +785,15 @@ def create_sale(
                 if is_distributor_sale:
                     buyer_resp = db.table("distributors").select("name").eq("distributor_id", sale.distributor_id).execute()
                     buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Distributor ID: {sale.distributor_id}"
+                elif is_doctor_sale:
+                    buyer_resp = db.table("doctors").select("name").eq("doctor_id", sale.doctor_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Doctor ID: {sale.doctor_id}"
+                elif is_shopkeeper_sale:
+                    buyer_resp = db.table("shopkeepers").select("name").eq("shopkeeper_id", sale.shopkeeper_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Shopkeeper ID: {sale.shopkeeper_id}"
+                elif is_field_officer_sale:
+                    buyer_resp = db.table("field_officers").select("name").eq("field_officer_id", sale.field_officer_id).execute()
+                    buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Field Officer ID: {sale.field_officer_id}"
                 else:
                     buyer_resp = db.table("customers").select("name").eq("customer_id", sale.customer_id).execute()
                     buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Customer ID: {sale.customer_id}"
@@ -1134,6 +1213,24 @@ def update_sale(
                         if new_d.data:
                             clean_data["distributor_id"] = new_d.data[0]["distributor_id"]
 
+        if clean_data.get("field_officer_id"):
+            fo_check = db.table("field_officers").select("field_officer_id").eq("field_officer_id", clean_data["field_officer_id"]).execute()
+            if not fo_check.data:
+                cust_check = db.table("customers").select("*").eq("customer_id", clean_data["field_officer_id"]).execute()
+                if cust_check.data:
+                    c_row = cust_check.data[0]
+                    new_fo = db.table("field_officers").insert({
+                        "name": c_row.get("name"),
+                        "mobile": c_row.get("mobile"),
+                        "village": c_row.get("village") or "",
+                        "taluka": c_row.get("taluka") or "",
+                        "district": c_row.get("district") or "",
+                        "state": c_row.get("state") or "Gujarat",
+                        "status": "Active"
+                    }).execute()
+                    if new_fo.data:
+                        clean_data["field_officer_id"] = new_fo.data[0]["field_officer_id"]
+
         # Update the sales record
         response = db.table("sales").eq("sale_id", sale_id).update(clean_data).execute()
 
@@ -1261,18 +1358,36 @@ def get_invoice_pdf(
         if sale.get("sale_stage") == "pre_sale":
             raise HTTPException(status_code=400, detail="Cannot generate invoice for an unconfirmed pre-sale")
 
-        # Get customer data
-        customer_response = (
-            db.table("customers")
-            .select("*")
-            .eq("customer_id", sale["customer_id"])
-            .execute()
+        # Get customer / buyer data
+        buyer_type = sale.get("buyer_type") or (
+            "doctor" if sale.get("doctor_id") else
+            "shopkeeper" if sale.get("shopkeeper_id") else
+            "field_officer" if sale.get("field_officer_id") else
+            "distributor" if sale.get("distributor_id") else "customer"
         )
+        if buyer_type in ("distributor", "mantri") and sale.get("distributor_id"):
+            c_resp = db.table("distributors").select("*").eq("distributor_id", sale["distributor_id"]).execute()
+            customer = c_resp.data[0] if c_resp.data else {}
+            customer["name"] = customer.get("mantri_name") or customer.get("name", "Unknown Distributor")
+            customer["mobile"] = customer.get("mantri_mobile") or customer.get("mobile", "")
+        elif buyer_type == "doctor" and sale.get("doctor_id"):
+            c_resp = db.table("doctors").select("*").eq("doctor_id", sale["doctor_id"]).execute()
+            customer = c_resp.data[0] if c_resp.data else {}
+            customer["mobile"] = customer.get("mantri_mobile") or customer.get("mobile", "")
+        elif buyer_type == "shopkeeper" and sale.get("shopkeeper_id"):
+            c_resp = db.table("shopkeepers").select("*").eq("shopkeeper_id", sale["shopkeeper_id"]).execute()
+            customer = c_resp.data[0] if c_resp.data else {}
+            customer["mobile"] = customer.get("mantri_mobile") or customer.get("mobile", "")
+        elif buyer_type in ("field_officer", "field officer") and sale.get("field_officer_id"):
+            c_resp = db.table("field_officers").select("*").eq("field_officer_id", sale["field_officer_id"]).execute()
+            customer = c_resp.data[0] if c_resp.data else {}
+            customer["mobile"] = customer.get("mantri_mobile") or customer.get("mobile", "")
+        else:
+            c_resp = db.table("customers").select("*").eq("customer_id", sale.get("customer_id")).execute()
+            customer = c_resp.data[0] if c_resp.data else {}
 
-        if not customer_response.data:
+        if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
-
-        customer = customer_response.data[0]
 
         # Get sale items with product names
         items_response = (

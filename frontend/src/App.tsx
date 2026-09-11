@@ -22,6 +22,7 @@ import DemoScheduler from "./pages/DemoScheduler";
 import Distributors from "./pages/Distributors";
 import Shopkeepers from "./pages/Shopkeepers";
 import Doctors from "./pages/Doctors";
+import FieldOfficers from "./pages/FieldOfficers";
 import Reports from "./pages/Reports";
 import Forecasting from "./pages/Forecasting";
 import DataImport from "./pages/DataImport";
@@ -168,6 +169,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DOCTORS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Doctors />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/field-officers"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_FIELD_OFFICERS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <FieldOfficers />
                       </Layout>
                     </ProtectedRoute>
                   }

@@ -518,6 +518,30 @@ export const doctorAPI = {
   },
 };
 
+// Field Officer API
+export const fieldOfficerAPI = {
+  getAll: async (params?: any) => {
+    const response = await apiClient.get("/api/field-officers", { params });
+    return response.data;
+  },
+  getById: async (id: number) => {
+    const response = await apiClient.get(`/api/field-officers/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await apiClient.post("/api/field-officers", data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await apiClient.put(`/api/field-officers/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await apiClient.delete(`/api/field-officers/${id}`);
+    return response.data;
+  },
+};
+
 // Sales API
 export const salesAPI = {
   getAll: async (params?: any) => {

@@ -24,6 +24,7 @@
     "customerReport": "सभासद रिपोर्ट",
     "shopkeepers": "दुकानदार",
     "doctors": "डॉक्टर",
+    "fieldOfficers": "फील्ड ऑफिसर",
     "leads": "Leads",
     "leadDashboard": "Lead Dashboard",
     "leadPipeline": "Lead Pipeline",
@@ -602,6 +603,23 @@
     "savedSuccessfully": "मंत्री सफलतापूर्वक सहेजा गया",
     "deleteError": "मंत्री हटाने में विफल",
     "noDistributors": "कोई मंत्री नहीं मिला"
+  },
+  "fieldOfficers": {
+    "title": "फील्ड ऑफिसर",
+    "addFieldOfficer": "फील्ड ऑफिसर जोड़ें",
+    "editFieldOfficer": "फील्ड ऑफिसर संपादित करें",
+    "deleteFieldOfficer": "फील्ड ऑफिसर हटाएं",
+    "contactPerson": "संपर्क व्यक्ति",
+    "mobile": "मोबाइल",
+    "area": "क्षेत्र",
+    "status": "स्थिति",
+    "active": "सक्रिय",
+    "inactive": "निष्क्रिय",
+    "confirmDelete": "क्या आप वाकई इस फील्ड ऑफिसर को हटाना चाहते हैं?",
+    "deletedSuccessfully": "फील्ड ऑफिसर सफलतापूर्वक हटाया गया",
+    "savedSuccessfully": "फील्ड ऑफिसर सफलतापूर्वक सहेजा गया",
+    "deleteError": "फील्ड ऑफिसर हटाने में विफल",
+    "noFieldOfficers": "कोई फील्ड ऑफिसर नहीं मिला"
   },
   "leadWorkspace": {
     "title": "लीड वर्कस्पेस",

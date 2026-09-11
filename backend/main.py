@@ -53,6 +53,7 @@ from routers import (
     reviews,
     telecaller_orders,
     call_logger,
+    field_officers,
 )
 from scheduler import start_scheduler
 
@@ -166,6 +167,7 @@ app.include_router(demos, prefix="/api/demos")
 app.include_router(distributors, prefix="/api/distributors")
 app.include_router(shopkeepers, prefix="/api/shopkeepers")
 app.include_router(doctors, prefix="/api/doctors")
+app.include_router(field_officers, prefix="/api/field-officers")
 app.include_router(dashboard, prefix="/api/dashboard")
 app.include_router(reports, prefix="/api/reports")
 app.include_router(analytics, prefix="/api/analytics")

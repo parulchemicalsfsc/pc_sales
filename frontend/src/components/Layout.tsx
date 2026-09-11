@@ -108,6 +108,7 @@ const TOP_LEVEL_ROUTES = new Set([
   "/distributors",
   "/shopkeepers",
   "/doctors",
+  "/field-officers",
   "/reports",
   "/import",
   "/calling-list",
@@ -179,6 +180,13 @@ const navigationItems: NavItem[] = [
         icon: <GroupIcon />,
         path: "/doctors",
         permission: PERMISSIONS.VIEW_DOCTORS,
+      },
+      {
+        id: "field-officers",
+        labelKey: "nav.fieldOfficers",
+        icon: <GroupIcon />,
+        path: "/field-officers",
+        permission: PERMISSIONS.VIEW_FIELD_OFFICERS,
       },
     ]
   },

@@ -61,6 +61,12 @@ export const PERMISSIONS = {
     CREATE_DOCTOR: "create_doctor",
     EDIT_DOCTOR: "edit_doctor",
 
+    // Field Officers
+    VIEW_FIELD_OFFICERS: "view_field_officers",
+    CREATE_FIELD_OFFICER: "create_field_officer",
+    EDIT_FIELD_OFFICER: "edit_field_officer",
+    DELETE_FIELD_OFFICER: "delete_field_officer",
+
     // Reports
     VIEW_REPORTS: "view_reports",
     EXPORT_REPORTS: "export_reports",
