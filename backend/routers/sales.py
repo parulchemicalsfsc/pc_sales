@@ -525,6 +525,7 @@ def create_sale(
     sale: SaleCreate,
     db: SupabaseClient = Depends(get_supabase),
     user_email: Optional[str] = Header(None, alias="x-user-email"),
+    user_role_header: Optional[str] = Header(None, alias="x-user-role"),
 ):
     """Create a new sale with items and auto-convert related demos"""
     try:
@@ -673,9 +674,34 @@ def create_sale(
         # (auto-generated on confirmation)
         user_invoice_no = (sale.invoice_no or "").strip() or None
 
+        # Resolve user role
+        user_role = (user_role_header or "").strip().lower()
+        if user_email and user_role in ("", "unknown"):
+            try:
+                user_res = db.table("app_users").select("role").eq("email", user_email).execute()
+                if user_res.data:
+                    user_role = (user_res.data[0].get("role") or "").strip().lower()
+            except Exception:
+                pass
+
+        # Check if creator is sales manager or admin (or developer)
+        is_manager_or_admin = user_role in ("admin", "sales_manager", "developer") or (
+            user_role not in ("telecaller", "unknown") and bool(user_email)
+        )
+        if user_role == "telecaller":
+            is_manager_or_admin = False
+
+        # Only sales with pre-defined invoice from sales manager / admin go directly to confirmed sales.
+        # Otherwise, sales with automated generated invoices (empty invoices) will go to pre-sales.
+        has_predefined_invoice = bool(user_invoice_no)
+        should_confirm_directly = has_predefined_invoice and is_manager_or_admin
+
+        initial_stage = "confirmed" if should_confirm_directly else "pre_sale"
+        initial_invoice_no = user_invoice_no if should_confirm_directly else None
+
         # Build sale record
         sale_data: dict = {
-            "invoice_no": user_invoice_no,
+            "invoice_no": initial_invoice_no,
             "sale_date": sale.sale_date,
             "total_amount": total_amount,
             "total_liters": total_liters,
@@ -683,8 +709,27 @@ def create_sale(
             "notes": sale.notes or None,
             "payment_terms": sale.payment_terms or None,
             "buyer_type": buyer_type,
-            "sale_stage": "pre_sale",
+            "sale_stage": initial_stage,
         }
+
+        # If confirmed directly with pre-defined invoice, generate sale_code (MMyy#### format)
+        if should_confirm_directly:
+            try:
+                now = datetime.now()
+                month_year_prefix = now.strftime("%m%y")
+                first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                count_response = (
+                    db.table("sales")
+                    .select("sale_id", count="exact")
+                    .eq("sale_stage", "confirmed")
+                    .gte("created_at", first_day.isoformat())
+                    .execute()
+                )
+                sequence = (count_response.count or 0) + 1
+                sale_data["sale_code"] = f"{month_year_prefix}{sequence:04d}"
+            except Exception as sc_err:
+                print(f"[create_sale] Could not generate sale_code: {sc_err}")
+
         # Set only the relevant buyer FK — null out all others
         if is_distributor_sale:
             sale_data["distributor_id"] = sale.distributor_id
@@ -798,16 +843,18 @@ def create_sale(
                     buyer_resp = db.table("customers").select("name").eq("customer_id", sale.customer_id).execute()
                     buyer_name = buyer_resp.data[0].get("name") if buyer_resp.data else f"Customer ID: {sale.customer_id}"
 
+                stage_label = "Confirmed Sale" if should_confirm_directly else "Pre-Sale"
                 logger.log_create(
                     user_email=user_email,
                     entity_type="sale",
-                    entity_name=f"Pre-Sale #{sale_id} - {buyer_name}",
+                    entity_name=f"{stage_label} #{sale_id} - {buyer_name}",
                     entity_id=sale_id,
                     new_state=created_sale,
                     metadata={
-                        "sale_stage": "pre_sale",
+                        "sale_stage": initial_stage,
+                        "invoice_no": initial_invoice_no,
                         "buyer_type": buyer_type,
-                        "buyer_id": sale.distributor_id if is_distributor_sale else sale.customer_id,
+                        "buyer_id": sale.distributor_id if is_distributor_sale else (sale.doctor_id if is_doctor_sale else (sale.shopkeeper_id if is_shopkeeper_sale else (sale.field_officer_id if is_field_officer_sale else sale.customer_id))),
                         "total_amount": total_amount,
                         "items_count": len(sale_items_data),
                     },
@@ -815,39 +862,43 @@ def create_sale(
             except Exception as log_err:
                 print(f"Warning: Failed to log activity: {str(log_err)}")
 
-        # NOTE: Demo auto-conversion is deferred to POST /confirm endpoint for telecallers
+        # Auto-convert matching demos for directly confirmed sales
         converted_demos = 0
-
-        # Auto-confirm for non-telecaller users
-        try:
-            user_role = "unknown"
-            if user_email:
-                user_res = db.table("app_users").select("role").eq("email", user_email).execute()
-                if user_res.data:
-                    user_role = user_res.data[0].get("role", "unknown")
-            
-            if user_role != "telecaller":
-                confirm_resp = confirm_sales({"sale_ids": [sale_id]}, db, user_email)
-                if confirm_resp.get("succeeded"):
-                    succeeded_info = confirm_resp["succeeded"][0]
-                    invoice_no = succeeded_info.get("invoice_no")
-                    
-                    created_sale["invoice_no"] = invoice_no
-                    created_sale["sale_stage"] = "confirmed"
-                    created_sale["sale_code"] = succeeded_info.get("sale_code")
-                    converted_demos = succeeded_info.get("converted_demos", 0)
-        except Exception as auto_confirm_err:
-            print(f"[create_sale] Warning: Failed to auto-confirm sale {sale_id}: {auto_confirm_err}")
+        if should_confirm_directly and sale.customer_id:
+            try:
+                if not is_distributor_sale and not is_field_officer_sale and not is_doctor_sale and not is_shopkeeper_sale:
+                    demos_response = (
+                        db.table("demos")
+                        .select("demo_id, product_id, conversion_status")
+                        .eq("customer_id", sale.customer_id)
+                        .in_("conversion_status", ["Scheduled", "Pending", "Follow-up"])
+                        .execute()
+                    )
+                    if demos_response.data:
+                        sale_product_ids = [item.product_id for item in sale.items]
+                        for demo in demos_response.data:
+                            if demo.get("product_id") in sale_product_ids:
+                                try:
+                                    db.table("demos").eq("demo_id", demo["demo_id"]).update({
+                                        "conversion_status": "Converted",
+                                        "notes": f"Auto-converted: Sale {user_invoice_no} confirmed on {sale.sale_date}",
+                                    }).execute()
+                                    converted_demos += 1
+                                except Exception:
+                                    pass
+            except Exception as demo_err:
+                print(f"[create_sale] Demo auto-convert failed: {demo_err}")
 
         # Handle Initial Payment
         if sale.paid_amount and sale.paid_amount > 0:
             try:
+                display_ref = initial_invoice_no or f"Sale #{sale_id}"
                 payment_data = {
                     "sale_id": sale_id,
                     "payment_date": sale.sale_date,
                     "payment_method": sale.payment_method or "Cash",
                     "amount": sale.paid_amount,
-                    "notes": f"Initial payment for invoice {invoice_no}"
+                    "notes": f"Initial payment for {display_ref}"
                 }
                 
                 # Insert payment
@@ -870,12 +921,12 @@ def create_sale(
                     logger.log_create(
                         user_email=user_email,
                         entity_type="payment",
-                        entity_name=f"₹{sale.paid_amount} for {invoice_no}",
+                        entity_name=f"₹{sale.paid_amount} for {display_ref}",
                         entity_id=sale_id, # Linking to sale
                         new_state=payment_data,
                         metadata={
                             "amount": sale.paid_amount,
-                            "invoice_no": invoice_no,
+                            "invoice_no": initial_invoice_no,
                             "type": "initial_payment"
                         }
                     )
@@ -883,11 +934,8 @@ def create_sale(
                 print(f"Error processing initial payment: {pay_err}")
                 # Don't fail the whole sale creation for payment failure, but log it
 
-        # Notification creation removed as per user request
-
-
         return {
-            "message": "Sale created successfully" if created_sale.get("sale_stage") == "confirmed" else "Pre-sale created successfully",
+            "message": "Sale created successfully" if should_confirm_directly else "Pre-sale created successfully",
             "sale": created_sale,
             "items_count": len(sale_items_data),
             "converted_demos": converted_demos,

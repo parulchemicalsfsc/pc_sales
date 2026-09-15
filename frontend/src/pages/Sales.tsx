@@ -1497,8 +1497,16 @@ export default function Sales() {
 
           if (editingSaleId) {
             setSales(prev => prev.map(s => s.sale_id === editingSaleId ? enrichedSale : s));
+            setToast({ msg: "Sale updated successfully", sev: "success" });
           } else {
             setSales(prev => [enrichedSale, ...prev]);
+            if (newSale.sale_stage === "pre_sale") {
+              setSaleTab("pre_sales");
+              setToast({ msg: "Sale saved to Pre-Sales (pending confirmation)", sev: "info" });
+            } else {
+              setSaleTab("confirmed");
+              setToast({ msg: `Sale confirmed${newSale.invoice_no ? ` with Invoice #${newSale.invoice_no}` : ""}`, sev: "success" });
+            }
           }
         } catch (e) {
           console.log("Optimistic update failed, waiting for refresh");
@@ -2318,6 +2326,11 @@ export default function Sales() {
                     setFormData({ ...formData, invoice_no: e.target.value })
                   }
                   placeholder={t("sales.invoiceNoPlaceholder", "Leave empty for auto-generation")}
+                  helperText={
+                    formData.invoice_no?.trim()
+                      ? "Pre-defined invoice entered: will go directly to Confirmed Sales"
+                      : "Empty invoice: will go to Pre-Sales (invoice auto-generated on confirmation)"
+                  }
                 />
               </Grid>
 
@@ -2540,7 +2553,11 @@ export default function Sales() {
               disabled={submitting}
               startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
             >
-              {submitting ? "Saving..." : (editingSaleId ? "Save Changes" : t("sales.addSale"))}
+              {submitting
+                ? "Saving..."
+                : editingSaleId
+                ? "Save Changes"
+                : (formData.invoice_no?.trim() ? "Create Confirmed Sale" : "Create Pre-Sale")}
             </Button>
           </DialogActions>
         </Dialog>
