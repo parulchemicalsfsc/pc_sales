@@ -42,6 +42,7 @@ import type { Shopkeeper } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
+import { toUpperCaseText } from "../utils/formatters";
 
 export default function Shopkeepers() {
   const theme = useTheme();
@@ -175,7 +176,14 @@ export default function Shopkeepers() {
   const handleOpenDialog = (shopkeeper?: Shopkeeper) => {
     if (shopkeeper) {
       setEditingShopkeeper(shopkeeper);
-      setFormData(shopkeeper);
+      setFormData({
+        ...shopkeeper,
+        name: toUpperCaseText(shopkeeper.name),
+        village: toUpperCaseText(shopkeeper.village),
+        taluka: toUpperCaseText(shopkeeper.taluka),
+        district: toUpperCaseText(shopkeeper.district),
+        dairy_type: toUpperCaseText(shopkeeper.dairy_type),
+      });
     } else {
       setEditingShopkeeper(null);
       setFormData({
@@ -229,14 +237,23 @@ export default function Shopkeepers() {
         return;
       }
 
+      const payload = {
+        ...formData,
+        name: toUpperCaseText(formData.name),
+        village: toUpperCaseText(formData.village),
+        taluka: toUpperCaseText(formData.taluka),
+        district: toUpperCaseText(formData.district),
+        dairy_type: toUpperCaseText(formData.dairy_type),
+      } as Shopkeeper;
+
       if (editingShopkeeper) {
-        console.log("🚀 PAYLOAD BEING SENT:", formData);
+        console.log("🚀 PAYLOAD BEING SENT:", payload);
         await shopkeeperAPI.update(
           editingShopkeeper.shopkeeper_id!,
-          formData as Shopkeeper,
+          payload,
         );
       } else {
-        await shopkeeperAPI.create(formData as Shopkeeper);
+        await shopkeeperAPI.create(payload);
       }
 
       handleCloseDialog();
@@ -952,7 +969,7 @@ export default function Shopkeepers() {
                 label={t("shopkeepers.shopkeeperName", "Shopkeeper Name")}
                 value={formData.name || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
+                  setFormData({ ...formData, name: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -989,7 +1006,7 @@ export default function Shopkeepers() {
                 label={tf("village")}
                 value={formData.village}
                 onChange={(e) =>
-                  setFormData({ ...formData, village: e.target.value })
+                  setFormData({ ...formData, village: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -999,7 +1016,7 @@ export default function Shopkeepers() {
                 label={tf("taluka")}
                 value={formData.taluka}
                 onChange={(e) =>
-                  setFormData({ ...formData, taluka: e.target.value })
+                  setFormData({ ...formData, taluka: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1009,7 +1026,7 @@ export default function Shopkeepers() {
                 label={tf("district")}
                 value={formData.district}
                 onChange={(e) =>
-                  setFormData({ ...formData, district: e.target.value })
+                  setFormData({ ...formData, district: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1024,10 +1041,10 @@ export default function Shopkeepers() {
                 }
               >
                 {regions.map((reg) => (
-                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                  <MenuItem key={reg} value={reg}>{reg.toUpperCase()}</MenuItem>
                 ))}
                 {regions.length === 0 && (
-                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                  <MenuItem value="Gujarat">GUJARAT</MenuItem>
                 )}
               </TextField>
             </Grid>
@@ -1121,10 +1138,8 @@ export default function Shopkeepers() {
                   setFormData({ ...formData, status: e.target.value })
                 }
               >
-                <MenuItem value="Active">{t("shopkeepers.active")}</MenuItem>
-                <MenuItem value="Inactive">
-                  {t("shopkeepers.inactive")}
-                </MenuItem>
+                <MenuItem value="Active">ACTIVE</MenuItem>
+                <MenuItem value="Inactive">INACTIVE</MenuItem>
               </TextField>
             </Grid>
 
@@ -1141,7 +1156,7 @@ export default function Shopkeepers() {
                 label={t("shopkeepers.dairyType", "Dairy Type")}
                 value={formData.dairy_type || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, dairy_type: e.target.value })
+                  setFormData({ ...formData, dairy_type: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>

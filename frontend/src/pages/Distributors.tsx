@@ -43,16 +43,13 @@ import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
 
+import { toUpperCaseText } from "../utils/formatters";
+
 export default function Distributors() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDarkMode = theme.palette.mode === "dark";
   const { t, tf } = useTranslation();
-  
-  // Utility to safely convert value to uppercase
-  const toUpperCaseSafe = (val: any) => {
-    return typeof val === "string" ? val.toUpperCase() : val;
-  };
 
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [regions, setRegions] = useState<string[]>([]);
@@ -172,7 +169,14 @@ export default function Distributors() {
   const handleOpenDialog = (distributor?: Distributor) => {
     if (distributor) {
       setEditingDistributor(distributor);
-      setFormData(distributor);
+      setFormData({
+        ...distributor,
+        mantri_name: toUpperCaseText(distributor.mantri_name),
+        village: toUpperCaseText(distributor.village),
+        taluka: toUpperCaseText(distributor.taluka),
+        district: toUpperCaseText(distributor.district),
+        dairy_type: toUpperCaseText(distributor.dairy_type),
+      });
     } else {
       setEditingDistributor(null);
       setFormData({
@@ -251,12 +255,12 @@ export default function Distributors() {
       // Build payload with uppercase safety layer
       const payload = {
         ...formData,
-        mantri_name: toUpperCaseSafe(formData.mantri_name),
-        village: toUpperCaseSafe(formData.village),
-        taluka: toUpperCaseSafe(formData.taluka),
-        district: toUpperCaseSafe(formData.district),
+        mantri_name: toUpperCaseText(formData.mantri_name),
+        village: toUpperCaseText(formData.village),
+        taluka: toUpperCaseText(formData.taluka),
+        district: toUpperCaseText(formData.district),
         state: formData.state,
-        dairy_type: toUpperCaseSafe(formData.dairy_type),
+        dairy_type: toUpperCaseText(formData.dairy_type),
       } as Distributor;
 
       // ── Duplicate probe (non-blocking) ──────────────────────────────────
@@ -1180,7 +1184,7 @@ export default function Distributors() {
                 label={t("distributors.mantriName", "Mantri Name")}
                 value={formData.mantri_name}
                 onChange={(e) =>
-                  setFormData({ ...formData, mantri_name: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, mantri_name: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1227,7 +1231,7 @@ export default function Distributors() {
                 label={tf("village")}
                 value={formData.village}
                 onChange={(e) =>
-                  setFormData({ ...formData, village: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, village: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1237,7 +1241,7 @@ export default function Distributors() {
                 label={tf("taluka")}
                 value={formData.taluka}
                 onChange={(e) =>
-                  setFormData({ ...formData, taluka: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, taluka: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1247,7 +1251,7 @@ export default function Distributors() {
                 label={tf("district")}
                 value={formData.district}
                 onChange={(e) =>
-                  setFormData({ ...formData, district: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, district: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1262,10 +1266,10 @@ export default function Distributors() {
                 }
               >
                 {regions.map((reg) => (
-                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
+                  <MenuItem key={reg} value={reg}>{reg.toUpperCase()}</MenuItem>
                 ))}
                 {regions.length === 0 && (
-                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                  <MenuItem value="Gujarat">GUJARAT</MenuItem>
                 )}
               </TextField>
             </Grid>
@@ -1359,10 +1363,8 @@ export default function Distributors() {
                   setFormData({ ...formData, status: e.target.value })
                 }
               >
-                <MenuItem value="Active">{t("distributors.active")}</MenuItem>
-                <MenuItem value="Inactive">
-                  {t("distributors.inactive")}
-                </MenuItem>
+                <MenuItem value="Active">ACTIVE</MenuItem>
+                <MenuItem value="Inactive">INACTIVE</MenuItem>
               </TextField>
             </Grid>
 
@@ -1379,7 +1381,7 @@ export default function Distributors() {
                 label={t("distributors.dairyType", "Dairy Type")}
                 value={formData.dairy_type || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, dairy_type: toUpperCaseSafe(e.target.value) })
+                  setFormData({ ...formData, dairy_type: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
