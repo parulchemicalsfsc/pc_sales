@@ -356,6 +356,20 @@ def create_note(
             response_body["debit_sale"] = created_debit_sale
             response_body["message"] += f". A new sale (Invoice: {created_debit_sale.get('invoice_no')}) and payment have been automatically recorded."
 
+        # Log activity
+        if user_email:
+            try:
+                activity_logger = get_activity_logger(db)
+                activity_logger.log_create(
+                    user_email=user_email,
+                    entity_type="note",
+                    entity_name=f"{note.note_type.upper()} Note for Sale {note.sale_id} — ₹{note.amount}",
+                    entity_id=created_note.get("note_id"),
+                    metadata={"note_type": note.note_type, "amount": float(note.amount), "sale_id": note.sale_id},
+                )
+            except Exception:
+                pass  # Don't fail the request if logging fails
+
         return response_body
 
     except HTTPException:

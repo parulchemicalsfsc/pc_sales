@@ -2663,7 +2663,7 @@ export default function Sales() {
           <DialogTitle>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
               <span>Pending Telecaller Orders</span>
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
                 <Checkbox
                   checked={telecallerOrders.length > 0 && selectedTelecallerOrders.size === telecallerOrders.length}
                   indeterminate={selectedTelecallerOrders.size > 0 && selectedTelecallerOrders.size < telecallerOrders.length}
@@ -2671,6 +2671,32 @@ export default function Sales() {
                   size="small"
                 />
                 <Typography variant="body2" sx={{ mr: 1 }}>Select All</Typography>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  disabled={selectedTelecallerOrders.size === 0}
+                  startIcon={<DownloadIcon fontSize="small" />}
+                  onClick={async () => {
+                    try {
+                      const ids = Array.from(selectedTelecallerOrders);
+                      const res = await telecallerOrderAPI.exportSelectedOrders(ids);
+                      const url = window.URL.createObjectURL(new Blob([res.data]));
+                      const link = document.createElement('a');
+                      link.href = url;
+                      const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+                      link.setAttribute('download', `telecaller_orders_${today}.xlsx`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      window.URL.revokeObjectURL(url);
+                    } catch (e) {
+                      setToast({ msg: "Failed to download Excel", sev: "error" });
+                    }
+                  }}
+                >
+                  Download Excel
+                </Button>
                 <Button variant="contained" color="success" size="small" disabled={selectedTelecallerOrders.size === 0} onClick={handleBulkTelecallerApprove}>Approve Selected</Button>
                 <Button variant="contained" color="error" size="small" disabled={selectedTelecallerOrders.size === 0} onClick={handleBulkTelecallerReject}>Reject Selected</Button>
               </Box>

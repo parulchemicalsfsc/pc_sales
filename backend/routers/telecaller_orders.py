@@ -651,6 +651,99 @@ def export_confirmations_excel(
         logger.error(f"Error exporting confirmations excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+class ExportSelectedOrdersRequest(BaseModel):
+    order_ids: List[int]
+
+
+@router.post("/export-selected", dependencies=[Depends(verify_permission("view_sales"))])
+def export_selected_orders(
+    body: ExportSelectedOrdersRequest,
+    db: SupabaseClient = Depends(get_supabase),
+):
+    """Export selected pending telecaller orders to Excel (pre-approval download)."""
+    try:
+        if not body.order_ids:
+            raise HTTPException(status_code=400, detail="No order IDs provided")
+
+        resp = db.table("telecaller_orders").select("*").in_("order_id", body.order_ids).execute()
+        orders = resp.data or []
+
+        if not orders:
+            raise HTTPException(status_code=404, detail="No orders found for given IDs")
+
+        data = []
+        for o in orders:
+            prods = o.get("products_json") or "[]"
+            try:
+                if isinstance(prods, str):
+                    prods = json.loads(prods)
+                rows = []
+                total_amount = 0.0
+                for p in prods:
+                    qty = p.get("quantity", 1)
+                    rate = p.get("rate", 0)
+                    amt = p.get("amount", qty * rate)
+                    total_amount += amt
+                    rows.append(f"{p.get('product_name') or p.get('name', 'Unknown')} x{qty} @₹{rate} = ₹{amt}")
+                prod_str = " | ".join(rows)
+            except Exception:
+                prod_str = str(prods)
+                total_amount = 0.0
+
+            # Format created_at as IST
+            created_raw = o.get("created_at", "")
+            try:
+                from datetime import timezone as tz
+                dt = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+                IST = pytz.timezone("Asia/Kolkata")
+                dt_ist = dt.astimezone(IST)
+                created_str = dt_ist.strftime("%d-%m-%Y %I:%M %p")
+            except Exception:
+                created_str = created_raw[:16] if created_raw else ""
+
+            data.append({
+                "Sr No": len(data) + 1,
+                "Date": created_str,
+                "Telecaller": o.get("telecaller_email", ""),
+                "Customer Name": o.get("customer_name", ""),
+                "Village": o.get("customer_village", ""),
+                "Mobile": o.get("customer_mobile", ""),
+                "Customer Type": o.get("customer_type", ""),
+                "Products": prod_str,
+                "Total Amount (₹)": total_amount,
+                "Notes": o.get("notes", ""),
+                "Confirmation Date": o.get("confirmation_date", "")[:10] if o.get("confirmation_date") else "",
+                "Status": o.get("status", "pending").upper(),
+            })
+
+        import pandas as pd
+        import io as _io
+        df = pd.DataFrame(data)
+        output = _io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Pending Orders')
+            # Auto-size columns
+            ws = writer.sheets['Pending Orders']
+            for col in ws.columns:
+                max_len = max((len(str(cell.value or "")) for cell in col), default=10)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+        output.seek(0)
+
+        from datetime import date as _date
+        today = _date.today().strftime("%d-%m-%Y")
+        headers_resp = {
+            'Content-Disposition': f'attachment; filename="telecaller_orders_{today}.xlsx"'
+        }
+        return StreamingResponse(output, headers=headers_resp, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting selected orders excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.get("/{order_id}", dependencies=[Depends(verify_permission("view_sales"))])
 def get_telecaller_order(order_id: int, db: SupabaseClient = Depends(get_supabase)):
     """Get a single telecaller order by ID."""

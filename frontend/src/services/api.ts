@@ -1228,6 +1228,14 @@ export const telecallerOrderAPI = {
     });
     return response;
   },
+  exportSelectedOrders: async (orderIds: number[]) => {
+    const response = await apiClient.post("/api/telecaller-orders/export-selected", {
+      order_ids: orderIds,
+    }, {
+      responseType: 'blob',
+    });
+    return response;
+  },
 };
 
 /**

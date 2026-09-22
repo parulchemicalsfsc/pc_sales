@@ -136,17 +136,24 @@ def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db))
             
         total_pending = max(0.0, total_sales - total_paid)
 
-        # Fetch recent call history
-        calls_res = db.table("call_logs").select("call_outcome, notes, called_at, user_email").eq("customer_id", customer_id).order("called_at", desc=True).limit(10).execute()
+        # Fetch recent call history (last 20 calls)
+        calls_res = db.table("call_logs").select("call_outcome, notes, called_at, user_email").eq("customer_id", customer_id).order("called_at", desc=True).limit(20).execute()
         
         call_logs = []
         for log in (calls_res.data or []):
             call_logs.append({
                 "call_outcome": log.get("call_outcome"),
                 "notes": log.get("notes"),
-                "created_at": log.get("called_at"), # Map back to created_at for frontend
+                "created_at": log.get("called_at"),  # Map back to created_at for frontend
                 "user_email": log.get("user_email")
             })
+
+        # Fetch most recent sale info
+        recent_sale = None
+        if sales_data:
+            recent_sale_res = db.table("sales").select("invoice_no, sale_date, total_amount, payment_status").eq("customer_id", customer_id).order("sale_date", desc=True).limit(1).execute()
+            if recent_sale_res.data:
+                recent_sale = recent_sale_res.data[0]
 
         return {
             "joined_date": joined_date,
@@ -154,7 +161,8 @@ def get_customer_summary(customer_id: int, db: SupabaseClient = Depends(get_db))
             "total_sales": total_sales,
             "total_paid": total_paid,
             "total_pending": total_pending,
-            "call_logs": call_logs
+            "call_logs": call_logs,
+            "recent_order": recent_sale,
         }
     except HTTPException:
         raise

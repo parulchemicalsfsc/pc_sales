@@ -706,6 +706,10 @@ export default function CallingList() {
   // Submit outcome for order confirmation calls (log adhoc then optionally reload)
   const submitOrderCallOutcome = async () => {
     if (!orderCallItem || !outcome) return;
+    if (role === "telecaller" && !notes.trim()) {
+      setToast({ msg: "Notes are required. Please add a note before submitting.", sev: "error" });
+      return;
+    }
     if (outcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       return;
@@ -787,6 +791,12 @@ export default function CallingList() {
     if (!finalOutcome) return;
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
+
+    // Notes mandatory for telecallers
+    if (role === "telecaller" && !notes.trim()) {
+      setToast({ msg: "Notes are required. Please add a note before submitting.", sev: "error" });
+      return;
+    }
 
     if (finalOutcome === "take_order") {
       return handleTakeOrder();
@@ -1561,7 +1571,7 @@ export default function CallingList() {
                               </Stack>
                               {item.last_call.notes && (
                                 <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
-                                  "{item.last_call.notes}"
+                                  {item.last_call.notes}
                                 </Typography>
                               )}
                             </Box>
@@ -1743,8 +1753,9 @@ export default function CallingList() {
                   <Stack spacing={1.5}>
                     {customerSummary.call_logs.map((log: any, idx: number) => {
                       const outcomeIcon = CALL_OUTCOMES.find(o => o.value === log.call_outcome);
-                      const displayLabel = outcomeIcon ? outcomeIcon.label : log.call_outcome.replace(/_/g, " ").toUpperCase();
+                      const displayLabel = outcomeIcon ? outcomeIcon.label : (log.call_outcome || "").replace(/_/g, " ").toUpperCase();
                       const displayColor = outcomeIcon ? outcomeIcon.color : "#6b7280";
+                      const logDate = new Date(log.created_at);
                       
                       return (
                         <Box key={idx} sx={{ p: 1.5, borderRadius: 2, bgcolor: surfaceMuted, border: `1px solid ${border}` }}>
@@ -1755,12 +1766,12 @@ export default function CallingList() {
                               sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700, bgcolor: alpha(displayColor, 0.1), color: displayColor, border: `1px solid ${alpha(displayColor, 0.2)}` }}
                             />
                             <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
-                              {new Date(log.created_at).toLocaleDateString("en-IN", { month: "short", day: "numeric" })}
+                              {logDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}, {logDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
                             </Typography>
                           </Stack>
                           {log.notes && (
-                            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
-                              "{log.notes}"
+                            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, fontStyle: "italic" }}>
+                              {log.notes}
                             </Typography>
                           )}
                           <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 0.5, fontSize: "0.65rem" }}>
@@ -2152,13 +2163,15 @@ export default function CallingList() {
           )}
 
           <TextField
-            label="Notes"
+            label={role === "telecaller" ? "Notes *" : "Notes"}
             multiline
             rows={2}
             fullWidth
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder="Additional optional details..."
+            placeholder={role === "telecaller" ? "Required — add call notes here..." : "Additional optional details..."}
+            error={role === "telecaller" && notes.trim() === ""}
+            helperText={role === "telecaller" && notes.trim() === "" ? "Notes are required for telecallers" : ""}
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
           
