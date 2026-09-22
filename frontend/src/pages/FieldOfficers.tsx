@@ -182,6 +182,7 @@ export default function FieldOfficers() {
         village: toUpperCaseText(doctor.village),
         taluka: toUpperCaseText(doctor.taluka),
         district: toUpperCaseText(doctor.district),
+        state: toUpperCaseText(doctor.state),
         dairy_type: toUpperCaseText(doctor.dairy_type),
       });
     } else {
@@ -191,7 +192,7 @@ export default function FieldOfficers() {
         village: "",
         taluka: "",
         district: "",
-        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
+        state: toUpperCaseText(regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat")),
         mantri_name: "",
         mantri_mobile: "",
         sabhasad_morning: undefined,
@@ -243,6 +244,7 @@ export default function FieldOfficers() {
         village: toUpperCaseText(formData.village),
         taluka: toUpperCaseText(formData.taluka),
         district: toUpperCaseText(formData.district),
+        state: toUpperCaseText(formData.state),
         dairy_type: toUpperCaseText(formData.dairy_type),
       } as FieldOfficer;
 
@@ -1029,16 +1031,17 @@ export default function FieldOfficers() {
                 select
                 fullWidth
                 label={tf("state")}
-                value={formData.state || ""}
+                value={toUpperCaseText(formData.state) || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, state: e.target.value })
+                  setFormData({ ...formData, state: toUpperCaseText(e.target.value) })
                 }
               >
-                {regions.map((reg) => (
-                  <MenuItem key={reg} value={reg}>{reg.toUpperCase()}</MenuItem>
-                ))}
+                {regions.map((reg) => {
+                  const regUpper = toUpperCaseText(reg);
+                  return <MenuItem key={regUpper} value={regUpper}>{regUpper}</MenuItem>;
+                })}
                 {regions.length === 0 && (
-                  <MenuItem value="Gujarat">GUJARAT</MenuItem>
+                  <MenuItem value="GUJARAT">GUJARAT</MenuItem>
                 )}
               </TextField>
             </Grid>
