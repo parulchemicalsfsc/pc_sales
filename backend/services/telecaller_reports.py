@@ -32,10 +32,23 @@ def format_call_duration_hms(seconds: Optional[float]) -> str:
     else:
         return f"{s}s"
 
+def normalize_email(email: Optional[str]) -> str:
+    if not email:
+        return ""
+    return str(email).strip().lower()
+
+def get_next_day_str(date_str: str) -> str:
+    try:
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+        return (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    except Exception:
+        return f"{date_str}T23:59:59"
+
 def extract_name_from_email(email: str) -> str:
     if not email:
         return ""
-    name_part = email.split("@")[0]
+    name_part = str(email).split("@")[0]
     return name_part.replace(".", " ").replace("_", " ").title()
 
 def calculate_attendance_metrics(
@@ -68,7 +81,7 @@ def calculate_attendance_metrics(
     
     present_dates = defaultdict(set)
     for att in attendance_records:
-        email = att.get("user_email")
+        email = normalize_email(att.get("user_email"))
         date = att.get("attendance_date")
         if (
             email
@@ -82,7 +95,9 @@ def calculate_attendance_metrics(
     present_users_count = 0
     total_present_days_sum = 0
 
-    for email in user_emails:
+    normalized_user_emails = {normalize_email(e) for e in user_emails if e}
+
+    for email in normalized_user_emails:
         pres = len(present_dates[email])
         total_present_days_sum += pres
         if pres > 0:
@@ -119,7 +134,7 @@ def calculate_attendance_metrics(
             "status": status,
         }
 
-    total_users_count = len(user_emails)
+    total_users_count = len(normalized_user_emails)
     zero_attendance_users_count = total_users_count - present_users_count
     total_potential = total_duty_days * total_users_count
     overall_attendance_pct = round((total_present_days_sum / total_potential * 100), 1) if total_potential > 0 else 0.0
@@ -151,9 +166,10 @@ def get_role_emails(db: SupabaseClient, role: Optional[str]) -> Optional[Set[str
         users = res.data or []
         allowed_emails = set()
         for u in users:
-            email = u.get("email")
-            if not email:
+            raw_email = u.get("email")
+            if not raw_email:
                 continue
+            email = normalize_email(raw_email)
             u_role = (u.get("role") or "").strip().lower().replace(" ", "_")
             if role_clean == "telecaller":
                 if u_role == "telecaller" or "telecaller" in u_role or u_role in ["staff", "telecaller1", "telecaller2"]:
@@ -173,7 +189,8 @@ def filter_by_allowed_emails(records: List[Dict[str, Any]], email_key: str, allo
     """
     if allowed_emails is None:
         return records
-    return [r for r in records if r.get(email_key) in allowed_emails]
+    normalized_allowed = {normalize_email(e) for e in allowed_emails if e}
+    return [r for r in records if normalize_email(r.get(email_key)) in normalized_allowed]
 
 def get_telecaller_dashboard(
     db: SupabaseClient,
@@ -187,24 +204,27 @@ def get_telecaller_dashboard(
     t_start = time.perf_counter()
     q_counts = {"call_logs": 0, "telecaller_orders": 0, "telecaller_attendance": 0, "customers": 0, "app_users": 0, "duty_sheet_log": 0, "calling_assignments": 0}
 
+    next_day = get_next_day_str(end_date)
+    selected_email = normalize_email(telecaller_email) if telecaller_email else None
+
     # 1. Fetch Call Logs
-    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", start_date).lt("called_at", next_day)
     if telecaller_email:
-        call_logs_query = call_logs_query.eq("user_email", telecaller_email)
+        call_logs_query = call_logs_query.ilike("user_email", telecaller_email)
     q_counts["call_logs"] += 1
     call_logs = call_logs_query.execute().data or []
 
     # 2. Fetch Attendance
     attendance_query = db.table("telecaller_attendance").select("user_email, attendance_date, is_present").gte("attendance_date", start_date).lte("attendance_date", end_date)
     if telecaller_email:
-        attendance_query = attendance_query.eq("user_email", telecaller_email)
+        attendance_query = attendance_query.ilike("user_email", telecaller_email)
     q_counts["telecaller_attendance"] += 1
     attendance = attendance_query.execute().data or []
 
     # 3. Fetch Orders
-    orders_query = db.table("telecaller_orders").select("telecaller_email, status, customer_id, customer_village").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
+    orders_query = db.table("telecaller_orders").select("telecaller_email, status, customer_id, customer_village").gte("created_at", start_date).lt("created_at", next_day)
     if telecaller_email:
-        orders_query = orders_query.eq("telecaller_email", telecaller_email)
+        orders_query = orders_query.ilike("telecaller_email", telecaller_email)
     if order_status:
         orders_query = orders_query.eq("status", order_status)
     q_counts["telecaller_orders"] += 1
@@ -218,7 +238,7 @@ def get_telecaller_dashboard(
     # 4. Fetch Assignments
     assignments_query = db.table("calling_assignments").select("user_email, status, reason").gte("assigned_date", start_date).lte("assigned_date", end_date)
     if telecaller_email:
-        assignments_query = assignments_query.eq("user_email", telecaller_email)
+        assignments_query = assignments_query.ilike("user_email", telecaller_email)
     q_counts["calling_assignments"] += 1
     assignments = assignments_query.execute().data or []
     assignments = filter_by_allowed_emails(assignments, "user_email", allowed_emails)
@@ -227,6 +247,28 @@ def get_telecaller_dashboard(
     q_counts["duty_sheet_log"] += 1
     duty_days_data = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
     duty_dates = {d["duty_date"] for d in duty_days_data if d.get("duty_date")}
+
+    # 5. Fetch User Sessions (Screen Time)
+    q_counts["user_sessions"] = 0
+    sessions_data = []
+    try:
+        sessions_query = db.table("user_sessions").select("user_email, total_seconds, session_date").gte("session_date", start_date).lt("session_date", next_day)
+        if telecaller_email:
+            sessions_query = sessions_query.ilike("user_email", telecaller_email)
+        q_counts["user_sessions"] += 1
+        sessions_data = sessions_query.execute().data or []
+        sessions_data = filter_by_allowed_emails(sessions_data, "user_email", allowed_emails)
+    except Exception as e:
+        logger.warning(f"Error fetching user_sessions for dashboard: {e}")
+
+    tc_screen_time = defaultdict(int)
+    for s_row in sessions_data:
+        email = normalize_email(s_row.get("user_email") or s_row.get("email"))
+        if not email:
+            continue
+        sec = s_row.get("total_seconds") or 0
+        if sec > 0:
+            tc_screen_time[email] += int(round(sec))
 
     # Initialize aggregations
     all_telecallers = set()
@@ -243,7 +285,7 @@ def get_telecaller_dashboard(
     total_calls = len(call_logs)
 
     for log in call_logs:
-        email = log.get("user_email")
+        email = normalize_email(log.get("user_email"))
         if not email:
             continue
         all_telecallers.add(email)
@@ -264,12 +306,12 @@ def get_telecaller_dashboard(
             
         time_taken = log.get("time_taken")
         if time_taken is not None:
-            tc_time[email] += time_taken
+            tc_time[email] += int(round(time_taken))
             tc_time_count[email] += 1
 
     # Add emails from attendance & orders to all_telecallers
     for att in attendance:
-        email = att.get("user_email")
+        email = normalize_email(att.get("user_email"))
         if email:
             all_telecallers.add(email)
 
@@ -279,7 +321,7 @@ def get_telecaller_dashboard(
     tc_orders_pending = defaultdict(int)
     tc_orders_rejected = defaultdict(int)
     for ord in orders:
-        email = ord.get("telecaller_email")
+        email = normalize_email(ord.get("telecaller_email"))
         if not email:
             continue
         all_telecallers.add(email)
@@ -294,9 +336,9 @@ def get_telecaller_dashboard(
 
     # Resolve target user_emails set for attendance calculation
     if allowed_emails is not None:
-        user_emails = set(allowed_emails)
-    elif telecaller_email:
-        user_emails = {telecaller_email}
+        user_emails = {normalize_email(e) for e in allowed_emails if e}
+    elif selected_email:
+        user_emails = {selected_email}
     else:
         reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
         try:
@@ -308,11 +350,17 @@ def get_telecaller_dashboard(
                     continue
                 r = (u.get("role") or "").strip().lower().replace(" ", "_")
                 if r in reporting_roles or "telecaller" in r or "sales" in r:
-                    active_emails.add(u["email"])
+                    if u.get("email"):
+                        active_emails.add(normalize_email(u["email"]))
             user_emails = active_emails.union(all_telecallers)
         except Exception as e:
             logger.warning(f"Error fetching active reporting users from app_users: {e}")
             user_emails = set(all_telecallers)
+
+    # Only add screen time users into all_telecallers if they match user_emails / allowed_emails
+    for email in tc_screen_time.keys():
+        if email in user_emails:
+            all_telecallers.add(email)
 
     # 5. Calculate Attendance Metrics using pure helper
     att_results = calculate_attendance_metrics(
@@ -413,6 +461,12 @@ def get_telecaller_dashboard(
     total_time_count = sum(tc_time_count.values())
     avg_duration_seconds = round((total_call_seconds / total_time_count) if total_time_count else 0, 1)
 
+    # Display users in performance table (union of active user_emails and all_telecallers)
+    display_users = user_emails.union(all_telecallers)
+
+    total_screen_seconds = sum(tc_screen_time[email] for email in display_users)
+    total_working_seconds = total_call_seconds + total_screen_seconds
+
     summary = {
         "total_calls": total_calls,
         "connected_calls": total_connected,
@@ -428,6 +482,10 @@ def get_telecaller_dashboard(
         "total_call_duration": format_call_duration_hms(total_call_seconds),
         "avg_duration_seconds": avg_duration_seconds,
         "avg_duration": format_call_duration_hms(avg_duration_seconds),
+        "total_screen_seconds": total_screen_seconds,
+        "total_screen_duration": format_call_duration_hms(total_screen_seconds),
+        "total_working_seconds": total_working_seconds,
+        "total_working_duration": format_call_duration_hms(total_working_seconds),
     }
 
     # Build Call Outcomes
@@ -444,15 +502,14 @@ def get_telecaller_dashboard(
     attendance_list = []
     orders_list = []
 
-    # Display users in performance table (union of active user_emails and all_telecallers)
-    display_users = user_emails.union(all_telecallers)
-
     for email in display_users:
         calls = tc_calls[email]
         connected = tc_connected[email]
         ords = tc_orders[email]
         time_sum = tc_time[email]
         time_cnt = tc_time_count[email]
+        screen_time_sec = tc_screen_time[email]
+        total_time_sec = time_sum + screen_time_sec
         
         att_info = user_attendance.get(email, {
             "present_days": 0,
@@ -475,6 +532,10 @@ def get_telecaller_dashboard(
             "avg_duration": round((time_sum / time_cnt) if time_cnt else 0, 1),
             "total_talk_time_seconds": time_sum,
             "total_talk_time": format_call_duration_hms(time_sum),
+            "screen_time_seconds": screen_time_sec,
+            "screen_time": format_call_duration_hms(screen_time_sec),
+            "total_time_seconds": total_time_sec,
+            "total_time": format_call_duration_hms(total_time_sec),
         })
         
         attendance_list.append({
@@ -653,7 +714,8 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
     return headers, rows, summary_cards, summary_paragraph
 
 def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
-    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    next_day = get_next_day_str(end_date)
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", start_date).lt("called_at", next_day)
     if telecaller_email:
         query = query.eq("user_email", telecaller_email)
     
@@ -703,7 +765,8 @@ def prepare_notes_export(
     district: Optional[str] = None,
     village: Optional[str] = None,
 ):
-    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    next_day = get_next_day_str(end_date)
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", start_date).lt("called_at", next_day)
     if telecaller_email and telecaller_email.lower() != "all":
         query = query.eq("user_email", telecaller_email)
     
@@ -785,7 +848,8 @@ def prepare_orders_export(
     role: Optional[str] = None,
     single_user: bool = False,
 ):
-    query = db.table("telecaller_orders").select("*").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
+    next_day = get_next_day_str(end_date)
+    query = db.table("telecaller_orders").select("*").gte("created_at", start_date).lt("created_at", next_day)
     if telecaller_email and telecaller_email.lower() != "all":
         query = query.eq("telecaller_email", telecaller_email)
     if order_status and order_status.lower() != "all":
@@ -808,7 +872,7 @@ def prepare_orders_export(
     users_map = {}
     try:
         users_res = db.table("app_users").select("email, name").execute()
-        users_map = {u["email"]: u.get("name") for u in (users_res.data or []) if u.get("email")}
+        users_map = {normalize_email(u["email"]): u.get("name") for u in (users_res.data or []) if u.get("email")}
     except Exception as e:
         logger.warning(f"Failed to fetch app_users for orders export: {e}")
 
@@ -834,7 +898,7 @@ def prepare_orders_export(
         dt = order.get("created_at", "").split("T")
         created_date = dt[0] if len(dt) > 0 else ""
         
-        email = order.get("telecaller_email", "")
+        email = normalize_email(order.get("telecaller_email", ""))
         user_name = users_map.get(email) or extract_name_from_email(email) or email
         
         cid = order.get("customer_id")
@@ -898,24 +962,36 @@ def build_python_telecaller_charts(
     t_start = time.perf_counter()
     q_counts = {"call_logs": 0, "telecaller_orders": 0, "customers": 0, "app_users": 0}
 
-    cl_query = db.table("call_logs").select("log_id, user_email, customer_id, call_outcome, time_taken, called_at").gte("called_at", f"{start_date}T00:00:00").lte("called_at", f"{end_date}T23:59:59")
+    next_day = get_next_day_str(end_date)
+    cl_query = db.table("call_logs").select("log_id, user_email, customer_id, call_outcome, time_taken, called_at").gte("called_at", start_date).lt("called_at", next_day)
     if telecaller_email:
-        cl_query = cl_query.eq("user_email", telecaller_email)
+        cl_query = cl_query.ilike("user_email", telecaller_email)
     q_counts["call_logs"] += 1
     call_logs = cl_query.execute().data or []
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
 
-    ord_query = db.table("telecaller_orders").select("telecaller_email, created_at").gte("created_at", f"{start_date}T00:00:00").lte("created_at", f"{end_date}T23:59:59")
+    ord_query = db.table("telecaller_orders").select("telecaller_email, created_at").gte("created_at", start_date).lt("created_at", next_day)
     if telecaller_email:
-        ord_query = ord_query.eq("telecaller_email", telecaller_email)
+        ord_query = ord_query.ilike("telecaller_email", telecaller_email)
     q_counts["telecaller_orders"] += 1
     orders = ord_query.execute().data or []
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
 
-    def get_period_key(dt_str: str) -> str:
-        if not dt_str:
+    s_query = db.table("user_sessions").select("user_email, session_date, total_seconds").gte("session_date", start_date).lt("session_date", next_day)
+    if telecaller_email:
+        s_query = s_query.ilike("user_email", telecaller_email)
+    q_counts["user_sessions"] = 1
+    sessions_data = []
+    try:
+        sessions_data = s_query.execute().data or []
+        sessions_data = filter_by_allowed_emails(sessions_data, "user_email", allowed_emails)
+    except Exception as e:
+        logger.warning(f"Error fetching user_sessions for charts: {e}")
+
+    def get_period_key(dt_val: Any) -> str:
+        if not dt_val:
             return ""
-        date_part = dt_str.split("T")[0]
+        date_part = str(dt_val).strip().replace("T", " ").split(" ")[0]
         try:
             from datetime import datetime
             dt = datetime.strptime(date_part, "%Y-%m-%d")
@@ -929,11 +1005,13 @@ def build_python_telecaller_charts(
 
     calls_by_period = defaultdict(int)
     outcomes_by_period = defaultdict(lambda: {"connected": 0, "callback": 0, "not_reachable": 0, "wrong_number": 0})
+    call_time_by_period = defaultdict(int)
     for log in call_logs:
         period = get_period_key(log.get("called_at", ""))
         if not period:
             continue
         calls_by_period[period] += 1
+        call_time_by_period[period] += (log.get("time_taken") or 0)
         
         outcome = (log.get("call_outcome") or "").lower()
         if "connect" in outcome:
@@ -945,17 +1023,25 @@ def build_python_telecaller_charts(
         elif "wrong" in outcome:
             outcomes_by_period[period]["wrong_number"] += 1
 
+    screen_time_by_period = defaultdict(int)
+    for s_row in sessions_data:
+        raw_date = s_row.get("session_date") or s_row.get("created_at") or s_row.get("date")
+        period = get_period_key(raw_date)
+        if not period:
+            continue
+        screen_time_by_period[period] += (s_row.get("total_seconds") or 0)
+
     orders_by_period = defaultdict(int)
     orders_by_tc = defaultdict(int)
     for ord_row in orders:
         period = get_period_key(ord_row.get("created_at", ""))
         if period:
             orders_by_period[period] += 1
-        tc = ord_row.get("telecaller_email")
+        tc = normalize_email(ord_row.get("telecaller_email"))
         if tc:
             orders_by_tc[tc] += 1
 
-    all_periods = sorted(set(calls_by_period.keys()).union(orders_by_period.keys()).union(outcomes_by_period.keys()))
+    all_periods = sorted(set(calls_by_period.keys()).union(orders_by_period.keys()).union(outcomes_by_period.keys()).union(screen_time_by_period.keys()).union(call_time_by_period.keys()))
 
     calls_trend = [{"period": p, "calls": calls_by_period[p]} for p in all_periods]
     orders_trend = [{"period": p, "orders": orders_by_period[p]} for p in all_periods]
@@ -969,6 +1055,27 @@ def build_python_telecaller_charts(
         }
         for p in all_periods
     ]
+
+    timing_trend = []
+    for p in all_periods:
+        st_sec = screen_time_by_period[p]
+        ct_sec = call_time_by_period[p]
+        tt_sec = st_sec + ct_sec
+        timing_trend.append({
+            "period": p,
+            "screen_time_seconds": st_sec,
+            "screen_time_minutes": round(st_sec / 60.0, 1),
+            "screen_time_hours": round(st_sec / 3600.0, 2),
+            "screen_time_formatted": format_call_duration_hms(st_sec),
+            "call_time_seconds": ct_sec,
+            "call_time_minutes": round(ct_sec / 60.0, 1),
+            "call_time_hours": round(ct_sec / 3600.0, 2),
+            "call_time_formatted": format_call_duration_hms(ct_sec),
+            "total_time_seconds": tt_sec,
+            "total_time_minutes": round(tt_sec / 60.0, 1),
+            "total_time_hours": round(tt_sec / 3600.0, 2),
+            "total_time_formatted": format_call_duration_hms(tt_sec),
+        })
 
     top_telecallers = [
         {"telecaller_email": tc, "orders_generated": cnt}
@@ -988,19 +1095,19 @@ def build_python_telecaller_charts(
         except Exception as e:
             logger.warning(f"Error fetching customer names for longest calls chart: {e}")
 
-    user_emails_set = list({log.get("user_email") for log in top_5_raw if log.get("user_email")})
+    user_emails_set = list({normalize_email(log.get("user_email")) for log in top_5_raw if log.get("user_email")})
     users_map = {}
     if user_emails_set:
         try:
             q_counts["app_users"] += 1
             users_res = db.table("app_users").select("email, name").in_("email", user_emails_set).execute()
-            users_map = {u["email"]: u.get("name") for u in (users_res.data or []) if u.get("email")}
+            users_map = {normalize_email(u["email"]): u.get("name") for u in (users_res.data or []) if u.get("email")}
         except Exception as e:
             logger.warning(f"Error fetching user names for longest calls chart: {e}")
 
     longest_calls = []
     for rank, log in enumerate(top_5_raw, 1):
-        email = log.get("user_email", "")
+        email = normalize_email(log.get("user_email", ""))
         dur = log.get("time_taken") or 0
         cid = log.get("customer_id")
         
@@ -1030,6 +1137,7 @@ def build_python_telecaller_charts(
         "outcomes_trend": outcomes_trend,
         "top_telecallers": top_telecallers,
         "longest_calls": longest_calls,
+        "timing_trend": timing_trend,
     }
 
 def get_telecaller_charts(
@@ -1041,35 +1149,7 @@ def get_telecaller_charts(
     allowed_emails: Optional[Set[str]] = None
 ) -> Dict[str, Any]:
     """
-    Fetch aggregated charts data. Uses Python aggregation when role/allowed_emails filtering is active,
-    or falls back to RPC if allowed_emails is None.
+    Fetch aggregated charts data using python aggregation to guarantee consistent email normalization,
+    date boundary handling, and timing trend calculations across all roles.
     """
-    if allowed_emails is not None:
-        return build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)
-
-    params = {
-        "p_start_date": start_date,
-        "p_end_date": end_date,
-        "p_view_by": view_by
-    }
-    if telecaller_email:
-        params["p_telecaller_email"] = telecaller_email
-        
-    try:
-        result = db.rpc('get_telecaller_charts_data', params)
-        if isinstance(result, list) and len(result) > 0:
-            result = result[0]
-            
-        python_charts = build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)
-        
-        parsed_result = {
-            "calls_trend": result.get("calls_trend") if isinstance(result, dict) else [],
-            "orders_trend": result.get("orders_trend") if isinstance(result, dict) else [],
-            "outcomes_trend": result.get("outcomes_trend") if isinstance(result, dict) else [],
-            "top_telecallers": result.get("top_telecallers") if isinstance(result, dict) else [],
-            "longest_calls": python_charts.get("longest_calls", [])
-        }
-        return parsed_result
-    except Exception as e:
-        print(f"Error fetching telecaller charts RPC data, falling back to Python aggregation: {str(e)}")
-        return build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)
+    return build_python_telecaller_charts(db, start_date, end_date, view_by, telecaller_email, allowed_emails)

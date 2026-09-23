@@ -55,6 +55,8 @@ import { KpiCard } from "./KpiCard";
 import {
   BarChart,
   Bar,
+  ComposedChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -721,10 +723,12 @@ export default function TelecallerReports() {
                           </>
                         )}
                         <TableCell sx={{ fontWeight: 700 }} align="right">Attendance %</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Screen Time</TableCell>
                         {config.showCallTableColumns && (
                           <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
                         )}
                         <TableCell sx={{ fontWeight: 700 }} align="right">Total Talk Time</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Time</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -785,6 +789,11 @@ export default function TelecallerReports() {
                           <TableCell align="right">
                             <Typography variant="body2">{row.attendance_pct}%</Typography>
                           </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ color: "#0284c7", fontWeight: 600 }}>
+                              {row.screen_time || "0s"}
+                            </Typography>
+                          </TableCell>
                           {config.showCallTableColumns && (
                             <TableCell align="right">
                               <Typography variant="body2" color="text.secondary">
@@ -795,6 +804,11 @@ export default function TelecallerReports() {
                           <TableCell align="right">
                             <Typography variant="body2" sx={{ fontWeight: 600 }}>
                               {row.total_talk_time || "0s"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: "primary.main" }}>
+                              {row.total_time || "0s"}
                             </Typography>
                           </TableCell>
                         </TableRow>
@@ -1032,6 +1046,60 @@ export default function TelecallerReports() {
           </Typography>
 
           <Grid container spacing={3} sx={{ mb: 4 }}>
+            {/* Timing Trend (Screen + Call Time = Total Time) */}
+            <Grid item xs={12}>
+              <Card sx={{ height: "100%", borderRadius: 2 }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                      Timing Trend (Screen & Call Time)
+                    </Typography>
+                    <Chip 
+                      label="Screen Time + Call Time = Total Time" 
+                      size="small" 
+                      color="primary" 
+                      variant="outlined" 
+                      sx={{ fontWeight: 600 }}
+                    />
+                  </Box>
+                  <Box sx={{ width: "100%", height: 320 }}>
+                    {loading ? (
+                      <Skeleton variant="rectangular" width="100%" height="100%" />
+                    ) : !chartsData?.timing_trend || chartsData.timing_trend.length === 0 ? (
+                      <Box sx={{ p: 4, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                        <SearchOffIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
+                        <Typography color="text.secondary" variant="body2" sx={{ fontWeight: 500 }}>
+                          No timing activity data available for the selected filters
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <ResponsiveContainer>
+                        <ComposedChart data={chartsData.timing_trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="period" tick={{ fontSize: 12 }} />
+                          <YAxis tick={{ fontSize: 12 }} />
+                          <RechartsTooltip 
+                            cursor={{ fill: 'rgba(0,0,0,0.05)' }} 
+                            formatter={(val: any, name: string, item: any) => {
+                              const p = item?.payload || {};
+                              if (name === "Screen Time") return [p.screen_time_formatted || `${val}h`, name];
+                              if (name === "Call Time") return [p.call_time_formatted || `${val}h`, name];
+                              if (name === "Total Time") return [p.total_time_formatted || `${val}h`, name];
+                              return [val, name];
+                            }}
+                          />
+                          <Legend />
+                          <Bar dataKey="screen_time_hours" stackId="a" name="Screen Time" fill="#0284c7" />
+                          <Bar dataKey="call_time_hours" stackId="a" name="Call Time" fill="#059669" radius={[4, 4, 0, 0]} />
+                          <Line type="monotone" dataKey="total_time_hours" name="Total Time" stroke="#7c3aed" strokeWidth={2} dot={{ r: 3 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    )}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
             {/* Calls Trend (Bar) */}
             <Grid item xs={12} md={6}>
               <Card sx={{ height: "100%", borderRadius: 2 }}>
