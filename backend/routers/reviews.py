@@ -21,7 +21,7 @@ def get_all_reviews(db: SupabaseClient = Depends(get_db)):
 def delete_review(review_id: int, db: SupabaseClient = Depends(get_db)):
     """Delete a review."""
     try:
-        response = db.table("reviews").delete().eq("id", review_id).execute()
+        response = db.table("reviews").eq("id", review_id).delete().execute()
         return {"message": "Review deleted successfully"}
     except Exception as e:
         print(f"Error deleting review {review_id}: {e}")

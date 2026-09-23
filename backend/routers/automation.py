@@ -2141,10 +2141,10 @@ def undo_village_assignment(
         for i in range(0, len(cust_ids), 100):
             chunk = cust_ids[i:i+100]
             delete_res = db.table("calling_assignments") \
-                .delete() \
                 .eq("user_email", payload.telecaller_email) \
                 .eq("status", "Pending") \
                 .in_("customer_id", chunk) \
+                .delete() \
                 .execute()
                 
             if delete_res.data:

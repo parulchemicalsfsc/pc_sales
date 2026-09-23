@@ -104,7 +104,7 @@ def create_product_category(category: ProductCategory, db: SupabaseClient = Depe
 def delete_product_region(region_name: str, db: SupabaseClient = Depends(get_db)):
     """Delete a product region"""
     try:
-        db.table("product_regions").delete().eq("name", region_name).execute()
+        db.table("product_regions").eq("name", region_name).delete().execute()
         return {"message": "Region deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -114,7 +114,7 @@ def delete_product_region(region_name: str, db: SupabaseClient = Depends(get_db)
 def delete_product_category(category_name: str, db: SupabaseClient = Depends(get_db)):
     """Delete a product category"""
     try:
-        db.table("product_categories").delete().eq("name", category_name).execute()
+        db.table("product_categories").eq("name", category_name).delete().execute()
         return {"message": "Category deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
