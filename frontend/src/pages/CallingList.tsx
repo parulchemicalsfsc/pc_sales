@@ -706,6 +706,10 @@ export default function CallingList() {
   // Submit outcome for order confirmation calls (log adhoc then optionally reload)
   const submitOrderCallOutcome = async () => {
     if (!orderCallItem || !outcome) return;
+    if (!notes.trim()) {
+      setToast({ msg: "Please add call notes before submitting.", sev: "error" });
+      return;
+    }
     if (outcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       return;
@@ -787,6 +791,12 @@ export default function CallingList() {
     if (!finalOutcome) return;
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
+
+    // Notes are mandatory for all users
+    if (!notes.trim()) {
+      setToast({ msg: "Please add call notes before submitting.", sev: "error" });
+      return;
+    }
 
     if (finalOutcome === "take_order") {
       return handleTakeOrder();
@@ -1927,179 +1937,6 @@ export default function CallingList() {
                 </Button>
               </Stack>
 
-              {callReach === "reached" && (
-                <Box>
-                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, display: "block", mb: 1 }}>
-                    Interest Level
-                  </Typography>
-                  <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-                    <Button
-                      fullWidth
-                      variant={callInterest === "interested" ? "contained" : "outlined"}
-                      onClick={() => { setCallInterest("interested"); setCallReason(""); }}
-                      sx={{ borderRadius: 2, textTransform: "none" }}
-                    >
-                      Interested
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant={callInterest === "not_interested" ? "contained" : "outlined"}
-                      color="warning"
-                      onClick={() => { setCallInterest("not_interested"); setCallReason(""); }}
-                      sx={{ borderRadius: 2, textTransform: "none" }}
-                    >
-                      Not Interested
-                    </Button>
-                  </Stack>
-
-                  {callInterest === "interested" && (
-                    <Box sx={{ mb: 1, p: 1.5, bgcolor: surface, borderRadius: 2 }}>
-                      <FormControlLabel
-                        control={<Checkbox size="small" checked={interestedIntro} onChange={e => setInterestedIntro(e.target.checked)} />}
-                        label={<Typography variant="body2">Introduced F.S. Calcival</Typography>}
-                        sx={{ mb: 1 }}
-                      />
-                      <TextField
-                        label="Collect customer details"
-                        size="small"
-                        multiline
-                        rows={2}
-                        fullWidth
-                        value={interestedDetails}
-                        onChange={e => setInterestedDetails(e.target.value)}
-                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-                      />
-                    </Box>
-                  )}
-
-                  {callInterest === "not_interested" && (
-                    <Box sx={{ mb: 1 }}>
-                      <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                        <InputLabel>Reason</InputLabel>
-                        <Select
-                          value={callReason}
-                          label="Reason"
-                          onChange={(e) => { setCallReason(e.target.value); setCallSubReason(""); setQualityFollowUpDate(""); }}
-                          sx={{ borderRadius: 2, bgcolor: surface }}
-                        >
-                          <MenuItem value="Expensive">Expensive</MenuItem>
-                          <MenuItem value="Decision Maker">Decision Maker</MenuItem>
-                          <MenuItem value="Trust Issue">Trust Issue</MenuItem>
-                          <MenuItem value="Not a Pashupalak">Not a Pashupalak / Wrong Person</MenuItem>
-                          <MenuItem value="Invalid Number">Invalid Number</MenuItem>
-                          <MenuItem value="Using Other Brand">Using Other Brand</MenuItem>
-                          <MenuItem value="Quality Concern">Quality Concern</MenuItem>
-                          <MenuItem value="Other">Other</MenuItem>
-                        </Select>
-                      </FormControl>
-                      
-                      {["Expensive", "Trust Issue", "Using Other Brand", "Other"].includes(callReason) && (
-                        <TextField
-                          label={
-                            callReason === "Using Other Brand" ? "Brand name & result?" : 
-                            callReason === "Expensive" ? "YES / NO" : 
-                            callReason === "Trust Issue" ? "Product / delivery / quality issue?" : 
-                            "Specific Details"
-                          }
-                          size="small"
-                          fullWidth
-                          value={callSubReason}
-                          onChange={e => setCallSubReason(e.target.value)}
-                          placeholder="Details..."
-                          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                        />
-                      )}
-
-                      {callReason === "Other" && (
-                        <Box sx={{ mb: 2 }}>
-                          <Button
-                            variant={otherScheduleToggle ? "contained" : "outlined"}
-                            size="small"
-                            onClick={() => setOtherScheduleToggle(!otherScheduleToggle)}
-                            sx={{ borderRadius: 2, textTransform: "none", mb: otherScheduleToggle ? 1.5 : 0 }}
-                          >
-                            {otherScheduleToggle ? "Cancel Schedule" : "Schedule Call"}
-                          </Button>
-                          {otherScheduleToggle && (
-                            <TextField
-                              type="datetime-local"
-                              label="Schedule Date & Time"
-                              size="small"
-                              fullWidth
-                              value={otherScheduleDate}
-                              onChange={e => setOtherScheduleDate(e.target.value)}
-                              InputLabelProps={{ shrink: true }}
-                              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
-                              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                            />
-                          )}
-                        </Box>
-                      )}
-
-                      {callReason === "Decision Maker" && (
-                        <Box sx={{ mb: 2 }}>
-                          <TextField
-                            label="Decision Maker Name"
-                            size="small"
-                            fullWidth
-                            value={dmName}
-                            onChange={e => setDmName(e.target.value)}
-                            sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                          />
-                          <TextField
-                            label="Phone Number"
-                            size="small"
-                            fullWidth
-                            value={dmPhone}
-                            onChange={e => {
-                              const val = e.target.value.replace(/\D/g, "").slice(0, 10);
-                              setDmPhone(val);
-                            }}
-                            InputProps={{
-                              startAdornment: <InputAdornment position="start">+91</InputAdornment>,
-                            }}
-                            sx={{ mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                          />
-                          <Button
-                            variant={dmScheduleToggle ? "contained" : "outlined"}
-                            size="small"
-                            onClick={() => setDmScheduleToggle(!dmScheduleToggle)}
-                            sx={{ borderRadius: 2, textTransform: "none", mb: dmScheduleToggle ? 1.5 : 0 }}
-                          >
-                            {dmScheduleToggle ? "Cancel Schedule" : "Schedule Call"}
-                          </Button>
-                          {dmScheduleToggle && (
-                            <TextField
-                              type="datetime-local"
-                              label="Schedule Date & Time"
-                              size="small"
-                              fullWidth
-                              value={dmScheduleDate}
-                              onChange={e => setDmScheduleDate(e.target.value)}
-                              InputLabelProps={{ shrink: true }}
-                              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
-                              sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                            />
-                          )}
-                        </Box>
-                      )}
-
-                      {callReason === "Quality Concern" && (
-                        <TextField
-                          type="date"
-                          label="Follow Up Date"
-                          size="small"
-                          fullWidth
-                          value={qualityFollowUpDate}
-                          onChange={e => setQualityFollowUpDate(e.target.value)}
-                          InputLabelProps={{ shrink: true }}
-                          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
-                        />
-                      )}
-                    </Box>
-                  )}
-                </Box>
-              )}
 
               {callReach === "not_reached" && (
                 <Box sx={{ mb: 1 }}>
@@ -2171,13 +2008,16 @@ export default function CallingList() {
           )}
 
           <TextField
-            label="Notes"
+            label="Notes *"
             multiline
-            rows={2}
+            rows={3}
             fullWidth
+            required
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder="Additional optional details..."
+            placeholder="Write call notes here..."
+            error={!notes.trim()}
+            helperText={!notes.trim() ? "Notes are required" : ""}
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
           
