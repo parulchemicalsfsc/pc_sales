@@ -706,10 +706,6 @@ export default function CallingList() {
   // Submit outcome for order confirmation calls (log adhoc then optionally reload)
   const submitOrderCallOutcome = async () => {
     if (!orderCallItem || !outcome) return;
-    if (role === "telecaller" && !notes.trim()) {
-      setToast({ msg: "Notes are required. Please add a note before submitting.", sev: "error" });
-      return;
-    }
     if (outcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       return;
@@ -791,12 +787,6 @@ export default function CallingList() {
     if (!finalOutcome) return;
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
-
-    // Notes mandatory for telecallers
-    if (role === "telecaller" && !notes.trim()) {
-      setToast({ msg: "Notes are required. Please add a note before submitting.", sev: "error" });
-      return;
-    }
 
     if (finalOutcome === "take_order") {
       return handleTakeOrder();
@@ -2181,15 +2171,13 @@ export default function CallingList() {
           )}
 
           <TextField
-            label={role === "telecaller" ? "Notes *" : "Notes"}
+            label="Notes"
             multiline
             rows={2}
             fullWidth
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder={role === "telecaller" ? "Required — add call notes here..." : "Additional optional details..."}
-            error={role === "telecaller" && notes.trim() === ""}
-            helperText={role === "telecaller" && notes.trim() === "" ? "Notes are required for telecallers" : ""}
+            placeholder="Additional optional details..."
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
           
