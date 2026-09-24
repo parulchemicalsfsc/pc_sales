@@ -890,11 +890,30 @@ export default function CallingList() {
   const [productsList, setProductsList] = useState<any[]>([]);
 
   const handleTakeOrder = async () => {
-    if (!activeItem) return;
+    const isQuickCall = qcQueue.length > 0 && qcDialogOpen;
+    const targetItem = isQuickCall ? qcQueue[qcCurrentIndex] : activeItem;
+    if (!targetItem) return;
+
+    if (isQuickCall) {
+      setActiveItem(targetItem);
+    }
+
     try {
       setSubmitting(true);
-      await automationAPI.updateCallStatus(activeItem.assignment_id, "connected", notes || "Initiating Order");
+      if (targetItem.assignment_id) {
+        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", notes || "Initiating Order");
+      } else {
+        const entityType = role === "sales_manager" ? "distributor" : "customer";
+        const entityId = entityType === "customer" ? targetItem.customer_id : targetItem.entity_id;
+        await automationAPI.logAdhocCall({
+          entity_id: entityId,
+          entity_type: entityType,
+          call_outcome: "take_order",
+          notes: notes || "Initiating Order",
+        });
+      }
       setDialogOpen(false);
+      setQcDialogOpen(false);
 
       if (productsList.length === 0) {
         try {
@@ -2202,7 +2221,7 @@ export default function CallingList() {
           </Stack>
           
           <Stack direction="row" spacing={1}>
-            {callConn === "connected" && callReach === "reached" && callInterest === "interested" && !isQuickCall && (
+            {callConn === "connected" && callReach === "reached" && callInterest === "interested" && (
               <Button
                 variant="outlined"
                 color="primary"
