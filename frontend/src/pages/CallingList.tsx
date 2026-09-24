@@ -825,8 +825,7 @@ export default function CallingList() {
         if (qcCurrentIndex < qcQueue.length - 1) {
           setQcCurrentIndex(prev => prev + 1);
           setOutcome("");
-          setNotes("");
-          setCallbackDate("");
+          dispatchWizard({ type: "RESET" });
           setSubmitting(false);
           return;
         } else {
