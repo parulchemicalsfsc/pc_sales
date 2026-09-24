@@ -1311,7 +1311,9 @@ class ReportGenerator:
             if product_rows:
                 df = pd.DataFrame(product_rows)[["rank", "label", "secondary_label", "orders", "liters", "revenue", "pct"]]
                 df.columns = ["Rank", "Product", "Packing", "Orders", "Qty Sold", "Revenue (Rs.)", "Share %"]
-                df.to_excel(writer, sheet_name="Product Report", index=False)
+            else:
+                df = pd.DataFrame([["No records found for the selected filters."]], columns=["Status"])
+            df.to_excel(writer, sheet_name="Product Report", index=False)
         buffer.seek(0)
         return buffer.getvalue()
 
@@ -1370,7 +1372,9 @@ class ReportGenerator:
             if customer_rows:
                 df = pd.DataFrame(customer_rows)[["rank", "label", "secondary_label", "orders", "revenue", "liters", "pct"]]
                 df.columns = ["Rank", "Customer", "Village/District", "Orders", "Revenue (Rs.)", "Volume (L)", "Share %"]
-                df.to_excel(writer, sheet_name="Customer Report", index=False)
+            else:
+                df = pd.DataFrame([["No records found for the selected filters."]], columns=["Status"])
+            df.to_excel(writer, sheet_name="Customer Report", index=False)
         buffer.seek(0)
         return buffer.getvalue()
 
@@ -1569,7 +1573,8 @@ class ReportGenerator:
                 ws.auto_filter.ref = ws.dimensions
 
             # Style headers
-            for col_idx in range(1, len(headers) + 1):
+            col_names = headers if data_rows else ["Status"]
+            for col_idx in range(1, len(col_names) + 1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.fill = header_fill
                 cell.font = header_font
