@@ -2208,7 +2208,6 @@ export default function CallingList() {
           </Stack>
           
           <Stack direction="row" spacing={1}>
-            {callConn === "connected" && callReach === "reached" && callInterest === "interested" && (
               <Button
                 variant="outlined"
                 color="primary"
@@ -2223,7 +2222,6 @@ export default function CallingList() {
               >
                 Take Order
               </Button>
-            )}
             
             {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && !aiLogger.hasAnalyzed && (
               <Button
