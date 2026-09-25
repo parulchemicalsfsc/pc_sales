@@ -750,33 +750,20 @@ export default function CallingList() {
           // If Take Order was explicitly chosen, override finalOutcome now.
           if (isTakeOrder) {
             finalOutcome = "take_order";
-            finalNotes = `[Customer Reached - Interested - Take Order] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
-          } else if (callInterest === "interested") {
+            finalNotes = `[Customer Reached - Take Order] | ${finalNotes}`;
+          } else {
+            // Interest sub-questions were removed from UI; treat reached as connected.
             finalOutcome = "connected";
-            finalNotes = `[Customer Reached - Interested] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
-          } else if (callInterest === "not_interested") {
-            finalOutcome = "connected";
-            let reasonText = callReason;
-            if (callReason === "Quality Concern" && qualityFollowUpDate) {
-               reasonText += ` (Follow up: ${qualityFollowUpDate.replace("T", " ")})`;
-            }
-            if (callReason === "Decision Maker") {
-               reasonText += ` - Name: ${dmName}, Phone: +91${dmPhone}`;
-               if (dmScheduleToggle && dmScheduleDate) {
-                  reasonText += ` (Follow up: ${dmScheduleDate.replace("T", " ")})`;
-               }
-            }
-            if (callReason === "Other") {
-               if (otherScheduleToggle && otherScheduleDate) {
-                  reasonText += ` (Follow up: ${otherScheduleDate.replace("T", " ")})`;
-               }
-            }
-            finalNotes = `[Customer Reached - Not Interested] Reason: ${reasonText} ${callReason !== "Decision Maker" && callSubReason ? `- ${callSubReason}` : ""} | ${finalNotes}`;
-          } else return;
+            finalNotes = `[Customer Reached] | ${finalNotes}`;
+          }
         } else if (callReach === "not_reached") {
           finalOutcome = "not_reachable";
-          finalNotes = `[Customer Not Reached - ${callReason}] | ${finalNotes}`;
-        } else return;
+          finalNotes = `[Customer Not Reached${callReason ? ` - ${callReason}` : ""}] | ${finalNotes}`;
+        } else {
+          // No reach selection yet; treat as a basic connected call.
+          finalOutcome = "connected";
+          finalNotes = `[Call Connected] | ${finalNotes}`;
+        }
       } else if (callConn === "not_connected") {
         if (callRetry === "retry") {
           finalOutcome = "callback";
@@ -2088,7 +2075,6 @@ export default function CallingList() {
               disabled={
                 submitting ||
                 (!callConn ||
-                 (callConn === "connected" && (!callReach || (callReach === "reached" && !callInterest) || (callReach === "not_reached" && !callReason))) ||
                  (callConn === "not_connected" && !callRetry) ||
                  (callConn === "not_connected" && callRetry === "retry" && !callbackDate)
                 )
