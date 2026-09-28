@@ -706,10 +706,6 @@ export default function CallingList() {
   // Submit outcome for order confirmation calls (log adhoc then optionally reload)
   const submitOrderCallOutcome = async () => {
     if (!orderCallItem || !outcome) return;
-    if (!notes.trim()) {
-      setToast({ msg: "Please add call notes before submitting.", sev: "error" });
-      return;
-    }
     if (outcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       return;
@@ -791,12 +787,6 @@ export default function CallingList() {
     if (!finalOutcome) return;
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
-
-    // Notes are mandatory for all users
-    if (!notes.trim()) {
-      setToast({ msg: "Please add call notes before submitting.", sev: "error" });
-      return;
-    }
 
     if (finalOutcome === "take_order") {
       return handleTakeOrder();
@@ -2181,16 +2171,13 @@ export default function CallingList() {
           )}
 
           <TextField
-            label="Notes *"
+            label="Notes (optional)"
             multiline
             rows={3}
             fullWidth
-            required
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Write call notes here..."
-            error={!notes.trim()}
-            helperText={!notes.trim() ? "Notes are required" : ""}
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
           
