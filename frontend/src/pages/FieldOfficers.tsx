@@ -42,6 +42,7 @@ import type { FieldOfficer } from "../types";
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
 import { PERMISSIONS } from "../config/permissions";
+import { toUpperCaseText } from "../utils/formatters";
 
 export default function FieldOfficers() {
   const theme = useTheme();
@@ -175,7 +176,15 @@ export default function FieldOfficers() {
   const handleOpenDialog = (doctor?: FieldOfficer) => {
     if (doctor) {
       setEditingFieldOfficer(doctor);
-      setFormData(doctor);
+      setFormData({
+        ...doctor,
+        name: toUpperCaseText(doctor.name),
+        village: toUpperCaseText(doctor.village),
+        taluka: toUpperCaseText(doctor.taluka),
+        district: toUpperCaseText(doctor.district),
+        state: toUpperCaseText(doctor.state),
+        dairy_type: toUpperCaseText(doctor.dairy_type),
+      });
     } else {
       setEditingFieldOfficer(null);
       setFormData({
@@ -183,7 +192,7 @@ export default function FieldOfficers() {
         village: "",
         taluka: "",
         district: "",
-        state: regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat"),
+        state: toUpperCaseText(regions.includes("Gujarat") ? "Gujarat" : (regions[0] || "Gujarat")),
         mantri_name: "",
         mantri_mobile: "",
         sabhasad_morning: undefined,
@@ -229,14 +238,24 @@ export default function FieldOfficers() {
         return;
       }
 
+      const payload = {
+        ...formData,
+        name: toUpperCaseText(formData.name),
+        village: toUpperCaseText(formData.village),
+        taluka: toUpperCaseText(formData.taluka),
+        district: toUpperCaseText(formData.district),
+        state: toUpperCaseText(formData.state),
+        dairy_type: toUpperCaseText(formData.dairy_type),
+      } as FieldOfficer;
+
       if (editingFieldOfficer) {
-        console.log("🚀 PAYLOAD BEING SENT:", formData);
+        console.log("🚀 PAYLOAD BEING SENT:", payload);
         await fieldOfficerAPI.update(
           editingFieldOfficer.field_officer_id!,
-          formData as FieldOfficer,
+          payload,
         );
       } else {
-        await fieldOfficerAPI.create(formData as FieldOfficer);
+        await fieldOfficerAPI.create(payload);
       }
 
       handleCloseDialog();
@@ -946,7 +965,7 @@ export default function FieldOfficers() {
                 label={t("fieldOfficers.name", "Field Officer Name")}
                 value={formData.name || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
+                  setFormData({ ...formData, name: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -983,7 +1002,7 @@ export default function FieldOfficers() {
                 label={tf("village")}
                 value={formData.village}
                 onChange={(e) =>
-                  setFormData({ ...formData, village: e.target.value })
+                  setFormData({ ...formData, village: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -993,7 +1012,7 @@ export default function FieldOfficers() {
                 label={tf("taluka")}
                 value={formData.taluka}
                 onChange={(e) =>
-                  setFormData({ ...formData, taluka: e.target.value })
+                  setFormData({ ...formData, taluka: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1003,7 +1022,7 @@ export default function FieldOfficers() {
                 label={tf("district")}
                 value={formData.district}
                 onChange={(e) =>
-                  setFormData({ ...formData, district: e.target.value })
+                  setFormData({ ...formData, district: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>
@@ -1012,16 +1031,17 @@ export default function FieldOfficers() {
                 select
                 fullWidth
                 label={tf("state")}
-                value={formData.state || ""}
+                value={toUpperCaseText(formData.state) || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, state: e.target.value })
+                  setFormData({ ...formData, state: toUpperCaseText(e.target.value) })
                 }
               >
-                {regions.map((reg) => (
-                  <MenuItem key={reg} value={reg}>{reg}</MenuItem>
-                ))}
+                {regions.map((reg) => {
+                  const regUpper = toUpperCaseText(reg);
+                  return <MenuItem key={regUpper} value={regUpper}>{regUpper}</MenuItem>;
+                })}
                 {regions.length === 0 && (
-                  <MenuItem value="Gujarat">Gujarat</MenuItem>
+                  <MenuItem value="GUJARAT">GUJARAT</MenuItem>
                 )}
               </TextField>
             </Grid>
@@ -1115,10 +1135,8 @@ export default function FieldOfficers() {
                   setFormData({ ...formData, status: e.target.value })
                 }
               >
-                <MenuItem value="Active">{t("fieldOfficers.active")}</MenuItem>
-                <MenuItem value="Inactive">
-                  {t("fieldOfficers.inactive")}
-                </MenuItem>
+                <MenuItem value="Active">ACTIVE</MenuItem>
+                <MenuItem value="Inactive">INACTIVE</MenuItem>
               </TextField>
             </Grid>
 
@@ -1135,7 +1153,7 @@ export default function FieldOfficers() {
                 label={t("fieldOfficers.dairyType", "Dairy Type")}
                 value={formData.dairy_type || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, dairy_type: e.target.value })
+                  setFormData({ ...formData, dairy_type: toUpperCaseText(e.target.value) })
                 }
               />
             </Grid>

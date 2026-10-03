@@ -47,18 +47,18 @@ def verify_schema():
     try:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            print("✅ ALL Order Management columns exist in the database.")
+            print("ALL Order Management columns exist in the database.")
             print("   (Query returned 200 OK)")
             return True
         else:
-            print(f"❌ Verification FAILED. Status: {response.status_code}")
+            print(f"Verification FAILED. Status: {response.status_code}")
             print(f"   Response: {response.text}")
             if "Could not find the " in response.text or "does not exist" in response.text:
                 print("\n   >>> This confirms a column is MISSING. Check the response text for which one. <<<")
             return False
             
     except Exception as e:
-        print(f"❌ Connection Error: {e}")
+        print(f"Connection Error: {e}")
         return False
 
 if __name__ == "__main__":

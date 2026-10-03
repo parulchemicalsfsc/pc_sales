@@ -1493,6 +1493,10 @@ def download_telecaller_report(
                 data_rows=rows,
                 metadata_filters=filters,
                 theme=theme,
+                title=title,
+                subtitle=subtitle,
+                summary_cards=summary_cards,
+                summary_paragraph=summary_paragraph,
             )
             return StreamingResponse(
                 io.BytesIO(excel_bytes),
