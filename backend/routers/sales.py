@@ -9,6 +9,7 @@ from supabase_db import SupabaseClient, get_supabase
 from rbac_utils import verify_permission
 
 from routers.notifications import create_notification_helper
+from merge_utils import resolve_distributors
 
 router = APIRouter()
 
@@ -84,7 +85,7 @@ def get_sales(
         )
         distributors_dict = fetch_by_ids(
             "distributors", "distributor_id", distributor_ids,
-            "distributor_id, mantri_name, village, mantri_mobile"
+            "distributor_id, mantri_name, village, mantri_mobile, is_redemo"
         )
         doctors_dict = fetch_by_ids(
             "doctors", "doctor_id", doctor_ids,
@@ -123,6 +124,7 @@ def get_sales(
                     "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
                     "mobile": entity.get("mantri_mobile", ""),
+                    "is_redemo": entity.get("is_redemo"),
                 })
             elif buyer_type == "distributor" and sale.get("distributor_id"):
                 entity = distributors_dict.get(sale["distributor_id"], {})
@@ -131,6 +133,7 @@ def get_sales(
                     "customer_name": entity.get("mantri_name", ""),
                     "village": entity.get("village", ""),
                     "mobile": entity.get("mantri_mobile", ""),
+                    "is_redemo": entity.get("is_redemo"),
                 })
             elif buyer_type == "doctor" and sale.get("doctor_id"):
                 entity = doctors_dict.get(sale["doctor_id"], {})
@@ -555,13 +558,17 @@ def create_sale(
                     matched_dist = None
                     mob = c_row.get("mobile")
                     if mob:
-                        ed = db.table("distributors").select("distributor_id").eq("mantri_mobile", mob).execute()
+                        ed = db.table("distributors").select("*").eq("mantri_mobile", mob).execute()
                         if ed.data:
-                            matched_dist = ed.data[0]
+                            resolved = resolve_distributors(ed.data)
+                            if resolved:
+                                matched_dist = resolved[0]
                     if not matched_dist and c_row.get("village") and c_row.get("name"):
-                        ed = db.table("distributors").select("distributor_id").eq("village", c_row["village"]).ilike("mantri_name", c_row["name"]).execute()
+                        ed = db.table("distributors").select("*").eq("village", c_row["village"]).ilike("mantri_name", c_row["name"]).execute()
                         if ed.data:
-                            matched_dist = ed.data[0]
+                            resolved = resolve_distributors(ed.data)
+                            if resolved:
+                                matched_dist = resolved[0]
 
                     if matched_dist:
                         sale.distributor_id = matched_dist["distributor_id"]

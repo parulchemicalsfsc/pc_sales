@@ -599,7 +599,10 @@ export default function Distributors() {
       align: "center",
       headerClassName: "multi-line-header",
       renderCell: (params) => {
-        const isRedemo = params.value === true;
+        if (params.value === null || params.value === undefined || params.value === "") {
+          return <span>N/A</span>;
+        }
+        const isRedemo = params.value === true || String(params.value).toUpperCase() === "YES";
         return (
           <Chip
             label={isRedemo ? "YES" : "NO"}
