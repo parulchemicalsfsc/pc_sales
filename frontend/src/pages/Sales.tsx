@@ -170,7 +170,14 @@ export default function Sales() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [notesDialogOpen, setNotesDialogOpen] = useState(false);
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
-  const [selectedEntity, setSelectedEntity] = useState<{ name: string; village: string; mobile: string } | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<{
+    name: string;
+    village: string;
+    mobile: string;
+    is_redemo?: boolean | string | null;
+    redemo?: boolean | string | null;
+    redemoStatus?: "YES" | "NO" | "N/A";
+  } | null>(null);
   // sale_id → 'credit' | 'debit' (only the latest active note per sale stored)
   const [saleNoteTypeMap, setSaleNoteTypeMap] = useState<Record<number, "credit" | "debit" | "both">>({});
   const [noteFilter, setNoteFilter] = useState<"all" | "credit" | "debit" | "none">("all");
@@ -278,6 +285,8 @@ export default function Sales() {
           name: dist?.mantri_name || dist?.name || state.entityName || "",
           village: dist?.village || state.entityVillage || "",
           mobile: dist?.mantri_mobile || dist?.mobile || state.entityMobile || "",
+          is_redemo: dist?.is_redemo ?? state.is_redemo,
+          redemo: dist?.redemo ?? state.redemo,
         });
       } else if (state.customerId) {
         setCustomerCategory("Sabhasad");
@@ -1110,13 +1119,29 @@ export default function Sales() {
         .map((d: any) => {
           const mName = d.mantri_name || d.name || 'Unknown';
           const mMobile = d.mantri_mobile || d.mobile || '';
-          const isRedemo = String(d.redemo).toUpperCase() === 'YES' || String(d.is_redemo).toUpperCase() === 'YES' || d.is_redemo === true;
+          let redemoStatus: "YES" | "NO" | "N/A" = "N/A";
+          if (
+            d.is_redemo === true ||
+            String(d.redemo).toUpperCase() === 'YES' ||
+            String(d.is_redemo).toUpperCase() === 'YES'
+          ) {
+            redemoStatus = "YES";
+          } else if (
+            d.is_redemo === false ||
+            String(d.redemo).toUpperCase() === 'NO' ||
+            String(d.is_redemo).toUpperCase() === 'NO'
+          ) {
+            redemoStatus = "NO";
+          } else {
+            redemoStatus = "N/A";
+          }
           return {
             id: d.distributor_id,
-            label: `${mName}${mMobile ? ` (${mMobile})` : ''}${d.village ? ` - ${d.village}` : ''}${isRedemo ? ' [REDEMO]' : ''}`,
+            label: `${mName}${d.village ? ` - ${d.village}` : ''}${mMobile ? ` (${mMobile})` : ''} [REDEMO: ${redemoStatus}]`,
             name: mName,
             village: d.village || '',
             mobile: mMobile,
+            redemoStatus,
           };
         });
     } else if (customerCategory === "Doctor") {
@@ -2102,7 +2127,34 @@ export default function Sales() {
                       getOptionLabel={(option: any) => option.label || option.name || ''}
                       value={
                         getEntityOptions().find((o: any) => o.id === formData.customer_id) ||
-                        (selectedEntity ? { ...selectedEntity, id: formData.customer_id, label: `${selectedEntity.name}${selectedEntity.mobile ? ` (${selectedEntity.mobile})` : ''}${selectedEntity.village ? ` - ${selectedEntity.village}` : ''}` } : null)
+                        (selectedEntity ? (() => {
+                          let redemoSuffix = '';
+                          let redemoStatus: "YES" | "NO" | "N/A" | undefined = undefined;
+                          if (customerCategory === "Mantri") {
+                            if (
+                              selectedEntity.is_redemo === true ||
+                              String(selectedEntity.redemo).toUpperCase() === 'YES' ||
+                              String(selectedEntity.is_redemo).toUpperCase() === 'YES'
+                            ) {
+                              redemoStatus = "YES";
+                            } else if (
+                              selectedEntity.is_redemo === false ||
+                              String(selectedEntity.redemo).toUpperCase() === 'NO' ||
+                              String(selectedEntity.is_redemo).toUpperCase() === 'NO'
+                            ) {
+                              redemoStatus = "NO";
+                            } else {
+                              redemoStatus = "N/A";
+                            }
+                            redemoSuffix = ` [REDEMO: ${redemoStatus}]`;
+                          }
+                          return {
+                            ...selectedEntity,
+                            id: formData.customer_id,
+                            label: `${selectedEntity.name}${selectedEntity.village ? ` - ${selectedEntity.village}` : ''}${selectedEntity.mobile ? ` (${selectedEntity.mobile})` : ''}${redemoSuffix}`,
+                            redemoStatus,
+                          };
+                        })() : null)
                       }
                       onChange={(_e: any, newValue: any) => {
                         const newId = newValue ? newValue.id : 0;
@@ -2110,7 +2162,7 @@ export default function Sales() {
                           ...formData,
                           customer_id: newId,
                         });
-                        setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '' } : null);
+                        setSelectedEntity(newValue ? { name: newValue.name || '', village: newValue.village || '', mobile: newValue.mobile || '', redemoStatus: newValue.redemoStatus } : null);
                         recalculateRates(customerCategory, "existing", newId, newCustomerData.state);
                       }}
                       onInputChange={(_e: any, newInputValue: string) => {
@@ -2123,10 +2175,67 @@ export default function Sales() {
                         return options.filter(o => 
                           (o.label && o.label.toLowerCase().includes(state.inputValue.toLowerCase())) || 
                           (o.name && o.name.toLowerCase().includes(state.inputValue.toLowerCase())) ||
+                          (o.village && o.village.toLowerCase().includes(state.inputValue.toLowerCase())) ||
                           (o.mobile && o.mobile.toLowerCase().includes(state.inputValue.toLowerCase()))
                         );
                       }}
                       loading={customerCategory === "Sabhasad" ? loadingCustomers : false}
+                      renderOption={(props, option: any) => (
+                        <Box
+                          component="li"
+                          {...props}
+                          key={option.id || props.key}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 1.5,
+                            width: '100%',
+                            py: 0.75,
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', minWidth: 0, flex: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {option.name}
+                            </Typography>
+                            {option.village && (
+                              <Typography variant="body2" color="text.secondary">
+                                - {option.village}
+                              </Typography>
+                            )}
+                            {option.mobile && (
+                              <Typography variant="body2" color="text.secondary">
+                                ({option.mobile})
+                              </Typography>
+                            )}
+                          </Box>
+                          {option.redemoStatus && (
+                            <Chip
+                              label={`REDEMO: ${option.redemoStatus}`}
+                              size="small"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.65rem',
+                                height: 20,
+                                flexShrink: 0,
+                                borderRadius: 1,
+                                backgroundColor:
+                                  option.redemoStatus === "YES"
+                                    ? "rgba(239, 68, 68, 0.15)"
+                                    : option.redemoStatus === "NO"
+                                    ? "rgba(107, 114, 128, 0.15)"
+                                    : "rgba(156, 163, 175, 0.12)",
+                                color:
+                                  option.redemoStatus === "YES"
+                                    ? "#dc2626"
+                                    : option.redemoStatus === "NO"
+                                    ? "#4b5563"
+                                    : "#6b7280",
+                              }}
+                            />
+                          )}
+                        </Box>
+                      )}
                       renderInput={(params: any) => (
                         <TextField
                           {...params}
@@ -2164,12 +2273,49 @@ export default function Sales() {
                     if (!entityDetails) return null;
                     return (
                       <>
-                        {(customerCategory === "Mantri" || customerCategory === "Distributor") &&
-                         (String(entityDetails.redemo).toUpperCase() === 'YES' || String(entityDetails.is_redemo).toUpperCase() === 'YES' || entityDetails.is_redemo === true) && (
-                          <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', mt: -1, mb: 1 }}>
-                            <Chip label="REDEMO" size="small" color="warning" sx={{ borderRadius: 1 }} />
-                          </Grid>
-                        )}
+                        {(customerCategory === "Mantri" || customerCategory === "Distributor") && (() => {
+                          let status: "YES" | "NO" | "N/A" = "N/A";
+                          if (
+                            entityDetails.is_redemo === true ||
+                            String(entityDetails.redemo).toUpperCase() === 'YES' ||
+                            String(entityDetails.is_redemo).toUpperCase() === 'YES'
+                          ) {
+                            status = "YES";
+                          } else if (
+                            entityDetails.is_redemo === false ||
+                            String(entityDetails.redemo).toUpperCase() === 'NO' ||
+                            String(entityDetails.is_redemo).toUpperCase() === 'NO'
+                          ) {
+                            status = "NO";
+                          } else {
+                            status = "N/A";
+                          }
+                          return (
+                            <Grid item xs={12} sx={{ display: 'flex', alignItems: 'center', mt: -1, mb: 1 }}>
+                              <Chip
+                                label={`REDEMO: ${status}`}
+                                size="small"
+                                sx={{
+                                  borderRadius: 1,
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem',
+                                  backgroundColor:
+                                    status === "YES"
+                                      ? "rgba(239, 68, 68, 0.15)"
+                                      : status === "NO"
+                                      ? "rgba(107, 114, 128, 0.15)"
+                                      : "rgba(156, 163, 175, 0.12)",
+                                  color:
+                                    status === "YES"
+                                      ? "#dc2626"
+                                      : status === "NO"
+                                      ? "#4b5563"
+                                      : "#6b7280",
+                                }}
+                              />
+                            </Grid>
+                          );
+                        })()}
                         <Grid item xs={12} sm={6}>
                           <TextField fullWidth disabled label="Mobile" value={entityDetails.mobile || entityDetails.mantri_mobile || ""} />
                         </Grid>
