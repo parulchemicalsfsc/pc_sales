@@ -241,29 +241,50 @@ def sales_with_pending(db: SupabaseClient = Depends(get_supabase)):
             print("DEBUG: No sale items found")
 
         # Get all payments
-        payments_response = db.table("payments").select("sale_id, amount").limit(10000).execute()
+        payments_response = db.table("payments").select("sale_id, amount, payment_method").limit(10000).execute()
 
         # Calculate paid amounts per sale
         paid_by_sale = {}
         if payments_response.data:
             for payment in payments_response.data:
                 sale_id = payment.get("sale_id")
-                amount = payment.get("amount", 0)
-                paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) + amount
+                amt = float(payment.get("amount", 0) or 0)
+                pm = (payment.get("payment_method") or "").strip().lower()
+                if "refund" in pm:
+                    paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) - amt
+                else:
+                    paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) + amt
+
+        # Get active notes per sale
+        notes_response = db.table("credit_debit_notes").select("sale_id, note_type, amount").eq("status", "active").limit(10000).execute()
+        credit_by_sale = {}
+        debit_by_sale = {}
+        if notes_response.data:
+            for n in notes_response.data:
+                sid = n.get("sale_id")
+                amt = float(n.get("amount", 0) or 0)
+                if n.get("note_type") == "credit":
+                    credit_by_sale[sid] = credit_by_sale.get(sid, 0) + amt
+                else:
+                    debit_by_sale[sid] = debit_by_sale.get(sid, 0) + amt
 
         # Build result with pending amounts
         result = []
         today = datetime.now().date()
 
         for sale in sales_response.data:
+            if sale.get("payment_status") == "Refund Due":
+                continue
             sale_id = sale.get("sale_id")
             customer_id = sale.get("customer_id")
-            total_amount = sale.get("total_amount", 0) or 0
+            total_amount = float(sale.get("total_amount", 0) or 0)
             paid_amount = paid_by_sale.get(sale_id, 0)
-            pending_amount = total_amount - paid_amount
+            credit_total = credit_by_sale.get(sale_id, 0)
+            debit_total = debit_by_sale.get(sale_id, 0)
+            pending_amount = round(total_amount - paid_amount - credit_total + debit_total, 2)
             payment_terms_json = sale.get("payment_terms")
             
-            # Skip if fully paid
+            # Skip if fully paid or refund due
             if pending_amount <= 0:
                 continue
 
@@ -416,11 +437,16 @@ def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
         # Get payments and notes for balance calculation
         sale_ids = [s["sale_id"] for s in sales_response.data]
 
-        payments_response = db.table("payments").select("sale_id, amount").in_("sale_id", sale_ids).execute()
+        payments_response = db.table("payments").select("sale_id, amount, payment_method").in_("sale_id", sale_ids).execute()
         paid_by_sale: dict = {}
         for p in (payments_response.data or []):
             sid = p["sale_id"]
-            paid_by_sale[sid] = paid_by_sale.get(sid, 0) + float(p.get("amount", 0))
+            amt = float(p.get("amount", 0) or 0)
+            pm = (p.get("payment_method") or "").strip().lower()
+            if "refund" in pm:
+                paid_by_sale[sid] = paid_by_sale.get(sid, 0) - amt
+            else:
+                paid_by_sale[sid] = paid_by_sale.get(sid, 0) + amt
 
         # Sum active credit and debit notes per sale
         notes_response = (
@@ -459,8 +485,8 @@ def sales_with_refund_due(db: SupabaseClient = Depends(get_supabase)):
             credit_total = credit_by_sale.get(sale_id, 0)
             debit_total = debit_by_sale.get(sale_id, 0)
             # effective_balance = total - paid - credits + debits (negative means refund owed)
-            effective_balance = total_amount - paid_amount - credit_total + debit_total
-            refund_amount = abs(effective_balance)  # How much company owes
+            effective_balance = round(total_amount - paid_amount - credit_total + debit_total, 2)
+            refund_amount = abs(effective_balance) if effective_balance < 0 else 0  # How much company owes
 
             buyer_type = sale.get("buyer_type") or (
                 "doctor" if sale.get("doctor_id") else
