@@ -15,6 +15,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableFooter,
   Chip,
   useTheme,
   Divider,
@@ -183,7 +184,7 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
     presentKpiLabel: "Sales Managers Present",
     userTableColumnHeader: "Sales Manager",
     showCallKpis: true,
-    showCallTableColumns: false,
+    showCallTableColumns: true,
     showSecondaryCards: false,
     showGeography: false,
     showAnalytics: true,
@@ -512,10 +513,10 @@ export default function TelecallerReports() {
       </Card>
 
       {/* ── KPI Cards ── */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 4 }}>
+        {/* Row 1: Primary Overview */}
         {config.showCallKpis && (
           <>
-            {/* Row 1: Call Metrics */}
             <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
                 label="Total Calls"
@@ -537,26 +538,16 @@ export default function TelecallerReports() {
             </Grid>
             <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
-                label="Total Call Duration"
-                value={summary.total_call_duration || "0s"}
-                icon={<TimeIcon fontSize="medium" />}
-                color="#0284c7"
-                loading={loading}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6} md={3} lg={3}>
-              <KpiCard
-                label="Avg Call Duration"
-                value={summary.avg_duration || "0s"}
-                icon={<TimeIcon fontSize="medium" />}
-                color="#9c27b0"
+                label="Orders Generated"
+                value={summary.total_orders || "0"}
+                percentage={summary.conversion_rate !== undefined ? `${summary.conversion_rate}% Conv.` : undefined}
+                icon={<OrderIcon fontSize="medium" />}
+                color={theme.palette.warning.main}
                 loading={loading}
               />
             </Grid>
           </>
         )}
-
-        {/* Row 2: Attendance & Orders */}
         <Grid item xs={12} sm={6} md={3} lg={config.showCallKpis ? 3 : 12}>
           <KpiCard
             label={config.presentKpiLabel}
@@ -567,18 +558,54 @@ export default function TelecallerReports() {
             loading={loading}
           />
         </Grid>
+
+        {/* Row 2: Timing & Working Hours */}
+        <Grid item xs={12} sm={6} md={3} lg={3}>
+          <KpiCard
+            label="Total Talk Time"
+            value={summary.total_call_duration || summary.total_talk_time || "0s"}
+            subLabel="Total duration across calls"
+            icon={<TimeIcon fontSize="medium" />}
+            color="#0284c7"
+            loading={loading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3} lg={3}>
+          <KpiCard
+            label="Total Screen Time"
+            value={summary.total_screen_duration || "0s"}
+            subLabel="Active user session time"
+            icon={<TimeIcon fontSize="medium" />}
+            color="#0d9488"
+            loading={loading}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3} lg={3}>
+          <KpiCard
+            label="Total Working Time"
+            value={summary.total_working_duration || "0s"}
+            subLabel="Screen Time + Talk Time"
+            icon={<TimeIcon fontSize="medium" />}
+            color="#6366f1"
+            loading={loading}
+          />
+        </Grid>
+        {config.showCallKpis && (
+          <Grid item xs={12} sm={6} md={3} lg={3}>
+            <KpiCard
+              label="Avg Call Duration"
+              value={summary.avg_duration || "0s"}
+              subLabel="Average time per call"
+              icon={<TimeIcon fontSize="medium" />}
+              color="#9c27b0"
+              loading={loading}
+            />
+          </Grid>
+        )}
+
+        {/* Row 3: Orders Breakdown */}
         {config.showCallKpis && (
           <>
-            <Grid item xs={12} sm={6} md={3} lg={3}>
-              <KpiCard
-                label="Orders Generated"
-                value={summary.total_orders || "0"}
-                percentage={summary.conversion_rate !== undefined ? `${summary.conversion_rate}% Conv.` : undefined}
-                icon={<OrderIcon fontSize="medium" />}
-                color={theme.palette.warning.main}
-                loading={loading}
-              />
-            </Grid>
             <Grid item xs={12} sm={6} md={3} lg={3}>
               <KpiCard
                 label="Approved Orders"
@@ -594,6 +621,25 @@ export default function TelecallerReports() {
                 value={summary.rejected_orders || "0"}
                 icon={<CancelIcon fontSize="medium" />}
                 color={theme.palette.error.main}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
+              <KpiCard
+                label="Unconfirmed Orders"
+                value={summary.unconfirmed_orders || "0"}
+                icon={<OrderIcon fontSize="medium" />}
+                color={theme.palette.warning.dark}
+                loading={loading}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3} lg={3}>
+              <KpiCard
+                label="Conversion Rate"
+                value={`${summary.conversion_rate || 0}%`}
+                subLabel="Orders per total calls"
+                icon={<CheckCircleIcon fontSize="medium" />}
+                color={theme.palette.secondary.main}
                 loading={loading}
               />
             </Grid>
@@ -728,7 +774,7 @@ export default function TelecallerReports() {
                           <TableCell sx={{ fontWeight: 700 }} align="right">Avg Duration</TableCell>
                         )}
                         <TableCell sx={{ fontWeight: 700 }} align="right">Total Talk Time</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Time</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }} align="right">Total Working Time</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -814,6 +860,44 @@ export default function TelecallerReports() {
                         </TableRow>
                       ))}
                     </TableBody>
+                    <TableFooter>
+                      <TableRow sx={{ bgcolor: (t) => t.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }}>
+                        <TableCell colSpan={2} sx={{ fontWeight: 800 }}>Total / Summary</TableCell>
+                        {config.showCallTableColumns && (
+                          <>
+                            <TableCell align="right" sx={{ fontWeight: 800 }}>{summary.total_calls ?? 0}</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 800 }}>{summary.connected_calls ?? 0}</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 800 }}>{summary.connected_pct ?? 0}%</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700 }}>
+                              {performance.reduce((acc: number, r: any) => acc + (r.callback || 0), 0)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700 }}>
+                              {performance.reduce((acc: number, r: any) => acc + (r.not_reachable || 0), 0)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700 }}>
+                              {performance.reduce((acc: number, r: any) => acc + (r.wrong_number || 0), 0)}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 800 }}>{summary.total_orders ?? 0}</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 800, color: "warning.main" }}>{summary.conversion_rate ?? 0}%</TableCell>
+                          </>
+                        )}
+                        <TableCell align="right" sx={{ fontWeight: 700 }}>-</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800, color: "#0284c7" }}>
+                          {summary.total_screen_duration || "0s"}
+                        </TableCell>
+                        {config.showCallTableColumns && (
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>
+                            {summary.avg_duration || "0s"}
+                          </TableCell>
+                        )}
+                        <TableCell align="right" sx={{ fontWeight: 800 }}>
+                          {summary.total_call_duration || summary.total_talk_time || "0s"}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800, color: "primary.main" }}>
+                          {summary.total_working_duration || "0s"}
+                        </TableCell>
+                      </TableRow>
+                    </TableFooter>
                   </Table>
                 </TableContainer>
               )}
