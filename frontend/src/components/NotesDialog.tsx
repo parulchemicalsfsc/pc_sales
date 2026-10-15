@@ -113,9 +113,13 @@ export default function NotesDialog({
       
       setNotes(notesData || []);
       
-      // Calculate paid amount from payments
+      // Calculate paid amount from payments (subtract refunds)
       const totalPaid = Array.isArray(paymentsData) 
-        ? paymentsData.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0)
+        ? paymentsData.reduce((sum: number, p: any) => {
+            const amt = Number(p.amount || 0);
+            const isRefund = (p.payment_method || "").toLowerCase().includes("refund");
+            return isRefund ? sum - amt : sum + amt;
+          }, 0)
         : 0;
       setFetchedPaidAmount(totalPaid);
       

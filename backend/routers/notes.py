@@ -264,9 +264,13 @@ def create_note(
             ]
             auto_pickup_text = ", ".join(pickup_desc_parts)
 
-            note_data["requires_pickup"] = True
-            note_data["pickup_items"] = auto_pickup_text
-            note_data["pickup_status"] = "pending_pickup"
+            note_data["requires_pickup"] = bool(note.requires_pickup)
+            if note.requires_pickup:
+                note_data["pickup_items"] = note.pickup_items if note.pickup_items else auto_pickup_text
+                note_data["pickup_status"] = "pending_pickup"
+            else:
+                note_data["pickup_items"] = None
+                note_data["pickup_status"] = None
             note_data["return_items"] = note.return_items  # Snapshot with sale-time rates
 
 

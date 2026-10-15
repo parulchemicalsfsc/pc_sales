@@ -876,43 +876,44 @@ def get_calling_summary(
     try:
         role = get_user_role_cached(user_email, db)
         
-        # Standard counts — no entity_type filter here so callbacks for both
-        # distributor and customer entity types are included in the summary.
-        all_query = db.table("calling_assignments").select("status, reason, assigned_date")
-        if role == "sales_manager":
-            all_query = all_query.eq("user_email", user_email).eq("entity_type", "distributor")
-        else:
-            # For telecallers and other roles: count ALL assignments regardless of entity_type
-            # (they may have callbacks for distributors if the system calls distributors)
-            all_query = all_query.eq("user_email", user_email)
+        # We use count="exact" with limit=1 to avoid fetching thousands of rows
+        # and bypass the 1,000-row default limit, fixing the miscalculation bug.
+        
+        # Helper to build the base query
+        def get_base_query():
+            q = db.table("calling_assignments").select("*", count="exact").eq("user_email", user_email).limit(1)
+            if role == "sales_manager":
+                q = q.eq("entity_type", "distributor")
+            return q
             
-        all_res = all_query.execute()
-        all_assignments = all_res.data or []
-        
-        pending_assignments = [x for x in all_assignments if x["status"] == "Pending"]
-        
+        # 1. Pending (To Call) count
+        pending_q = get_base_query().eq("status", "Pending")
         if role == "telecaller":
-            pending = sum(1 for x in pending_assignments if x.get("reason") != "Scheduled Callback")
-        else:
-            pending = len(pending_assignments)
-            
-        called = sum(1 for x in all_assignments if x["status"] != "Pending")
+            pending_q = pending_q.neq("reason", "Scheduled Callback")
+        pending_res = pending_q.execute()
+        pending = pending_res.count if pending_res.count is not None else 0
         
+        # 2. Called (Completed) count
+        called_q = get_base_query().neq("status", "Pending")
+        called_res = called_q.execute()
+        called = called_res.count if called_res.count is not None else 0
+
         summary = {
             "to_call": pending,
             "called": called,
         }
         
         if role == "telecaller":
-            # Add callbacks count (all pending Scheduled Callbacks — today + upcoming)
-            callbacks = sum(
-                1 for x in pending_assignments
-                if x.get("reason") == "Scheduled Callback"
-            )
+            # 3. Callbacks count (Pending Scheduled Callbacks)
+            cb_q = get_base_query().eq("status", "Pending").eq("reason", "Scheduled Callback")
+            cb_res = cb_q.execute()
+            callbacks = cb_res.count if cb_res.count is not None else 0
             
+            # 4. Confirmation calls count
             conf_res = db.table("telecaller_orders").select("*", count="exact") \
                 .eq("telecaller_email", user_email) \
                 .eq("status", "unconfirmed") \
+                .limit(1) \
                 .execute()
                 
             summary["callbacks"] = callbacks

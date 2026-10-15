@@ -1303,3 +1303,27 @@ export const callLoggerAPI = {
     return response.data;
   },
 };
+
+// Tally Integration API
+export const tallyAPI = {
+  getVouchers: async (params?: {
+    page?: number;
+    page_size?: number;
+    voucher_type?: string;
+    customer?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+  }) => {
+    const response = await apiClient.get("/api/tally/vouchers", { params });
+    return response.data;
+  },
+  getStats: async () => {
+    const response = await apiClient.get("/api/tally/stats");
+    return response.data;
+  },
+  getFilterOptions: async () => {
+    const response = await apiClient.get("/api/tally/filter-options");
+    return response.data;
+  },
+};
