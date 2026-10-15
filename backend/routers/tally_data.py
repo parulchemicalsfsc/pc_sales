@@ -31,9 +31,10 @@ _TALLY_API_KEY = os.getenv("TALLY_API_KEY", "")
 
 def _verify_api_key(x_api_key: Optional[str] = Header(None, alias="x-api-key")) -> None:
     """Validates the X-API-Key header for machine-to-machine endpoints."""
-    if not _TALLY_API_KEY:
+    expected_key = os.getenv("TALLY_API_KEY", "")
+    if not expected_key:
         raise HTTPException(status_code=500, detail="TALLY_API_KEY is not configured on the server.")
-    if not x_api_key or x_api_key != _TALLY_API_KEY:
+    if not x_api_key or x_api_key != expected_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
 
@@ -61,6 +62,14 @@ class IngestRequest(BaseModel):
 class CleanupRequest(BaseModel):
     active_voucher_ids: List[str]
 
+
+
+# ─── Health / Ping endpoint ──────────────────────────────────────────────────
+
+@router.get("/ping")
+def ping_backend(_: None = Depends(_verify_api_key)):
+    """Lightweight health check endpoint for desktop connector to verify connection and API key."""
+    return {"status": "ok", "message": "Backend is online and API key is valid."}
 
 # ─── Ingest endpoint ──────────────────────────────────────────────────────────
 
@@ -109,7 +118,7 @@ def ingest_vouchers(
             db.table("tally_vouchers").upsert(
                 row,
                 on_conflict="voucher_id",
-                ignore_duplicates=False,
+                
             ).execute()
             upserted += 1
         except Exception as e:
