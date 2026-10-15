@@ -137,7 +137,8 @@ def ingest_vouchers(
             "extra_fields":      v.extra_fields or {},
             "synced_at":         synced_at,
             "connector_version": connector_version,
-            # Never un-delete via ingest — use reconcile for that
+            "is_deleted":        False,
+            "deleted_at":        None,
         }
 
         try:
@@ -190,16 +191,16 @@ def reconcile_cleanup(
         active_set = set(active_ids)
         stale = [row for row in db_active if row["voucher_id"] not in active_set]
 
-        # Soft-delete stale rows in batches of 200 IDs
-        stale_ids = [row["id"] for row in stale]
-        batch_size = 200
-        for i in range(0, len(stale_ids), batch_size):
-            batch = stale_ids[i:i + batch_size]
-            db.table("tally_vouchers").update({
-                "is_deleted": True,
-                "deleted_at": deleted_at,
-            }).in_("id", batch).execute()
-            soft_deleted += len(batch)
+        # Soft-delete stale rows
+        for row in stale:
+            try:
+                db.table("tally_vouchers").eq("id", row["id"]).update({
+                    "is_deleted": True,
+                    "deleted_at": deleted_at,
+                })
+                soft_deleted += 1
+            except Exception as row_err:
+                print(f"[tally_data] Failed to soft-delete row id={row.get('id')}: {row_err}")
 
     except Exception as e:
         print(f"[tally_data] Reconcile cleanup error: {e}")
