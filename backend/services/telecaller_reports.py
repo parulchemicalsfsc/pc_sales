@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Set
 from collections import defaultdict
 import logging
@@ -7,6 +8,7 @@ from supabase_db import SupabaseClient
 logger = logging.getLogger(__name__)
 
 VALID_ROLES = {"all", "telecaller", "sales_manager"}
+IST = timezone(timedelta(hours=5, minutes=30))
 
 def format_duration_str(seconds: Optional[float]) -> str:
     if not seconds or seconds <= 0:
@@ -50,6 +52,47 @@ def extract_name_from_email(email: str) -> str:
         return ""
     name_part = str(email).split("@")[0]
     return name_part.replace(".", " ").replace("_", " ").title()
+
+def parse_to_ist_date(dt_val: Any) -> str:
+    """Parse a date/timestamp to IST YYYY-MM-DD string."""
+    if not dt_val:
+        return ""
+    if isinstance(dt_val, str):
+        dt_str = dt_val.strip()
+        if len(dt_str) == 10 and dt_str[4] == '-' and dt_str[7] == '-':
+            return dt_str
+        try:
+            clean_str = dt_str.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(clean_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(IST).strftime("%Y-%m-%d")
+        except Exception:
+            return dt_str.split("T")[0].split(" ")[0]
+    elif isinstance(dt_val, datetime):
+        if dt_val.tzinfo is None:
+            dt_val = dt_val.replace(tzinfo=timezone.utc)
+        return dt_val.astimezone(IST).strftime("%Y-%m-%d")
+    return str(dt_val)
+
+def fetch_all_paginated(query: Any, batch_size: int = 1000) -> List[Dict[str, Any]]:
+    """
+    Fetches all matching records in batches of `batch_size` (<= 1000)
+    to overcome Supabase / PostgREST default 1,000-row limit.
+    Preserves all query filters, selects, and conditions.
+    """
+    records = []
+    offset = 0
+    while True:
+        res = query.range(offset, offset + batch_size - 1).execute()
+        data = res.data or []
+        if not data:
+            break
+        records.extend(data)
+        if len(data) < batch_size:
+            break
+        offset += batch_size
+    return records
 
 def calculate_attendance_metrics(
     attendance_records: List[Dict[str, Any]],
@@ -192,6 +235,41 @@ def filter_by_allowed_emails(records: List[Dict[str, Any]], email_key: str, allo
     normalized_allowed = {normalize_email(e) for e in allowed_emails if e}
     return [r for r in records if normalize_email(r.get(email_key)) in normalized_allowed]
 
+def resolve_reporting_user_emails(
+    db: SupabaseClient,
+    allowed_emails: Optional[Set[str]],
+    selected_email: Optional[str] = None,
+    extra_emails: Optional[Set[str]] = None
+) -> Set[str]:
+    """
+    Resolves the set of emails considered active reporting users.
+    If allowed_emails is provided, normalizes and returns it.
+    If selected_email is provided, returns that single email.
+    Otherwise, queries app_users for active reporting roles and unions with extra_emails (e.g. from call logs).
+    """
+    if allowed_emails is not None:
+        return {normalize_email(e) for e in allowed_emails if e}
+    if selected_email:
+        return {normalize_email(selected_email)}
+        
+    reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
+    active_emails = set()
+    try:
+        users_res = db.table("app_users").select("email, role, is_active").execute()
+        for u in (users_res.data or []):
+            if u.get("is_active", True) is False:
+                continue
+            r = (u.get("role") or "").strip().lower().replace(" ", "_")
+            if r in reporting_roles or "telecaller" in r or "sales" in r:
+                if u.get("email"):
+                    active_emails.add(normalize_email(u["email"]))
+    except Exception as e:
+        logger.warning(f"Error fetching active reporting users from app_users: {e}")
+        
+    if extra_emails:
+        active_emails.update({normalize_email(e) for e in extra_emails if e})
+    return active_emails
+
 def get_telecaller_dashboard(
     db: SupabaseClient,
     start_date: str,
@@ -205,50 +283,53 @@ def get_telecaller_dashboard(
     q_counts = {"call_logs": 0, "telecaller_orders": 0, "telecaller_attendance": 0, "customers": 0, "app_users": 0, "duty_sheet_log": 0, "calling_assignments": 0}
 
     next_day = get_next_day_str(end_date)
+    start_bound = f"{start_date}T00:00:00+05:30"
+    end_bound = f"{next_day}T00:00:00+05:30"
     selected_email = normalize_email(telecaller_email) if telecaller_email else None
 
-    # 1. Fetch Call Logs
-    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", start_date).lt("called_at", next_day)
+    # 1. Fetch Call Logs (Paginated, IST timezone bounds)
+    call_logs_query = db.table("call_logs").select("user_email, call_outcome, time_taken, customer_id").gte("called_at", start_bound).lt("called_at", end_bound)
     if telecaller_email:
         call_logs_query = call_logs_query.ilike("user_email", telecaller_email)
     q_counts["call_logs"] += 1
-    call_logs = call_logs_query.execute().data or []
+    call_logs = fetch_all_paginated(call_logs_query)
 
-    # 2. Fetch Attendance
+    # 2. Fetch Attendance (Paginated)
     attendance_query = db.table("telecaller_attendance").select("user_email, attendance_date, is_present").gte("attendance_date", start_date).lte("attendance_date", end_date)
     if telecaller_email:
         attendance_query = attendance_query.ilike("user_email", telecaller_email)
     q_counts["telecaller_attendance"] += 1
-    attendance = attendance_query.execute().data or []
+    attendance = fetch_all_paginated(attendance_query)
 
-    # 3. Fetch Orders
-    orders_query = db.table("telecaller_orders").select("telecaller_email, status, customer_id, customer_village").gte("created_at", start_date).lt("created_at", next_day)
+    # 3. Fetch Orders (Paginated, IST timezone bounds)
+    orders_query = db.table("telecaller_orders").select("telecaller_email, status, customer_id, customer_village").gte("created_at", start_bound).lt("created_at", end_bound)
     if telecaller_email:
         orders_query = orders_query.ilike("telecaller_email", telecaller_email)
     if order_status:
         orders_query = orders_query.eq("status", order_status)
     q_counts["telecaller_orders"] += 1
-    orders = orders_query.execute().data or []
+    orders = fetch_all_paginated(orders_query)
 
     # Apply role filter using centralized helper
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
     attendance = filter_by_allowed_emails(attendance, "user_email", allowed_emails)
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
 
-    # 4. Fetch Assignments
+    # 4. Fetch Assignments (Paginated)
     assignments_query = db.table("calling_assignments").select("user_email, status, reason").gte("assigned_date", start_date).lte("assigned_date", end_date)
     if telecaller_email:
         assignments_query = assignments_query.ilike("user_email", telecaller_email)
     q_counts["calling_assignments"] += 1
-    assignments = assignments_query.execute().data or []
+    assignments = fetch_all_paginated(assignments_query)
     assignments = filter_by_allowed_emails(assignments, "user_email", allowed_emails)
 
-    # 4. Fetch Duty Days
+    # 4. Fetch Duty Days (Paginated)
     q_counts["duty_sheet_log"] += 1
-    duty_days_data = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date).execute().data or []
+    duty_days_query = db.table("duty_sheet_log").select("duty_date").gte("duty_date", start_date).lte("duty_date", end_date)
+    duty_days_data = fetch_all_paginated(duty_days_query)
     duty_dates = {d["duty_date"] for d in duty_days_data if d.get("duty_date")}
 
-    # 5. Fetch User Sessions (Screen Time)
+    # 5. Fetch User Sessions (Screen Time, Paginated)
     q_counts["user_sessions"] = 0
     sessions_data = []
     try:
@@ -256,7 +337,7 @@ def get_telecaller_dashboard(
         if telecaller_email:
             sessions_query = sessions_query.ilike("user_email", telecaller_email)
         q_counts["user_sessions"] += 1
-        sessions_data = sessions_query.execute().data or []
+        sessions_data = fetch_all_paginated(sessions_query)
         sessions_data = filter_by_allowed_emails(sessions_data, "user_email", allowed_emails)
     except Exception as e:
         logger.warning(f"Error fetching user_sessions for dashboard: {e}")
@@ -335,27 +416,8 @@ def get_telecaller_dashboard(
             tc_orders_pending[email] += 1
 
     # Resolve target user_emails set for attendance calculation
-    if allowed_emails is not None:
-        user_emails = {normalize_email(e) for e in allowed_emails if e}
-    elif selected_email:
-        user_emails = {selected_email}
-    else:
-        reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
-        try:
-            q_counts["app_users"] += 1
-            users_res = db.table("app_users").select("email, role, is_active").execute()
-            active_emails = set()
-            for u in (users_res.data or []):
-                if u.get("is_active", True) is False:
-                    continue
-                r = (u.get("role") or "").strip().lower().replace(" ", "_")
-                if r in reporting_roles or "telecaller" in r or "sales" in r:
-                    if u.get("email"):
-                        active_emails.add(normalize_email(u["email"]))
-            user_emails = active_emails.union(all_telecallers)
-        except Exception as e:
-            logger.warning(f"Error fetching active reporting users from app_users: {e}")
-            user_emails = set(all_telecallers)
+    q_counts["app_users"] += 1
+    user_emails = resolve_reporting_user_emails(db, allowed_emails, selected_email, extra_emails=all_telecallers)
 
     # Only add screen time users into all_telecallers if they match user_emails / allowed_emails
     for email in tc_screen_time.keys():
@@ -380,9 +442,17 @@ def get_telecaller_dashboard(
     
     customers_dict = {}
     if customer_ids:
-        q_counts["customers"] += 1
-        customers_resp = db.table("customers").select("customer_id, district, village").in_("customer_id", list(customer_ids)).execute()
-        customers_dict = {c["customer_id"]: c for c in (customers_resp.data or [])}
+        try:
+            q_counts["customers"] += 1
+            c_ids_list = [cid for cid in customer_ids if cid]
+            for i in range(0, len(c_ids_list), 100):
+                chunk = c_ids_list[i : i + 100]
+                resp = db.table("customers").select("customer_id, district, village").in_("customer_id", chunk).execute()
+                for c in (resp.data or []):
+                    if c.get("customer_id"):
+                        customers_dict[c["customer_id"]] = c
+        except Exception as e:
+            logger.warning(f"Error fetching customer details for geo analysis: {e}")
 
     dist_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0})
     vill_stats = defaultdict(lambda: {"calls": 0, "connected": 0, "orders": 0, "district": ""})
@@ -480,6 +550,7 @@ def get_telecaller_dashboard(
         "conversion_rate": round((total_orders / total_calls * 100) if total_calls else 0, 1),
         "total_call_seconds": total_call_seconds,
         "total_call_duration": format_call_duration_hms(total_call_seconds),
+        "total_talk_time": format_call_duration_hms(total_call_seconds),
         "avg_duration_seconds": avg_duration_seconds,
         "avg_duration": format_call_duration_hms(avg_duration_seconds),
         "total_screen_seconds": total_screen_seconds,
@@ -633,11 +704,13 @@ def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: st
     is_sales_manager = role_clean == "sales_manager"
 
     if is_sales_manager:
-        headers = ["Rank", "Name", "Attendance %", "Total Talk Time"]
+        headers = ["Rank", "Name", "Calls", "Attendance %", "Screen Time", "Total Talk Time", "Total Working Time"]
         summary_cards = [
             {"label": "Total Calls", "value": str(summary.get("total_calls", 0))},
             {"label": "Connected Calls", "value": str(summary.get("connected_calls", 0)), "subLabel": f"{summary.get('connected_pct', 0)}%"},
-            {"label": "Total Call Duration", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Total Talk Time", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Total Screen Time", "value": summary.get("total_screen_duration", "0s")},
+            {"label": "Total Working Time", "value": summary.get("total_working_duration", "0s")},
             {"label": "Average Call Duration", "value": summary.get("avg_duration", "0s")},
             {"label": "Sales Managers Present", "value": str(summary.get("present_telecallers", 0)), "subLabel": f"Out of {summary.get('total_telecallers', 0)} total"},
             {"label": "Orders Generated", "value": str(summary.get("total_orders", 0)), "subLabel": f"{summary.get('conversion_rate', 0)}% Conv."},
@@ -649,15 +722,20 @@ def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: st
             rows.append([
                 i + 1,
                 extract_name_from_email(row.get("email", "")),
+                row.get("calls", 0),
                 f"{row.get('attendance_pct', 0)}%",
+                row.get("screen_time", "0s"),
                 row.get("total_talk_time", "0s"),
+                row.get("total_time", "0s"),
             ])
     else:
-        headers = ["Rank", "Name", "Calls", "Connected %", "Orders", "Attendance %", "Avg Duration", "Total Talk Time"]
+        headers = ["Rank", "Name", "Calls", "Connected %", "Orders", "Attendance %", "Screen Time", "Total Talk Time", "Total Working Time"]
         summary_cards = [
             {"label": "Total Calls", "value": str(summary.get("total_calls", 0))},
             {"label": "Connected Calls", "value": str(summary.get("connected_calls", 0)), "subLabel": f"{summary.get('connected_pct', 0)}%"},
-            {"label": "Total Call Duration", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Total Talk Time", "value": summary.get("total_call_duration", "0s")},
+            {"label": "Total Screen Time", "value": summary.get("total_screen_duration", "0s")},
+            {"label": "Total Working Time", "value": summary.get("total_working_duration", "0s")},
             {"label": "Average Call Duration", "value": summary.get("avg_duration", "0s")},
             {"label": "Present Users", "value": str(summary.get("present_telecallers", 0)), "subLabel": f"Out of {summary.get('total_telecallers', 0)} total"},
             {"label": "Orders Generated", "value": str(summary.get("total_orders", 0)), "subLabel": f"{summary.get('conversion_rate', 0)}% Conv."},
@@ -673,8 +751,9 @@ def prepare_performance_export(db: SupabaseClient, start_date: str, end_date: st
                 f"{row.get('connected_pct', 0)}%",
                 row.get("orders", 0),
                 f"{row.get('attendance_pct', 0)}%",
-                format_call_duration_hms(row.get("avg_duration", 0)),
+                row.get("screen_time", "0s"),
                 row.get("total_talk_time", "0s"),
+                row.get("total_time", "0s"),
             ])
             
     return headers, rows, summary_cards
@@ -715,11 +794,13 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
 
 def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str, telecaller_email: Optional[str] = None, order_status: Optional[str] = None, allowed_emails: Optional[Set[str]] = None, role: Optional[str] = None):
     next_day = get_next_day_str(end_date)
-    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", start_date).lt("called_at", next_day)
+    start_bound = f"{start_date}T00:00:00+05:30"
+    end_bound = f"{next_day}T00:00:00+05:30"
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", start_bound).lt("called_at", end_bound)
     if telecaller_email:
         query = query.eq("user_email", telecaller_email)
     
-    call_logs = query.execute().data or []
+    call_logs = fetch_all_paginated(query)
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
     
     # Fetch customers separately to prevent PostgREST relationship errors
@@ -736,15 +817,24 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
     rows = []
     for log in call_logs:
         called_at = log.get("called_at", "")
-        dt = called_at.split("T")
-        date_part = dt[0] if len(dt) > 0 else ""
-        time_part = dt[1][:8] if len(dt) > 1 else ""
+        ist_date = parse_to_ist_date(called_at)
+        time_part = ""
+        if called_at:
+            try:
+                clean_str = str(called_at).strip().replace("Z", "+00:00")
+                dt = datetime.fromisoformat(clean_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                time_part = dt.astimezone(IST).strftime("%H:%M:%S")
+            except Exception:
+                dt_parts = str(called_at).split("T")
+                time_part = dt_parts[1][:8] if len(dt_parts) > 1 else ""
         
         cid = log.get("customer_id")
         customer_name = customers_map.get(cid) or cid or "N/A"
         
         rows.append([
-            date_part,
+            ist_date,
             time_part,
             extract_name_from_email(log.get("user_email", "")),
             customer_name,
@@ -766,11 +856,13 @@ def prepare_notes_export(
     village: Optional[str] = None,
 ):
     next_day = get_next_day_str(end_date)
-    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", start_date).lt("called_at", next_day)
+    start_bound = f"{start_date}T00:00:00+05:30"
+    end_bound = f"{next_day}T00:00:00+05:30"
+    query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", start_bound).lt("called_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
         query = query.eq("user_email", telecaller_email)
     
-    call_logs = query.execute().data or []
+    call_logs = fetch_all_paginated(query)
     
     # 1. Apply role filtering
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
@@ -789,8 +881,12 @@ def prepare_notes_export(
     customers_map = {}
     if customer_ids:
         try:
-            cust_res = db.table("customers").select("customer_id, name, district, village").in_("customer_id", customer_ids).execute()
-            customers_map = {c["customer_id"]: c for c in (cust_res.data or []) if c.get("customer_id")}
+            for i in range(0, len(customer_ids), 100):
+                chunk = customer_ids[i : i + 100]
+                cust_res = db.table("customers").select("customer_id, name, district, village").in_("customer_id", chunk).execute()
+                for c in (cust_res.data or []):
+                    if c.get("customer_id"):
+                        customers_map[c["customer_id"]] = c
         except Exception as e:
             logger.warning(f"Failed to fetch customer names for notes export: {e}")
             
@@ -814,8 +910,7 @@ def prepare_notes_export(
             continue
             
         called_at = log.get("called_at", "")
-        dt = called_at.split("T")
-        date_part = dt[0] if len(dt) > 0 else ""
+        date_part = parse_to_ist_date(called_at) if called_at else ""
         
         customer_name = cust.get("name") or cid or "N/A"
         
@@ -849,13 +944,15 @@ def prepare_orders_export(
     single_user: bool = False,
 ):
     next_day = get_next_day_str(end_date)
-    query = db.table("telecaller_orders").select("*").gte("created_at", start_date).lt("created_at", next_day)
+    start_bound = f"{start_date}T00:00:00+05:30"
+    end_bound = f"{next_day}T00:00:00+05:30"
+    query = db.table("telecaller_orders").select("*").gte("created_at", start_bound).lt("created_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
         query = query.eq("telecaller_email", telecaller_email)
     if order_status and order_status.lower() != "all":
         query = query.eq("status", order_status)
     
-    orders = query.execute().data or []
+    orders = fetch_all_paginated(query)
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
     
     # Batch resolve customer details
@@ -863,8 +960,12 @@ def prepare_orders_export(
     customers_map = {}
     if customer_ids:
         try:
-            cust_res = db.table("customers").select("customer_id, name, village").in_("customer_id", customer_ids).execute()
-            customers_map = {c["customer_id"]: c for c in (cust_res.data or []) if c.get("customer_id")}
+            for i in range(0, len(customer_ids), 100):
+                chunk = customer_ids[i : i + 100]
+                cust_res = db.table("customers").select("customer_id, name, village").in_("customer_id", chunk).execute()
+                for c in (cust_res.data or []):
+                    if c.get("customer_id"):
+                        customers_map[c["customer_id"]] = c
         except Exception as e:
             logger.warning(f"Failed to fetch customer details for orders export: {e}")
 
@@ -895,8 +996,8 @@ def prepare_orders_export(
     rows = []
     import json
     for order in orders:
-        dt = order.get("created_at", "").split("T")
-        created_date = dt[0] if len(dt) > 0 else ""
+        created_at = order.get("created_at", "")
+        created_date = parse_to_ist_date(created_at) if created_at else ""
         
         email = normalize_email(order.get("telecaller_email", ""))
         user_name = users_map.get(email) or extract_name_from_email(email) or email
@@ -963,35 +1064,48 @@ def build_python_telecaller_charts(
     q_counts = {"call_logs": 0, "telecaller_orders": 0, "customers": 0, "app_users": 0}
 
     next_day = get_next_day_str(end_date)
-    cl_query = db.table("call_logs").select("log_id, user_email, customer_id, call_outcome, time_taken, called_at").gte("called_at", start_date).lt("called_at", next_day)
-    if telecaller_email:
-        cl_query = cl_query.ilike("user_email", telecaller_email)
+    start_bound = f"{start_date}T00:00:00+05:30"
+    end_bound = f"{next_day}T00:00:00+05:30"
+    selected_email = normalize_email(telecaller_email) if telecaller_email and telecaller_email.lower() != "all" else None
+
+    cl_query = db.table("call_logs").select("log_id, user_email, customer_id, call_outcome, time_taken, called_at").gte("called_at", start_bound).lt("called_at", end_bound)
+    if selected_email:
+        cl_query = cl_query.ilike("user_email", selected_email)
     q_counts["call_logs"] += 1
-    call_logs = cl_query.execute().data or []
+    call_logs = fetch_all_paginated(cl_query)
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
 
-    ord_query = db.table("telecaller_orders").select("telecaller_email, created_at").gte("created_at", start_date).lt("created_at", next_day)
-    if telecaller_email:
-        ord_query = ord_query.ilike("telecaller_email", telecaller_email)
+    ord_query = db.table("telecaller_orders").select("telecaller_email, created_at").gte("created_at", start_bound).lt("created_at", end_bound)
+    if selected_email:
+        ord_query = ord_query.ilike("telecaller_email", selected_email)
     q_counts["telecaller_orders"] += 1
-    orders = ord_query.execute().data or []
+    orders = fetch_all_paginated(ord_query)
     orders = filter_by_allowed_emails(orders, "telecaller_email", allowed_emails)
 
     s_query = db.table("user_sessions").select("user_email, session_date, total_seconds").gte("session_date", start_date).lt("session_date", next_day)
-    if telecaller_email:
-        s_query = s_query.ilike("user_email", telecaller_email)
+    if selected_email:
+        s_query = s_query.ilike("user_email", selected_email)
     q_counts["user_sessions"] = 1
     sessions_data = []
     try:
-        sessions_data = s_query.execute().data or []
+        sessions_data = fetch_all_paginated(s_query)
         sessions_data = filter_by_allowed_emails(sessions_data, "user_email", allowed_emails)
     except Exception as e:
         logger.warning(f"Error fetching user_sessions for charts: {e}")
 
+    # Determine reporting user emails to ensure user_sessions inclusion matches dashboard summary
+    call_log_emails = {normalize_email(log.get("user_email")) for log in call_logs if log.get("user_email")}
+    reporting_user_emails = resolve_reporting_user_emails(db, allowed_emails, selected_email, extra_emails=call_log_emails)
+    
+    # Filter sessions to only reporting users (excludes admin sessions when role="all")
+    sessions_data = [s for s in sessions_data if normalize_email(s.get("user_email")) in reporting_user_emails]
+
     def get_period_key(dt_val: Any) -> str:
         if not dt_val:
             return ""
-        date_part = str(dt_val).strip().replace("T", " ").split(" ")[0]
+        date_part = parse_to_ist_date(dt_val)
+        if not date_part:
+            return ""
         try:
             from datetime import datetime
             dt = datetime.strptime(date_part, "%Y-%m-%d")
