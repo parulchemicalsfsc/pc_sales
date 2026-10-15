@@ -154,23 +154,44 @@ def get_pending(db: SupabaseClient = Depends(get_supabase)):
         dicts = get_entity_dicts(db)
 
         # Get all payments
-        payments_response = db.table("payments").select("sale_id, amount").execute()
+        payments_response = db.table("payments").select("sale_id, amount, payment_method").execute()
 
         # Calculate paid amounts per sale
         paid_by_sale = {}
         if payments_response.data:
             for payment in payments_response.data:
                 sale_id = payment.get("sale_id")
-                amount = payment.get("amount", 0) or 0
-                paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) + amount
+                amt = float(payment.get("amount", 0) or 0)
+                pm = (payment.get("payment_method") or "").strip().lower()
+                if "refund" in pm:
+                    paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) - amt
+                else:
+                    paid_by_sale[sale_id] = paid_by_sale.get(sale_id, 0) + amt
 
-        # Build result with pending amounts
+        # Get active notes
+        notes_response = db.table("credit_debit_notes").select("sale_id, note_type, amount").eq("status", "active").execute()
+        credit_by_sale = {}
+        debit_by_sale = {}
+        if notes_response.data:
+            for n in notes_response.data:
+                sid = n.get("sale_id")
+                amt = float(n.get("amount", 0) or 0)
+                if n.get("note_type") == "credit":
+                    credit_by_sale[sid] = credit_by_sale.get(sid, 0) + amt
+                else:
+                    debit_by_sale[sid] = debit_by_sale.get(sid, 0) + amt
+
+        # Build result with pending amounts (excluding refund-due sales)
         result = []
         for sale in sales_response.data:
+            if sale.get("payment_status") == "Refund Due":
+                continue
             sale_id = sale.get("sale_id")
-            total_amount = sale.get("total_amount", 0) or 0
+            total_amount = float(sale.get("total_amount", 0) or 0)
             paid_amount = paid_by_sale.get(sale_id, 0)
-            pending_amount = total_amount - paid_amount
+            credit_total = credit_by_sale.get(sale_id, 0)
+            debit_total = debit_by_sale.get(sale_id, 0)
+            pending_amount = round(total_amount - paid_amount - credit_total + debit_total, 2)
 
             # Only include sales with pending amounts
             if pending_amount > 0:
@@ -304,11 +325,21 @@ def create_payment(
         if not payment.payment_method:
             raise HTTPException(status_code=400, detail="Payment method is required")
 
-        # Insert payment first (don't verify sale exists to avoid 400 error)
+        # Check if sale is in Refund Due status; if so, tag payment_method so it's treated as refund
+        raw_method = str(payment.payment_method).strip()
+        try:
+            sale_status_check = db.table("sales").select("payment_status").eq("sale_id", payment.sale_id).execute()
+            if sale_status_check.data and sale_status_check.data[0].get("payment_status") == "Refund Due":
+                if "refund" not in raw_method.lower():
+                    raw_method = f"Refund Paid ({raw_method})" if raw_method else "Refund Paid"
+        except Exception as check_err:
+            print(f"Warning: Could not check sale status for payment: {check_err}")
+
+        # Insert payment
         payment_data = {
             "sale_id": int(payment.sale_id),
             "payment_date": str(payment.payment_date),
-            "payment_method": str(payment.payment_method),
+            "payment_method": raw_method,
             "amount": float(payment.amount),
         }
 

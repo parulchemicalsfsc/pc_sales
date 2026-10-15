@@ -47,7 +47,8 @@ def calculate_remaining_balance(sale_id: int, db: SupabaseClient) -> dict:
     total_paid = 0.0
     for p in (payments_resp.data or []):
         amt = float(p.get("amount") or 0)
-        if (p.get("payment_method") or "").strip().lower() == "refund paid":
+        pm = (p.get("payment_method") or "").strip().lower()
+        if "refund" in pm:
             total_paid -= amt   # money going OUT to customer reduces net-paid
         else:
             total_paid += amt   # money coming IN from customer
@@ -69,8 +70,8 @@ def calculate_remaining_balance(sale_id: int, db: SupabaseClient) -> dict:
         elif note.get("note_type") == "debit":
             debit_total += amt
 
-    # 4. Compute remaining balance
-    remaining = total_amount - total_paid - credit_total + debit_total
+    # 4. Compute remaining balance (round to 2 decimals to prevent float precision issues)
+    remaining = round(total_amount - total_paid - credit_total + debit_total, 2)
 
     # 5. Determine payment_status with all four states
     if remaining < 0:
