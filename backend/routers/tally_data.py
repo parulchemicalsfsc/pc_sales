@@ -71,6 +71,33 @@ def ping_backend(_: None = Depends(_verify_api_key)):
     """Lightweight health check endpoint for desktop connector to verify connection and API key."""
     return {"status": "ok", "message": "Backend is online and API key is valid."}
 
+@router.get("/audit")
+def audit_vouchers(
+    db: SupabaseClient = Depends(get_db),
+    _: None = Depends(_verify_api_key),
+):
+    """
+    Returns active voucher IDs and customer summary currently in Supabase.
+    Used by TallyConnector desktop app for true cloud reconciliation audit.
+    """
+    try:
+        res = db.table("tally_vouchers") \
+            .select("voucher_id,voucher_no,customer_name,date,debit,credit") \
+            .eq("is_deleted", False) \
+            .execute()
+        rows = res.data or []
+        voucher_ids = [r.get("voucher_id") or r.get("voucher_no") for r in rows if r.get("voucher_id") or r.get("voucher_no")]
+        return {
+            "total_vouchers": len(rows),
+            "voucher_ids": list(set(voucher_ids)),
+            "customers_count": len(set(r.get("customer_name") for r in rows if r.get("customer_name"))),
+            "total_debit": round(sum(float(r.get("debit") or 0.0) for r in rows), 2),
+            "total_credit": round(sum(float(r.get("credit") or 0.0) for r in rows), 2),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query audit state: {e}")
+
+
 # ─── Ingest endpoint ──────────────────────────────────────────────────────────
 
 @router.post("/ingest")
