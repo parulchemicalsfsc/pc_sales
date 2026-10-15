@@ -108,6 +108,9 @@ export const PERMISSIONS = {
     // Reviews
     VIEW_REVIEWS: "view_reviews",
     DELETE_REVIEWS: "delete_reviews",
+
+    // Tally Data
+    VIEW_TALLY_DATA: "view_tally_data",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
