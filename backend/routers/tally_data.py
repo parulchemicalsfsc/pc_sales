@@ -13,7 +13,9 @@ Authentication:
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -116,7 +118,7 @@ def ingest_vouchers(
         return {"upserted": 0, "message": "Empty batch — nothing to do."}
 
     connector_version = payload.connector_version
-    synced_at = datetime.utcnow().isoformat()
+    synced_at = datetime.now(IST).isoformat()
     upserted = 0
 
     for v in payload.vouchers:
@@ -174,7 +176,7 @@ def reconcile_cleanup(
     if not active_ids:
         return {"soft_deleted": 0, "message": "Empty active list — no cleanup performed."}
 
-    deleted_at = datetime.utcnow().isoformat()
+    deleted_at = datetime.now(IST).isoformat()
     soft_deleted = 0
 
     try:

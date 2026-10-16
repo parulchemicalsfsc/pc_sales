@@ -198,6 +198,29 @@ export default function TallyData() {
     return "default";
   };
 
+  // Format datetime into Indian Standard Time (Asia/Kolkata)
+  const formatISTDateTime = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return "-";
+    let s = dateStr.trim();
+    if (!s.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(s)) {
+      s += "Z";
+    }
+    try {
+      return new Date(s).toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
   // Format INR currency
   const formatINR = (val?: number) => {
     if (val === undefined || val === null) return "₹0.00";
@@ -207,8 +230,25 @@ export default function TallyData() {
     })}`;
   };
 
-  // Customer Breakdown Totals & Running Balance
+  // Customer Breakdown Totals & Running Balance matching Mock DB Viewer
   const customerSummary = useMemo(() => {
+    // Check if any voucher contains customer metadata / opening balance
+    const firstWithExtra = customerVouchers.find(
+      (v) =>
+        v.extra_fields &&
+        (v.extra_fields._opening_balance !== undefined ||
+          v.extra_fields["Opening Balance"] !== undefined)
+    );
+    const rawOpBal = firstWithExtra?.extra_fields?._opening_balance ?? 0;
+    const openingBalance = Number(rawOpBal) || 0;
+    const openingBalanceType =
+      firstWithExtra?.extra_fields?._opening_balance_type ||
+      (openingBalance >= 0 ? "Dr" : "Cr");
+    const customerGroup =
+      firstWithExtra?.extra_fields?._customer_group ||
+      firstWithExtra?.extra_fields?.["Customer Group"] ||
+      "Sundry Debtors";
+
     let totalDebit = 0;
     let totalCredit = 0;
 
@@ -219,7 +259,7 @@ export default function TallyData() {
       return d1.localeCompare(d2);
     });
 
-    let runningBalance = 0;
+    let runningBalance = openingBalance;
     const withRunningBalance = sorted.map((v) => {
       const deb = Number(v.debit || 0);
       const cred = Number(v.credit || 0);
@@ -229,13 +269,25 @@ export default function TallyData() {
       return {
         ...v,
         running_balance: runningBalance,
+        running_balance_str:
+          runningBalance > 0
+            ? `${formatINR(runningBalance)} Dr`
+            : runningBalance < 0
+            ? `${formatINR(Math.abs(runningBalance))} Cr`
+            : "₹0.00",
       };
     });
 
+    const closingBalance = openingBalance + totalDebit - totalCredit;
+
     return {
+      openingBalance,
+      openingBalanceType,
+      customerGroup,
       totalDebit,
       totalCredit,
-      closingBalance: totalDebit - totalCredit,
+      closingBalance,
+      closingBalanceType: closingBalance >= 0 ? "Dr" : "Cr",
       records: withRunningBalance,
     };
   }, [customerVouchers]);
@@ -552,7 +604,7 @@ export default function TallyData() {
                 </Typography>
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                   {stats.last_synced_at
-                    ? new Date(stats.last_synced_at).toLocaleString()
+                    ? formatISTDateTime(stats.last_synced_at)
                     : "Not yet synced"}
                 </Typography>
               </Box>
@@ -731,96 +783,333 @@ export default function TallyData() {
           </Box>
         </Card>
       ) : (
-        /* Customer Breakdown View */
+        /* Customer Breakdown View - 1-to-1 Parity with Desktop Mock DB Viewer */
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          {/* Customer Summary Cards */}
           {selectedCustomer ? (
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
-                <Paper
-                  elevation={0}
+            <>
+              {/* Customer Ledger Info & Opening Balance Header */}
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2,
+                  bgcolor: "background.paper",
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    Ledger: {selectedCustomer}
+                  </Typography>
+                  <Divider orientation="vertical" flexItem sx={{ height: 18, my: "auto" }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Group: {customerSummary.customerGroup}
+                  </Typography>
+                </Box>
+                <Chip
+                  label={`Opening Balance: ${formatINR(Math.abs(customerSummary.openingBalance))} ${customerSummary.openingBalanceType}`}
+                  color="warning"
+                  variant="outlined"
+                  sx={{ fontWeight: 700, fontFamily: "monospace", px: 1 }}
+                />
+              </Paper>
+
+              {/* 4 Financial Metric Cards */}
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <WalletIcon color="warning" sx={{ fontSize: 32 }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        OPENING BALANCE
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: "warning.main" }}>
+                        {formatINR(Math.abs(customerSummary.openingBalance))}{" "}
+                        {customerSummary.openingBalanceType}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <TrendingDownIcon color="error" sx={{ fontSize: 32 }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        TOTAL INVOICED (DEBIT)
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: "error.main" }}>
+                        {formatINR(customerSummary.totalDebit)}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <TrendingUpIcon color="success" sx={{ fontSize: 32 }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        TOTAL RECEIVED (CREDIT)
+                      </Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: "success.main" }}>
+                        {formatINR(customerSummary.totalCredit)}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={3}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <WalletIcon color="primary" sx={{ fontSize: 32 }} />
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">
+                        CLOSING BALANCE
+                      </Typography>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: 700,
+                          color:
+                            customerSummary.closingBalance >= 0
+                              ? "error.main"
+                              : "success.main",
+                        }}
+                      >
+                        {formatINR(Math.abs(customerSummary.closingBalance))}{" "}
+                        {customerSummary.closingBalanceType}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              {/* Statement Table matching Mock DB Viewer 1-to-1 */}
+              <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                <TableContainer>
+                  {customerLoading ? (
+                    <Box sx={{ p: 4 }}>
+                      <TableSkeleton rows={8} columns={10} />
+                    </Box>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: "action.hover" }}>
+                          <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Particulars (Contra)</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Vch Type</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Vch No.</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Items / Narration</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Custom Fields</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }} align="right">
+                            Debit (₹)
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700 }} align="right">
+                            Credit (₹)
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 700 }} align="right">
+                            Balance (₹)
+                          </TableCell>
+                          <TableCell align="center"></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {customerSummary.records.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={10} align="center" sx={{ py: 4, color: "text.secondary" }}>
+                              No transactions found for this customer.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          customerSummary.records.map((row) => {
+                            const items = row.items_summary || "";
+                            const narr = row.narration || "";
+                            const itemDisplay = items && narr ? `${items} — ${narr}` : items || narr || "—";
+
+                            const extra = row.extra_fields || {};
+                            const extraKeys = Object.keys(extra).filter(
+                              (k) => !k.startsWith("_") && k !== "Customer Group" && k !== "Opening Balance"
+                            );
+                            const extraSummary =
+                              extraKeys.length > 0
+                                ? extraKeys.map((k) => `${k}: ${extra[k]}`).join("; ")
+                                : "—";
+
+                            const isDr = (row as any).running_balance >= 0;
+
+                            return (
+                              <TableRow
+                                key={row.id}
+                                hover
+                                sx={{ cursor: "pointer" }}
+                                onClick={() => {
+                                  setSelectedVoucher(row);
+                                  setDetailsOpen(true);
+                                }}
+                              >
+                                <TableCell sx={{ whiteSpace: "nowrap" }}>{row.date || "-"}</TableCell>
+                                <TableCell>{row.particulars || "-"}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={row.voucher_type || "Other"}
+                                    size="small"
+                                    color={getVchTypeColor(row.voucher_type)}
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ fontFamily: "monospace", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                  {row.voucher_no || "-"}
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 240 }}>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{ fontSize: "0.82rem" }}
+                                    noWrap
+                                    title={itemDisplay}
+                                  >
+                                    {itemDisplay}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell sx={{ maxWidth: 160 }}>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      fontFamily: "monospace",
+                                      fontSize: "0.75rem",
+                                      color: extraKeys.length > 0 ? "text.primary" : "text.secondary",
+                                    }}
+                                    noWrap
+                                    title={extraSummary}
+                                  >
+                                    {extraSummary}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell align="right" sx={{ color: "error.main", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                  {row.debit > 0 ? formatINR(row.debit) : "-"}
+                                </TableCell>
+                                <TableCell align="right" sx={{ color: "success.main", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                  {row.credit > 0 ? formatINR(row.credit) : "-"}
+                                </TableCell>
+                                <TableCell
+                                  align="right"
+                                  sx={{
+                                    fontWeight: 700,
+                                    fontFamily: "monospace",
+                                    color: isDr ? "error.main" : "success.main",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {formatINR(Math.abs((row as any).running_balance))}{" "}
+                                  {isDr ? "Dr" : "Cr"}
+                                </TableCell>
+                                <TableCell align="center">
+                                  <IconButton size="small">
+                                    <VisibilityIcon fontSize="small" />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TableContainer>
+
+                {/* Footer Totals Bar matching Mock DB Viewer */}
+                <Box
                   sx={{
                     p: 2,
-                    border: "1px solid",
+                    bgcolor: "action.hover",
+                    borderTop: "1px solid",
                     borderColor: "divider",
-                    borderRadius: 2,
                     display: "flex",
+                    flexWrap: "wrap",
+                    justifyContent: "space-between",
                     alignItems: "center",
                     gap: 2,
                   }}
                 >
-                  <TrendingDownIcon color="error" sx={{ fontSize: 32 }} />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      TOTAL INVOICED (DEBIT)
-                    </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: "error.main" }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    {customerSummary.records.length} Voucher(s) for {selectedCustomer}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
+                    Current Total: Debit{" "}
+                    <span style={{ color: theme.palette.error.main }}>
                       {formatINR(customerSummary.totalDebit)}
-                    </Typography>
-                  </Box>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} sm={4}>
-                <Paper
-                  elevation={0}
-                  sx={{
-                    p: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 2,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 2,
-                  }}
-                >
-                  <TrendingUpIcon color="success" sx={{ fontSize: 32 }} />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      TOTAL RECEIVED (CREDIT)
-                    </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, color: "success.main" }}>
+                    </span>
+                    {"  │  "}
+                    Credit{" "}
+                    <span style={{ color: theme.palette.success.main }}>
                       {formatINR(customerSummary.totalCredit)}
-                    </Typography>
-                  </Box>
-                </Paper>
-              </Grid>
-
-              <Grid item xs={12} sm={4}>
-                <Paper
-                  elevation={0}
-                  sx={{
-                    p: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 2,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 2,
-                  }}
-                >
-                  <WalletIcon color="primary" sx={{ fontSize: 32 }} />
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      CLOSING BALANCE
-                    </Typography>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontWeight: 700,
+                    </span>
+                    {"  │  "}
+                    Closing Balance:{" "}
+                    <span
+                      style={{
                         color:
                           customerSummary.closingBalance >= 0
-                            ? "error.main"
-                            : "success.main",
+                            ? theme.palette.error.main
+                            : theme.palette.success.main,
                       }}
                     >
                       {formatINR(Math.abs(customerSummary.closingBalance))}{" "}
-                      {customerSummary.closingBalance >= 0 ? "Dr" : "Cr"}
-                    </Typography>
-                  </Box>
-                </Paper>
-              </Grid>
-            </Grid>
+                      {customerSummary.closingBalanceType}
+                    </span>
+                  </Typography>
+                </Box>
+              </Card>
+            </>
           ) : (
             <Paper
               elevation={0}
@@ -836,96 +1125,6 @@ export default function TallyData() {
                 Please select a Customer / Party from the dropdown above to view their chronological ledger statement.
               </Typography>
             </Paper>
-          )}
-
-          {/* Statement Table */}
-          {selectedCustomer && (
-            <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-              <TableContainer>
-                {customerLoading ? (
-                  <Box sx={{ p: 4 }}>
-                    <TableSkeleton rows={8} columns={7} />
-                  </Box>
-                ) : (
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: "action.hover" }}>
-                        <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Vch No</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Particulars</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">
-                          Debit (₹)
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">
-                          Credit (₹)
-                        </TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="right">
-                          Running Balance (₹)
-                        </TableCell>
-                        <TableCell align="center"></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {customerSummary.records.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                            No transactions found for this customer.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        customerSummary.records.map((row) => (
-                          <TableRow
-                            key={row.id}
-                            hover
-                            sx={{ cursor: "pointer" }}
-                            onClick={() => {
-                              setSelectedVoucher(row);
-                              setDetailsOpen(true);
-                            }}
-                          >
-                            <TableCell>{row.date || "-"}</TableCell>
-                            <TableCell sx={{ fontFamily: "monospace", fontWeight: 600 }}>
-                              {row.voucher_no || "-"}
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={row.voucher_type || "Other"}
-                                size="small"
-                                color={getVchTypeColor(row.voucher_type)}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                            <TableCell>{row.particulars || "-"}</TableCell>
-                            <TableCell align="right" sx={{ color: "error.main", fontWeight: 600 }}>
-                              {row.debit > 0 ? formatINR(row.debit) : "-"}
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: "success.main", fontWeight: 600 }}>
-                              {row.credit > 0 ? formatINR(row.credit) : "-"}
-                            </TableCell>
-                            <TableCell
-                              align="right"
-                              sx={{
-                                fontWeight: 700,
-                                color: (row as any).running_balance >= 0 ? "error.main" : "success.main",
-                              }}
-                            >
-                              {formatINR(Math.abs((row as any).running_balance))}{" "}
-                              {(row as any).running_balance >= 0 ? "Dr" : "Cr"}
-                            </TableCell>
-                            <TableCell align="center">
-                              <IconButton size="small">
-                                <VisibilityIcon fontSize="small" />
-                              </IconButton>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                )}
-              </TableContainer>
-            </Card>
           )}
         </Box>
       )}
@@ -1074,7 +1273,7 @@ export default function TallyData() {
                   SYNCED AT / CONNECTOR
                 </Typography>
                 <Typography variant="caption" display="block">
-                  {selectedVoucher.synced_at ? new Date(selectedVoucher.synced_at).toLocaleString() : "-"} (
+                  {selectedVoucher.synced_at ? formatISTDateTime(selectedVoucher.synced_at) : "-"} (
                   {selectedVoucher.connector_version || "v1.0"})
                 </Typography>
               </Grid>
