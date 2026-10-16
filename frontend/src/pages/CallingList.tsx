@@ -1052,8 +1052,8 @@ export default function CallingList() {
       <Stack direction="row" spacing={2} sx={{ mb: 2.5 }}>
         {([
           { label: t("callingList.total", "Total"), value: (summary.to_call || 0) + (summary.called || 0), color: "#2563eb", icon: <AssignmentIcon sx={{ fontSize: 18 }} /> },
-          { label: t("callingList.pending", "Pending"), value: summary.to_call, color: "#ea580c", icon: <PhoneIcon sx={{ fontSize: 18 }} /> },
-          { label: t("callingList.completed", "Completed"), value: summary.called, color: "#16a34a", icon: <CheckIcon sx={{ fontSize: 18 }} /> },
+          { label: t("callingList.pending", "Pending"), value: summary.to_call ?? 0, color: "#ea580c", icon: <PhoneIcon sx={{ fontSize: 18 }} /> },
+          { label: t("callingList.completed", "Completed"), value: summary.called ?? 0, color: "#16a34a", icon: <CheckIcon sx={{ fontSize: 18 }} /> },
         ] as const).map(s => (
           <Paper
             key={s.label}
@@ -1073,7 +1073,7 @@ export default function CallingList() {
             </Box>
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 500, lineHeight: 1 }}>{s.label}</Typography>
-              <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{s.value}</Typography>
+              <Typography variant="h6" translate="no" className="notranslate" sx={{ fontWeight: 800, lineHeight: 1.2 }}>{s.value}</Typography>
             </Box>
           </Paper>
         ))}
@@ -1159,17 +1159,150 @@ export default function CallingList() {
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
           sx={{
             px: 2,
             pt: 1,
-            "& .MuiTab-root": { textTransform: "none", fontWeight: 600, fontSize: 14, minHeight: 42 },
+            "& .MuiTab-root": { textTransform: "none", fontWeight: 600, fontSize: 14, minHeight: 44 },
             "& .MuiTabs-indicator": { height: 3, borderRadius: 2 },
           }}
         >
-          <Tab label={`${t("callingList.toCall", "To Call")}  ·  ${summary.to_call}`} />
-          <Tab label={`${t("callingList.called", "Called")}  ·  ${summary.called}`} />
-          <Tab label={`Follow-ups  ·  ${summary.callbacks || 0}`} />
-          {role === "telecaller" && <Tab label={`Order Confirmations  ·  ${summary.confirmation_calls || 0}`} />}
+          <Tab
+            label={
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+                <span>{t("callingList.toCall", "To Call")}</span>
+                <Box component="span" sx={{ opacity: 0.5, userSelect: "none" }}>·</Box>
+                <Box
+                  component="span"
+                  translate="no"
+                  className="notranslate"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    px: 0.85,
+                    py: 0.15,
+                    borderRadius: "10px",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    bgcolor: tab === 0
+                      ? (isDark ? "rgba(37, 99, 235, 0.35)" : "rgba(37, 99, 235, 0.12)")
+                      : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
+                    color: tab === 0
+                      ? (isDark ? "#93c5fd" : "#2563eb")
+                      : "text.secondary",
+                    minWidth: 20,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {summary.to_call ?? 0}
+                </Box>
+              </Box>
+            }
+          />
+          <Tab
+            label={
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+                <span>{t("callingList.called", "Called")}</span>
+                <Box component="span" sx={{ opacity: 0.5, userSelect: "none" }}>·</Box>
+                <Box
+                  component="span"
+                  translate="no"
+                  className="notranslate"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    px: 0.85,
+                    py: 0.15,
+                    borderRadius: "10px",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    bgcolor: tab === 1
+                      ? (isDark ? "rgba(37, 99, 235, 0.35)" : "rgba(37, 99, 235, 0.12)")
+                      : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
+                    color: tab === 1
+                      ? (isDark ? "#93c5fd" : "#2563eb")
+                      : "text.secondary",
+                    minWidth: 20,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {summary.called ?? 0}
+                </Box>
+              </Box>
+            }
+          />
+          <Tab
+            label={
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+                <span>{t("callingList.followUps", "Follow-ups")}</span>
+                <Box component="span" sx={{ opacity: 0.5, userSelect: "none" }}>·</Box>
+                <Box
+                  component="span"
+                  translate="no"
+                  className="notranslate"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    px: 0.85,
+                    py: 0.15,
+                    borderRadius: "10px",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    bgcolor: tab === 2
+                      ? (isDark ? "rgba(37, 99, 235, 0.35)" : "rgba(37, 99, 235, 0.12)")
+                      : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
+                    color: tab === 2
+                      ? (isDark ? "#93c5fd" : "#2563eb")
+                      : "text.secondary",
+                    minWidth: 20,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {summary.callbacks ?? (callbacks?.length || 0)}
+                </Box>
+              </Box>
+            }
+          />
+          {role === "telecaller" && (
+            <Tab
+              label={
+                <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
+                  <span>{t("callingList.orderConfirmations", "Order Confirmations")}</span>
+                  <Box component="span" sx={{ opacity: 0.5, userSelect: "none" }}>·</Box>
+                  <Box
+                    component="span"
+                    translate="no"
+                    className="notranslate"
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      px: 0.85,
+                      py: 0.15,
+                      borderRadius: "10px",
+                      fontSize: "0.75rem",
+                      fontWeight: 700,
+                      bgcolor: tab === 3
+                        ? (isDark ? "rgba(37, 99, 235, 0.35)" : "rgba(37, 99, 235, 0.12)")
+                        : (isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)"),
+                      color: tab === 3
+                        ? (isDark ? "#93c5fd" : "#2563eb")
+                        : "text.secondary",
+                      minWidth: 20,
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {summary.confirmation_calls ?? (confirmationOrders?.length || 0)}
+                  </Box>
+                </Box>
+              }
+            />
+          )}
         </Tabs>
 
         <Box sx={{ p: 2, width: "100%", overflowX: "auto" }}>
