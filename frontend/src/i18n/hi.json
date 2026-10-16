@@ -405,6 +405,8 @@
     "completed": "पूर्ण",
     "toCall": "कॉल करने के लिए",
     "called": "कॉल किए",
+    "followUps": "फ़ॉलो-अप",
+    "orderConfirmations": "ऑर्डर पुष्टि",
     "noPendingCalls": "कोई लंबित कॉल नहीं",
     "noCompletedCalls": "अभी तक कोई कॉल पूर्ण नहीं हुआ",
     "distributionInfo": "वितरण अभी नहीं हुआ है, या सभी कॉल पूर्ण हैं।",

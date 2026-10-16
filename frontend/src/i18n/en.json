@@ -360,6 +360,8 @@
     "completed": "Completed",
     "toCall": "To Call",
     "called": "Called",
+    "followUps": "Follow-ups",
+    "orderConfirmations": "Order Confirmations",
     "noPendingCalls": "No pending calls",
     "noCompletedCalls": "No completed calls yet",
     "distributionInfo": "Distribution may not have happened yet, or all calls are complete.",
