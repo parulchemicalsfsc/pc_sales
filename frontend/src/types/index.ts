@@ -640,6 +640,8 @@ export interface TallyVoucher {
   synced_at?: string;
   deleted_at?: string;
   connector_version?: string;
+  company_name?: string;
+  alter_id?: string;
 }
 
 export interface TallyStats {
@@ -651,4 +653,5 @@ export interface TallyStats {
 export interface TallyFilterOptions {
   voucher_types: string[];
   customers: string[];
+  companies?: string[];
 }

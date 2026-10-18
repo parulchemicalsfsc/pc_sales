@@ -66,6 +66,7 @@ export default function TallyData() {
 
   // Filters state
   const [search, setSearch] = useState("");
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
   const [voucherType, setVoucherType] = useState<string>("");
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
@@ -94,18 +95,47 @@ export default function TallyData() {
   const fetchMetadata = useCallback(async () => {
     try {
       const [statsData, optionsData] = await Promise.all([
-        tallyAPI.getStats(),
-        tallyAPI.getFilterOptions(),
+        tallyAPI.getStats(selectedCompany ? { company: selectedCompany } : undefined),
+        tallyAPI.getFilterOptions(selectedCompany ? { company: selectedCompany } : undefined),
       ]);
       setStats(statsData);
       setFilterOptions(optionsData);
     } catch (err) {
       console.error("Failed to load Tally metadata", err);
     }
-  }, []);
+  }, [selectedCompany]);
+
+  // Check if any filter is active (search, company, voucherType, customer, or dates)
+  const hasActiveFilters = Boolean(
+    search.trim() || selectedCompany || voucherType || selectedCustomer || dateFrom || dateTo
+  );
+
+  // Date handlers with automatic boundary correction
+  const handleDateFromChange = (newFrom: string) => {
+    setDateFrom(newFrom);
+    setPage(0);
+    if (newFrom && dateTo && newFrom > dateTo) {
+      setDateTo(newFrom);
+    }
+  };
+
+  const handleDateToChange = (newTo: string) => {
+    setDateTo(newTo);
+    setPage(0);
+    if (newTo && dateFrom && newTo < dateFrom) {
+      setDateFrom(newTo);
+    }
+  };
 
   // Fetch paginated vouchers
   const fetchVouchers = useCallback(async () => {
+    // Keep initial page clean until user selects/enters any filter
+    if (!search.trim() && !selectedCompany && !voucherType && !selectedCustomer && !dateFrom && !dateTo) {
+      setVouchers([]);
+      setTotalRows(0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params: any = {
@@ -113,6 +143,7 @@ export default function TallyData() {
         page_size: pageSize,
       };
       if (search.trim()) params.search = search.trim();
+      if (selectedCompany) params.company = selectedCompany;
       if (voucherType) params.voucher_type = voucherType;
       if (selectedCustomer) params.customer = selectedCustomer;
       if (dateFrom) params.date_from = dateFrom;
@@ -128,7 +159,7 @@ export default function TallyData() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, voucherType, selectedCustomer, dateFrom, dateTo]);
+  }, [page, pageSize, search, selectedCompany, voucherType, selectedCustomer, dateFrom, dateTo]);
 
   // Fetch full customer statement for Customer Breakdown view
   const fetchCustomerBreakdown = useCallback(async (custName: string) => {
@@ -138,11 +169,13 @@ export default function TallyData() {
     }
     setCustomerLoading(true);
     try {
-      const res = await tallyAPI.getVouchers({
+      const params: any = {
         customer: custName,
         page: 1,
         page_size: 200, // Load up to 200 for full statement view
-      });
+      };
+      if (selectedCompany) params.company = selectedCompany;
+      const res = await tallyAPI.getVouchers(params);
       setCustomerVouchers(res.data || []);
     } catch (err) {
       console.error("Failed to load customer breakdown", err);
@@ -150,7 +183,7 @@ export default function TallyData() {
     } finally {
       setCustomerLoading(false);
     }
-  }, []);
+  }, [selectedCompany]);
 
   useEffect(() => {
     fetchMetadata();
@@ -179,6 +212,7 @@ export default function TallyData() {
 
   const handleResetFilters = () => {
     setSearch("");
+    setSelectedCompany("");
     setVoucherType("");
     setSelectedCustomer("");
     setDateFrom("");
@@ -249,11 +283,40 @@ export default function TallyData() {
       firstWithExtra?.extra_fields?.["Customer Group"] ||
       "Sundry Debtors";
 
+    // Filter customer vouchers by any additional active filters (voucherType, search, dates)
+    let filtered = [...customerVouchers];
+
+    if (voucherType) {
+      const vt = voucherType.toLowerCase().trim();
+      filtered = filtered.filter(
+        (v) => (v.voucher_type || "").toLowerCase().trim() === vt
+      );
+    }
+
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      filtered = filtered.filter(
+        (v) =>
+          (v.voucher_no || "").toLowerCase().includes(q) ||
+          (v.particulars || "").toLowerCase().includes(q) ||
+          (v.narration || "").toLowerCase().includes(q) ||
+          (v.items_summary || "").toLowerCase().includes(q)
+      );
+    }
+
+    if (dateFrom) {
+      filtered = filtered.filter((v) => (v.date || "") >= dateFrom);
+    }
+
+    if (dateTo) {
+      filtered = filtered.filter((v) => (v.date || "") <= dateTo);
+    }
+
     let totalDebit = 0;
     let totalCredit = 0;
 
     // Vouchers sorted chronologically for statement
-    const sorted = [...customerVouchers].sort((a, b) => {
+    const sorted = filtered.sort((a, b) => {
       const d1 = a.date || "";
       const d2 = b.date || "";
       return d1.localeCompare(d2);
@@ -290,7 +353,7 @@ export default function TallyData() {
       closingBalanceType: closingBalance >= 0 ? "Dr" : "Cr",
       records: withRunningBalance,
     };
-  }, [customerVouchers]);
+  }, [customerVouchers, voucherType, search, dateFrom, dateTo]);
 
   // Columns for DataGrid in "All Vouchers"
   const columns: GridColDef[] = useMemo(
@@ -334,6 +397,16 @@ export default function TallyData() {
             variant="outlined"
             sx={{ fontWeight: 600, textTransform: "capitalize" }}
           />
+        ),
+      },
+      {
+        field: "company_name",
+        headerName: "Company",
+        width: 150,
+        renderCell: (params: GridRenderCellParams) => (
+          <Typography variant="body2" color="text.secondary" noWrap>
+            {params.value || "-"}
+          </Typography>
         ),
       },
       {
@@ -618,7 +691,7 @@ export default function TallyData() {
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Grid container spacing={2} alignItems="center">
             {/* Search Input */}
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={2.5}>
               <TextField
                 fullWidth
                 size="small"
@@ -638,8 +711,32 @@ export default function TallyData() {
               />
             </Grid>
 
-            {/* Voucher Type Dropdown */}
+            {/* Company Dropdown */}
             <Grid item xs={12} sm={6} md={2}>
+              <TextField
+                select
+                fullWidth
+                size="small"
+                label="Company"
+                value={selectedCompany}
+                onChange={(e) => {
+                  setSelectedCompany(e.target.value);
+                  setPage(0);
+                }}
+              >
+                <MenuItem value="">
+                  <em>All Companies</em>
+                </MenuItem>
+                {(filterOptions.companies || []).map((co) => (
+                  <MenuItem key={co} value={co}>
+                    {co}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+
+            {/* Voucher Type Dropdown */}
+            <Grid item xs={12} sm={6} md={1.8}>
               <TextField
                 select
                 fullWidth
@@ -663,7 +760,7 @@ export default function TallyData() {
             </Grid>
 
             {/* Customer Dropdown */}
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={2.2}>
               <TextField
                 select
                 fullWidth
@@ -687,34 +784,30 @@ export default function TallyData() {
             </Grid>
 
             {/* Date From */}
-            <Grid item xs={6} sm={3} md={1.5}>
+            <Grid item xs={6} sm={3} md={1.25}>
               <TextField
                 fullWidth
                 size="small"
                 type="date"
                 label="From Date"
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ max: dateTo || undefined }}
                 value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setPage(0);
-                }}
+                onChange={(e) => handleDateFromChange(e.target.value)}
               />
             </Grid>
 
             {/* Date To */}
-            <Grid item xs={6} sm={3} md={1.5}>
+            <Grid item xs={6} sm={3} md={1.25}>
               <TextField
                 fullWidth
                 size="small"
                 type="date"
                 label="To Date"
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ min: dateFrom || undefined }}
                 value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setPage(0);
-                }}
+                onChange={(e) => handleDateToChange(e.target.value)}
               />
             </Grid>
 
@@ -737,51 +830,74 @@ export default function TallyData() {
 
       {/* Main Content: Mode View */}
       {viewMode === "all" ? (
-        <Card
-          elevation={0}
-          sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
-            minHeight: 520,
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <Box sx={{ flex: 1, height: 600, width: "100%" }}>
-            {loading && vouchers.length === 0 ? (
-              <Box sx={{ p: 3 }}>
-                <TableSkeleton rows={10} columns={7} />
-              </Box>
-            ) : (
-              <DataGrid
-                rows={vouchers}
-                columns={columns}
-                getRowId={(row) => row.id}
-                rowCount={totalRows}
-                loading={loading}
-                paginationMode="server"
-                paginationModel={{ page, pageSize }}
-                onPaginationModelChange={(model) => {
-                  setPage(model.page);
-                  setPageSize(model.pageSize);
-                }}
-                pageSizeOptions={[25, 50, 100]}
-                disableRowSelectionOnClick
-                onRowClick={(params) => {
-                  setSelectedVoucher(params.row as TallyVoucher);
-                  setDetailsOpen(true);
-                }}
-                sx={{
-                  border: "none",
-                  "& .MuiDataGrid-row:hover": {
-                    cursor: "pointer",
-                  },
-                }}
-              />
-            )}
-          </Box>
-        </Card>
+        !hasActiveFilters ? (
+          <Paper
+            elevation={0}
+            sx={{
+              p: 6,
+              textAlign: "center",
+              border: "1px dashed",
+              borderColor: "divider",
+              borderRadius: 2,
+              bgcolor: "background.paper",
+              my: 2,
+            }}
+          >
+            <FilterListIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+              Select Any Filter to View Records
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 520, mx: "auto" }}>
+              Choose a Customer / Party, select a Voucher Type, pick a Date range, or type a search query above to display transactions. All filters can be used individually or combined together.
+            </Typography>
+          </Paper>
+        ) : (
+          <Card
+            elevation={0}
+            sx={{
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 2,
+              minHeight: 520,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <Box sx={{ flex: 1, height: 600, width: "100%" }}>
+              {loading && vouchers.length === 0 ? (
+                <Box sx={{ p: 3 }}>
+                  <TableSkeleton rows={10} columns={7} />
+                </Box>
+              ) : (
+                <DataGrid
+                  rows={vouchers}
+                  columns={columns}
+                  getRowId={(row) => row.id}
+                  rowCount={totalRows}
+                  loading={loading}
+                  paginationMode="server"
+                  paginationModel={{ page, pageSize }}
+                  onPaginationModelChange={(model) => {
+                    setPage(model.page);
+                    setPageSize(model.pageSize);
+                  }}
+                  pageSizeOptions={[25, 50, 100]}
+                  disableRowSelectionOnClick
+                  onRowClick={(params) => {
+                    setSelectedVoucher(params.row as TallyVoucher);
+                    setDetailsOpen(true);
+                  }}
+                  sx={{
+                    border: "none",
+                    "& .MuiDataGrid-row:hover": {
+                      cursor: "pointer",
+                    },
+                  }}
+                />
+              )}
+            </Box>
+          </Card>
+        )
       ) : (
         /* Customer Breakdown View - 1-to-1 Parity with Desktop Mock DB Viewer */
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>

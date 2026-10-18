@@ -1311,6 +1311,7 @@ export const tallyAPI = {
     page_size?: number;
     voucher_type?: string;
     customer?: string;
+    company?: string;
     search?: string;
     date_from?: string;
     date_to?: string;
@@ -1318,12 +1319,12 @@ export const tallyAPI = {
     const response = await apiClient.get("/api/tally/vouchers", { params });
     return response.data;
   },
-  getStats: async () => {
-    const response = await apiClient.get("/api/tally/stats");
+  getStats: async (params?: { company?: string }) => {
+    const response = await apiClient.get("/api/tally/stats", { params });
     return response.data;
   },
-  getFilterOptions: async () => {
-    const response = await apiClient.get("/api/tally/filter-options");
+  getFilterOptions: async (params?: { company?: string }) => {
+    const response = await apiClient.get("/api/tally/filter-options", { params });
     return response.data;
   },
 };

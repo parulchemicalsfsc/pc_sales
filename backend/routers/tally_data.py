@@ -4,6 +4,7 @@ Tally Data Router
 Endpoints:
   POST /api/tally/ingest               → Machine-to-machine: receive vouchers from TallyConnector
   POST /api/tally/reconcile/cleanup    → Machine-to-machine: soft-delete vouchers removed from Tally
+  GET  /api/tally/audit                → Returns active voucher IDs scoped to a company (paginated)
   GET  /api/tally/vouchers             → Paginated + filtered voucher list (requires view_tally_data)
   GET  /api/tally/stats                → Summary stats for the Tally Data page header
 
@@ -12,10 +13,9 @@ Authentication:
   - Read endpoints: standard RBAC via x-user-email header (view_tally_data permission)
 """
 
+import hmac
 import os
 from datetime import datetime, timezone, timedelta
-
-IST = timezone(timedelta(hours=5, minutes=30))
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -24,20 +24,28 @@ from pydantic import BaseModel
 from supabase_db import SupabaseClient, get_db
 from rbac_utils import verify_permission
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
 router = APIRouter()
 
 _TALLY_API_KEY = os.getenv("TALLY_API_KEY", "")
+
+# Page size used when fetching all active IDs for the audit endpoint
+_AUDIT_PAGE_SIZE = 1000
 
 
 # ─── Auth helper ──────────────────────────────────────────────────────────────
 
 def _verify_api_key(x_api_key: Optional[str] = Header(None, alias="x-api-key")) -> None:
-    """Validates the X-API-Key header for machine-to-machine endpoints."""
+    """Validates the X-API-Key header using timing-safe comparison (prevents timing attacks)."""
     expected_key = os.getenv("TALLY_API_KEY", "")
     if not expected_key:
         raise HTTPException(status_code=500, detail="TALLY_API_KEY is not configured on the server.")
-    if not x_api_key or x_api_key != expected_key:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="Missing API key.")
+    # hmac.compare_digest prevents timing side-channel attacks on key comparison
+    if not hmac.compare_digest(x_api_key.encode(), expected_key.encode()):
+        raise HTTPException(status_code=401, detail="Invalid API key.")
 
 
 # ─── Pydantic models ──────────────────────────────────────────────────────────
@@ -54,16 +62,19 @@ class VoucherPayload(BaseModel):
     narration:     Optional[str] = None
     items_summary: Optional[str] = None
     extra_fields:  Optional[dict] = {}
+    alter_id:      Optional[str] = None
+    company_name:  Optional[str] = None
 
 
 class IngestRequest(BaseModel):
     vouchers:          List[VoucherPayload]
     connector_version: Optional[str] = None
+    company_name:      Optional[str] = None   # top-level fallback if per-row company_name absent
 
 
 class CleanupRequest(BaseModel):
     active_voucher_ids: List[str]
-
+    company_name:       Optional[str] = None  # scopes cleanup to this company only
 
 
 # ─── Health / Ping endpoint ──────────────────────────────────────────────────
@@ -73,28 +84,59 @@ def ping_backend(_: None = Depends(_verify_api_key)):
     """Lightweight health check endpoint for desktop connector to verify connection and API key."""
     return {"status": "ok", "message": "Backend is online and API key is valid."}
 
+
+# ─── Audit endpoint ──────────────────────────────────────────────────────────
+
 @router.get("/audit")
 def audit_vouchers(
+    company: Optional[str] = Query(None, description="Scope audit to this company name"),
     db: SupabaseClient = Depends(get_db),
     _: None = Depends(_verify_api_key),
 ):
     """
-    Returns active voucher IDs and customer summary currently in Supabase.
-    Used by TallyConnector desktop app for true cloud reconciliation audit.
+    Returns all active voucher IDs and summary metrics scoped to a company.
+    Paginates internally so it is not capped by Supabase's default 1 000-row limit.
     """
     try:
-        res = db.table("tally_vouchers") \
-            .select("voucher_id,voucher_no,customer_name,date,debit,credit") \
-            .eq("is_deleted", False) \
-            .execute()
-        rows = res.data or []
-        voucher_ids = [r.get("voucher_id") or r.get("voucher_no") for r in rows if r.get("voucher_id") or r.get("voucher_no")]
+        all_rows = []
+        offset = 0
+
+        while True:
+            q = (
+                db.table("tally_vouchers")
+                .select("voucher_id,voucher_no,customer_name,date,debit,credit,alter_id,company_name")
+                .eq("is_deleted", False)
+            )
+            if company:
+                q = q.eq("company_name", company)
+            q = q.range(offset, offset + _AUDIT_PAGE_SIZE - 1)
+            res = q.execute()
+            page = res.data or []
+            all_rows.extend(page)
+            if len(page) < _AUDIT_PAGE_SIZE:
+                break
+            offset += _AUDIT_PAGE_SIZE
+
+        # Build voucher_id set (prefer voucher_id, fall back to voucher_no)
+        voucher_ids = [
+            r.get("voucher_id") or r.get("voucher_no")
+            for r in all_rows
+            if r.get("voucher_id") or r.get("voucher_no")
+        ]
+        # Build alter_id map {voucher_id: alter_id} for delta detection
+        alter_id_map = {
+            (r.get("voucher_id") or r.get("voucher_no")): r.get("alter_id", "")
+            for r in all_rows
+            if r.get("voucher_id") or r.get("voucher_no")
+        }
+
         return {
-            "total_vouchers": len(rows),
-            "voucher_ids": list(set(voucher_ids)),
-            "customers_count": len(set(r.get("customer_name") for r in rows if r.get("customer_name"))),
-            "total_debit": round(sum(float(r.get("debit") or 0.0) for r in rows), 2),
-            "total_credit": round(sum(float(r.get("credit") or 0.0) for r in rows), 2),
+            "total_vouchers":   len(all_rows),
+            "voucher_ids":      list(set(voucher_ids)),
+            "alter_id_map":     alter_id_map,
+            "customers_count":  len({r.get("customer_name") for r in all_rows if r.get("customer_name")}),
+            "total_debit":      round(sum(float(r.get("debit") or 0.0) for r in all_rows), 2),
+            "total_credit":     round(sum(float(r.get("credit") or 0.0) for r in all_rows), 2),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to query audit state: {e}")
@@ -110,22 +152,22 @@ def ingest_vouchers(
 ):
     """
     Upserts a batch of vouchers sent by the TallyConnector EXE.
-    Idempotent: same voucher_id always overwrites (no duplicates possible).
-    Never re-activates a soft-deleted voucher — if it was deleted in Tally,
-    it stays soft-deleted here unless reconcile explicitly revives it.
+    Idempotent: same (company_name, voucher_id) always overwrites cleanly.
+    Uses a single bulk upsert call instead of a per-row loop for efficiency.
     """
     if not payload.vouchers:
         return {"upserted": 0, "message": "Empty batch — nothing to do."}
 
-    connector_version = payload.connector_version
-    synced_at = datetime.now(IST).isoformat()
-    upserted = 0
+    connector_version   = payload.connector_version
+    top_company         = (payload.company_name or "").strip()
+    synced_at           = datetime.now(IST).isoformat()
 
+    rows = []
     for v in payload.vouchers:
         if not v.voucher_id:
             continue
-
-        row = {
+        row_company = (v.company_name or top_company or "").strip()
+        rows.append({
             "voucher_id":        v.voucher_id,
             "voucher_no":        v.voucher_no or "",
             "voucher_type":      v.voucher_type or "",
@@ -137,25 +179,26 @@ def ingest_vouchers(
             "narration":         v.narration or "",
             "items_summary":     v.items_summary or "",
             "extra_fields":      v.extra_fields or {},
+            "alter_id":          v.alter_id or "",
+            "company_name":      row_company,
             "synced_at":         synced_at,
-            "connector_version": connector_version,
+            "connector_version": connector_version or "",
             "is_deleted":        False,
             "deleted_at":        None,
-        }
+        })
 
-        try:
-            # Upsert on voucher_id; ignore is_deleted column so soft-deletes are preserved
-            db.table("tally_vouchers").upsert(
-                row,
-                on_conflict="voucher_id",
-                
-            ).execute()
-            upserted += 1
-        except Exception as e:
-            # Log and continue — don't fail the entire batch for one bad row
-            print(f"[tally_data] Upsert failed for voucher_id={v.voucher_id}: {e}")
+    if not rows:
+        return {"upserted": 0, "message": "No valid vouchers in batch."}
 
-    return {"upserted": upserted, "total_received": len(payload.vouchers)}
+    try:
+        db.table("tally_vouchers").upsert(
+            rows,
+            on_conflict="company_name,voucher_id",
+        ).execute()
+        return {"upserted": len(rows), "total_received": len(payload.vouchers)}
+    except Exception as e:
+        print(f"[tally_data] Bulk upsert failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {e}")
 
 
 # ─── Reconcile cleanup endpoint ───────────────────────────────────────────────
@@ -167,52 +210,57 @@ def reconcile_cleanup(
     _: None = Depends(_verify_api_key),
 ):
     """
-    Soft-deletes any voucher in the DB whose voucher_id is NOT in the provided active list.
-    Called at the end of a Reconcile cycle from the TallyConnector.
-    Only affects non-deleted rows (is_deleted = false).
+    Soft-deletes any voucher in the DB whose voucher_id is NOT in the provided active list,
+    scoped strictly to the given company_name.
+    Uses a single bulk update call instead of a per-row loop.
     """
+    company    = (payload.company_name or "").strip()
     active_ids = list(set(payload.active_voucher_ids))  # deduplicate
 
     if not active_ids:
         return {"soft_deleted": 0, "message": "Empty active list — no cleanup performed."}
 
+    if not company:
+        return {"soft_deleted": 0, "message": "company_name is required for cleanup — skipped."}
+
     deleted_at = datetime.now(IST).isoformat()
-    soft_deleted = 0
 
     try:
-        # Fetch all currently active voucher IDs in the DB
+        # Fetch all currently active voucher_ids for this company
         result = (
             db.table("tally_vouchers")
-            .select("id, voucher_id")
+            .select("voucher_id")
             .eq("is_deleted", False)
+            .eq("company_name", company)
             .execute()
         )
-        db_active = result.data or []
+        db_active_ids = [r["voucher_id"] for r in (result.data or []) if r.get("voucher_id")]
 
-        # Find IDs that are in DB but not in Tally's current list
         active_set = set(active_ids)
-        stale = [row for row in db_active if row["voucher_id"] not in active_set]
+        stale_ids  = [vid for vid in db_active_ids if vid not in active_set]
 
-        # Soft-delete stale rows
-        for row in stale:
-            try:
-                db.table("tally_vouchers").eq("id", row["id"]).update({
-                    "is_deleted": True,
-                    "deleted_at": deleted_at,
-                })
-                soft_deleted += 1
-            except Exception as row_err:
-                print(f"[tally_data] Failed to soft-delete row id={row.get('id')}: {row_err}")
+        if not stale_ids:
+            return {
+                "soft_deleted": 0,
+                "active_ids_received": len(active_ids),
+                "db_active_before_cleanup": len(db_active_ids),
+            }
+
+        # Single bulk update: soft-delete all stale vouchers in one query
+        db.table("tally_vouchers").update({
+            "is_deleted": True,
+            "deleted_at": deleted_at,
+        }).eq("company_name", company).in_("voucher_id", stale_ids).execute()
+
+        return {
+            "soft_deleted": len(stale_ids),
+            "active_ids_received": len(active_ids),
+            "db_active_before_cleanup": len(db_active_ids),
+        }
 
     except Exception as e:
         print(f"[tally_data] Reconcile cleanup error: {e}")
         raise HTTPException(status_code=500, detail=f"Cleanup failed: {e}")
-
-    return {
-        "soft_deleted": soft_deleted,
-        "active_ids_received": len(active_ids),
-        "db_active_before_cleanup": len(db_active) if 'db_active' in locals() else 0,
-    }
 
 
 # ─── Read endpoints (RBAC-protected) ─────────────────────────────────────────
@@ -226,6 +274,7 @@ def list_vouchers(
     search:       Optional[str] = Query(None),
     date_from:    Optional[str] = Query(None),
     date_to:      Optional[str] = Query(None),
+    company:      Optional[str] = Query(None),
     db: SupabaseClient = Depends(get_db),
     user_email: str = Depends(verify_permission("view_tally_data")),
 ):
@@ -240,16 +289,17 @@ def list_vouchers(
             .eq("is_deleted", False)
         )
 
+        if company:
+            query = query.eq("company_name", company.strip())
         if voucher_type:
-            query = query.eq("voucher_type", voucher_type)
+            query = query.ilike("voucher_type", f"%{voucher_type.strip()}%")
         if customer:
-            query = query.eq("customer_name", customer)
+            query = query.ilike("customer_name", f"%{customer.strip()}%")
         if date_from:
             query = query.gte("date", date_from)
         if date_to:
             query = query.lte("date", date_to)
         if search:
-            # Supabase ilike for case-insensitive search across key text columns
             query = query.or_(
                 f"voucher_no.ilike.%{search}%,"
                 f"customer_name.ilike.%{search}%,"
@@ -257,12 +307,11 @@ def list_vouchers(
                 f"particulars.ilike.%{search}%"
             )
 
-        # Pagination
         offset = (page - 1) * page_size
-        query = query.order("date", desc=True).range(offset, offset + page_size - 1)
+        query  = query.order("date", desc=True).range(offset, offset + page_size - 1)
 
         result = query.execute()
-        total = result.count if result.count is not None else len(result.data)
+        total  = result.count if result.count is not None else len(result.data)
 
         return {
             "data":      result.data or [],
@@ -279,34 +328,32 @@ def list_vouchers(
 
 @router.get("/stats")
 def get_stats(
+    company: Optional[str] = Query(None),
     db: SupabaseClient = Depends(get_db),
     user_email: str = Depends(verify_permission("view_tally_data")),
 ):
     """
     Returns summary stats for the Tally Data page header:
     total active vouchers, soft-deleted count, and last synced timestamp.
+    Optionally scoped to a company.
     """
     try:
-        active_result = (
-            db.table("tally_vouchers")
-            .select("id", count="exact")
-            .eq("is_deleted", False)
-            .execute()
-        )
-        deleted_result = (
-            db.table("tally_vouchers")
-            .select("id", count="exact")
-            .eq("is_deleted", True)
-            .execute()
-        )
-        last_sync_result = (
+        def scoped(q):
+            return q.eq("company_name", company.strip()) if company else q
+
+        active_result = scoped(
+            db.table("tally_vouchers").select("id", count="exact").eq("is_deleted", False)
+        ).execute()
+        deleted_result = scoped(
+            db.table("tally_vouchers").select("id", count="exact").eq("is_deleted", True)
+        ).execute()
+        last_sync_result = scoped(
             db.table("tally_vouchers")
             .select("synced_at")
             .eq("is_deleted", False)
             .order("synced_at", desc=True)
             .limit(1)
-            .execute()
-        )
+        ).execute()
 
         last_synced = None
         if last_sync_result.data:
@@ -325,19 +372,24 @@ def get_stats(
 
 @router.get("/filter-options")
 def get_filter_options(
+    company: Optional[str] = Query(None),
     db: SupabaseClient = Depends(get_db),
     user_email: str = Depends(verify_permission("view_tally_data")),
 ):
-    """Returns distinct voucher types and customers for dropdown filters."""
+    """Returns distinct voucher types, customers, and companies for dropdown filters."""
     try:
-        res = db.table("tally_vouchers").select("voucher_type, customer_name").eq("is_deleted", False).execute()
-        rows = res.data or []
-        types = sorted(list({r.get("voucher_type") for r in rows if r.get("voucher_type")}))
-        customers = sorted(list({r.get("customer_name") for r in rows if r.get("customer_name")}))
-        return {
-            "voucher_types": types,
-            "customers": customers,
-        }
+        # Fetch distinct companies across active vouchers
+        co_res = db.table("tally_vouchers").select("company_name").eq("is_deleted", False).execute()
+        companies = sorted({r.get("company_name") for r in (co_res.data or []) if r.get("company_name")})
+
+        q = db.table("tally_vouchers").select("voucher_type, customer_name").eq("is_deleted", False)
+        if company:
+            q = q.eq("company_name", company.strip())
+        res   = q.execute()
+        rows  = res.data or []
+        types = sorted({r.get("voucher_type") for r in rows if r.get("voucher_type")})
+        custs = sorted({r.get("customer_name") for r in rows if r.get("customer_name")})
+        return {"voucher_types": types, "customers": custs, "companies": companies}
     except Exception as e:
         print(f"[tally_data] filter_options error: {e}")
-        return {"voucher_types": [], "customers": []}
+        return {"voucher_types": [], "customers": [], "companies": []}
