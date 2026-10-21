@@ -9,7 +9,7 @@ import math
 import logging
 from datetime import datetime, date, timedelta
 import pytz
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Header, Body
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ class CallStatusUpdate(BaseModel):
     call_outcome: str  # 'connected', 'not_reachable', 'callback', 'wrong_number'
     notes: Optional[str] = None
     callback_date: Optional[str] = None
+    survey_data: Optional[Dict[str, Any]] = None
 
 class ReassignRequest(BaseModel):
     assignment_id: int
@@ -52,6 +53,7 @@ class AdhocCallRequest(BaseModel):
     call_outcome: str       # connected, not_reachable, callback, wrong_number
     notes: Optional[str] = None
     callback_date: Optional[str] = None
+    survey_data: Optional[Dict[str, Any]] = None
 
 class ReorderAssignmentsRequest(BaseModel):
     assignment_ids: list[int]
@@ -560,7 +562,7 @@ def get_my_assignments(
             # time in Python (the call time lives in call_logs, not on the assignment row)
             # and paginate afterwards. This ensures page 1 always shows the most recent calls
             # instead of dropping them onto later pages by assignment_id order.
-            full_res = query.execute()
+            full_res = query.execute_all()
             assignments = full_res.data or []
         else:
             query = query.limit(limit).offset(offset)
@@ -714,7 +716,7 @@ def get_my_assignments(
         else:
             all_query = all_query.eq("user_email", user_email).eq("entity_type", "customer")
             
-        all_res = all_query.execute()
+        all_res = all_query.execute_all()
         all_assignments = all_res.data or []
         pending = sum(1 for x in all_assignments if x["status"] == "Pending")
         called = sum(1 for x in all_assignments if x["status"] != "Pending")
@@ -1037,7 +1039,19 @@ def log_adhoc_call(
         }
         if body.call_outcome == "callback" and body.callback_date:
             log_row["callback_date"] = body.callback_date
+        if body.survey_data:
+            log_row["survey_data"] = body.survey_data
+
         db.table("call_logs").insert(log_row).execute()
+
+        # If survey_data provided and entity is customer, update cattle_profile
+        if body.survey_data and body.entity_type == "customer":
+            try:
+                db.table("customers").eq("customer_id", body.entity_id).update({
+                    "cattle_profile": body.survey_data
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to update customer cattle_profile: {e}")
 
         # Log activity with resolved entity name
         try:
@@ -1161,6 +1175,9 @@ def update_call_status(
             "call_outcome": body.call_outcome,
             "notes": body.notes or "",
         }
+        if body.survey_data:
+            log_data["survey_data"] = body.survey_data
+
         # Try inserting with time_taken. If it fails due to missing column, we fallback to without it.
         # But we assume the DB migration was run.
         if time_taken is not None:
@@ -1176,6 +1193,15 @@ def update_call_status(
                 db.table("call_logs").insert(log_data).execute()
             else:
                 raise e
+
+        # Update customer cattle_profile if survey_data is provided
+        if body.survey_data and assignment.get("customer_id"):
+            try:
+                db.table("customers").eq("customer_id", assignment["customer_id"]).update({
+                    "cattle_profile": body.survey_data
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to update customer cattle_profile: {e}")
 
         # 5. If callback is selected with a date, schedule new assignment + send notifications
         if body.call_outcome == "callback" and body.callback_date:
@@ -1425,158 +1451,204 @@ def get_telecaller_profile(
     email: str = Query(..., description="Telecaller email"),
     db: SupabaseClient = Depends(get_db),
 ):
-    """Admin: get all-time stats for a specific telecaller including their converted mantri sales."""
+    """Admin: get all-time stats for a specific telecaller including their converted sales and telecaller orders."""
     try:
-        # 1. All-time call assignments for this telecaller
+        email = email.strip()
+        # 1. All-time call assignments for this telecaller (paginated to avoid 1000 cap)
         all_assignments_res = db.table("calling_assignments") \
-            .select("assignment_id, customer_id, status, assigned_date") \
+            .select("assignment_id, customer_id, status, assigned_date, entity_type") \
             .eq("user_email", email) \
-            .execute()
+            .execute_all()
         all_assignments = all_assignments_res.data or []
 
         total_assigned = len(all_assignments)
-        total_called = sum(1 for a in all_assignments if a.get("status") != "Pending")
-        # Determine role to know whether to fetch distributors or customers
-        user_res = db.table("app_users").select("role").eq("email", email).execute()
-        role = user_res.data[0]["role"] if (user_res.data and len(user_res.data) > 0) else "telecaller"
+        pending_count = sum(1 for a in all_assignments if a.get("status") == "Pending")
+        total_called = total_assigned - pending_count
 
         # All entity IDs ever assigned to this telecaller
-        assigned_entity_ids = list(set(a["customer_id"] for a in all_assignments if a.get("customer_id")))
+        assigned_entity_ids = set(a["customer_id"] for a in all_assignments if a.get("customer_id"))
 
-        # 2. Find all sales made for those entity IDs (all-time conversions)
+        # 2. Fetch telecaller orders submitted by this user
+        try:
+            to_res = db.table("telecaller_orders").select("*").eq("telecaller_email", email).execute_all()
+            all_tc_orders = to_res.data or []
+        except Exception as te:
+            logger.warning(f"Failed to fetch telecaller_orders: {te}")
+            all_tc_orders = []
+
+        order_sale_ids = set(o["sale_id"] for o in all_tc_orders if o.get("sale_id"))
+
+        # 3. Find all sales made for assigned entity IDs or linked to this telecaller's orders
+        sales_res = db.table("sales") \
+            .select("sale_id, customer_id, distributor_id, sale_date, total_amount, invoice_no, buyer_type") \
+            .order("sale_date", desc=True) \
+            .execute_all()
+        all_sales = sales_res.data or []
+
+        sales_by_id = {}
+        for s in all_sales:
+            sid = s.get("sale_id")
+            if not sid:
+                continue
+            if (sid in order_sale_ids) or (s.get("customer_id") in assigned_entity_ids) or (s.get("distributor_id") in assigned_entity_ids):
+                sales_by_id[sid] = s
+
         converted_mantris = []
-        if assigned_entity_ids:
-            # Fetch sales in chunks to avoid URL length limits
-            chunk_size = 50
-            all_sales = []
-            buyer_type = "mantri" if role == "sales_manager" else "customer"
-            id_field = "distributor_id" if role == "sales_manager" else "customer_id"
+        seen_sale_ids = set()
 
-            for i in range(0, len(assigned_entity_ids), chunk_size):
-                chunk = assigned_entity_ids[i:i+chunk_size]
-                sales_res = db.table("sales") \
-                    .select(f"sale_id, {id_field}, sale_date, total_amount, invoice_no, buyer_type") \
-                    .eq("buyer_type", buyer_type) \
-                    .in_(id_field, chunk) \
-                    .order("sale_date", desc=True) \
-                    .execute()
-                all_sales.extend(sales_res.data or [])
+        # Process approved orders from telecaller_orders
+        import json
+        for o in all_tc_orders:
+            if o.get("status") == "approved":
+                sid = o.get("sale_id")
+                sale = sales_by_id.get(sid) if sid else None
 
-            # Fetch recent call durations
-            # NOTE: call_logs table may not have time_taken or created_at columns (migration pending).
-            # We use log_id for ordering (auto-increment) and parse [Time Taken: Xs] from notes.
-            call_durations = []
-            log_data = []
+                amt = 0
+                if sale and sale.get("total_amount") is not None:
+                    amt = float(sale["total_amount"] or 0)
+                else:
+                    try:
+                        prods = json.loads(o.get("products_json") or "[]")
+                        amt = sum(float(p.get("amount") or 0) for p in prods)
+                    except Exception:
+                        amt = 0
+
+                inv = sale.get("invoice_no") if sale else None
+                dt = (sale.get("sale_date") if sale else None) or (o.get("created_at")[:10] if o.get("created_at") else None)
+
+                converted_mantris.append({
+                    "sale_id": sid or f"order_{o.get('order_id')}",
+                    "order_id": o.get("order_id"),
+                    "invoice_no": inv,
+                    "sale_date": dt,
+                    "total_amount": amt,
+                    "distributor_id": o.get("customer_id"),
+                    "mantri_name": o.get("customer_name") or "Unknown",
+                    "village": o.get("customer_village") or "",
+                    "taluka": "",
+                    "district": "",
+                    "mantri_mobile": o.get("customer_mobile") or "",
+                    "status": "approved"
+                })
+                if sid:
+                    seen_sale_ids.add(sid)
+
+        # Remaining sales for assigned entities not already included
+        unseen_sales = [s for sid, s in sales_by_id.items() if sid not in seen_sale_ids]
+        if unseen_sales:
+            dist_lookup_ids = list(set(s["distributor_id"] for s in unseen_sales if s.get("distributor_id")))
+            cust_lookup_ids = list(set(s["customer_id"] for s in unseen_sales if s.get("customer_id")))
+            entities_map = {}
+
+            chunk_size = 100
+            if dist_lookup_ids:
+                for i in range(0, len(dist_lookup_ids), chunk_size):
+                    chunk = dist_lookup_ids[i:i+chunk_size]
+                    d_res = db.table("distributors") \
+                        .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile") \
+                        .in_("distributor_id", chunk) \
+                        .execute()
+                    for d in (d_res.data or []):
+                        entities_map[("distributor", d["distributor_id"])] = d
+
+            if cust_lookup_ids:
+                for i in range(0, len(cust_lookup_ids), chunk_size):
+                    chunk = cust_lookup_ids[i:i+chunk_size]
+                    c_res = db.table("customers") \
+                        .select("customer_id, name, village, taluka, district, mobile") \
+                        .in_("customer_id", chunk) \
+                        .execute()
+                    for c in (c_res.data or []):
+                        entities_map[("customer", c["customer_id"])] = c
+
+            for s in unseen_sales:
+                e_info = {}
+                e_id = None
+                if s.get("distributor_id"):
+                    e_id = s["distributor_id"]
+                    e_info = entities_map.get(("distributor", e_id), {})
+                elif s.get("customer_id"):
+                    e_id = s["customer_id"]
+                    e_info = entities_map.get(("customer", e_id), {})
+
+                converted_mantris.append({
+                    "sale_id": s.get("sale_id"),
+                    "invoice_no": s.get("invoice_no"),
+                    "sale_date": s.get("sale_date"),
+                    "total_amount": float(s.get("total_amount") or 0),
+                    "distributor_id": e_id,
+                    "mantri_name": e_info.get("mantri_name") or e_info.get("name") or "Unknown",
+                    "village": e_info.get("village") or "",
+                    "taluka": e_info.get("taluka") or "",
+                    "district": e_info.get("district") or "",
+                    "mantri_mobile": e_info.get("mantri_mobile") or e_info.get("mobile") or "",
+                    "status": "approved"
+                })
+
+        # Sort converted rows newest first
+        converted_mantris.sort(key=lambda x: str(x.get("sale_date") or ""), reverse=True)
+
+        total_conversions = len(converted_mantris)
+        total_revenue = sum(m.get("total_amount", 0) or 0 for m in converted_mantris)
+        conversion_rate = round((total_conversions / total_called * 100) if total_called > 0 else 0, 1)
+        completion_rate = round((total_called / total_assigned * 100) if total_assigned > 0 else 0, 1)
+
+        # Call durations
+        call_durations = []
+        log_data = []
+        try:
+            logs_res = db.table("call_logs") \
+                .select("log_id, customer_id, time_taken, notes") \
+                .eq("user_email", email) \
+                .order("log_id", desc=True) \
+                .limit(50) \
+                .execute()
+            log_data = logs_res.data or []
+        except Exception:
             try:
-                # Try fetching with time_taken column first
                 logs_res = db.table("call_logs") \
-                    .select("log_id, customer_id, time_taken, notes") \
+                    .select("log_id, customer_id, notes") \
                     .eq("user_email", email) \
                     .order("log_id", desc=True) \
                     .limit(50) \
                     .execute()
                 log_data = logs_res.data or []
-            except Exception:
-                # Fallback: select only guaranteed base columns
-                try:
-                    logs_res = db.table("call_logs") \
-                        .select("log_id, customer_id, notes") \
-                        .eq("user_email", email) \
-                        .order("log_id", desc=True) \
-                        .limit(50) \
+            except Exception as inner_e:
+                logger.warning(f"Fallback call_logs fetch failed: {inner_e}")
+
+        if log_data:
+            log_entity_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
+            name_map = {}
+            if log_entity_ids:
+                for i in range(0, len(log_entity_ids), 50):
+                    dchunk = log_entity_ids[i:i+50]
+                    dist_res = db.table("distributors") \
+                        .select("distributor_id, mantri_name") \
+                        .in_("distributor_id", dchunk) \
                         .execute()
-                    log_data = logs_res.data or []
-                except Exception as inner_e:
-                    logger.warning(f"Fallback call_logs fetch failed: {inner_e}")
+                    for d in (dist_res.data or []):
+                        name_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
 
-            if log_data:
-                log_dist_ids = list(set(log["customer_id"] for log in log_data if log.get("customer_id")))
-                dist_map = {}
-                if log_dist_ids:
-                    for i in range(0, len(log_dist_ids), 50):
-                        dchunk = log_dist_ids[i:i+50]
-                        if role == "sales_manager":
-                            dist_res = db.table("distributors") \
-                                .select("distributor_id, mantri_name") \
-                                .in_("distributor_id", dchunk) \
-                                .execute()
-                            for d in (dist_res.data or []):
-                                dist_map[d["distributor_id"]] = d.get("mantri_name", "Unknown")
-                        else:
-                            cust_res = db.table("customers") \
-                                .select("customer_id, name") \
-                                .in_("customer_id", dchunk) \
-                                .execute()
-                            for c in (cust_res.data or []):
-                                dist_map[c["customer_id"]] = c.get("name", "Unknown")
+                    cust_res = db.table("customers") \
+                        .select("customer_id, name") \
+                        .in_("customer_id", dchunk) \
+                        .execute()
+                    for c in (cust_res.data or []):
+                        name_map[c["customer_id"]] = c.get("name", "Unknown")
 
-                import re
-                for log in log_data:
-                    tt = log.get("time_taken")
-                    if tt is None and log.get("notes"):
-                        # Parse [Time Taken: 120s] from notes
-                        match = re.search(r"\[Time Taken: (\d+)s\]", log.get("notes", ""))
-                        if match:
-                            tt = int(match.group(1))
+            import re
+            for log in log_data:
+                tt = log.get("time_taken")
+                if tt is None and log.get("notes"):
+                    match = re.search(r"\[Time Taken: (\d+)s\]", log.get("notes", ""))
+                    if match:
+                        tt = int(match.group(1))
 
-                    dist_name = dist_map.get(log.get("customer_id"), "Unknown")
-                    call_durations.append({
-                        "name": dist_name,
-                        "time_taken": tt,  # may be None if no timer was captured
-                    })
-
-            # Get entity details for all sold-to entities
-            sold_entity_ids = list(set(s[id_field] for s in all_sales if s.get(id_field)))
-            entities_map = {}
-            if sold_entity_ids:
-                for i in range(0, len(sold_entity_ids), chunk_size):
-                    chunk = sold_entity_ids[i:i+chunk_size]
-                    if role == "sales_manager":
-                        entity_res = db.table("distributors") \
-                            .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile") \
-                            .in_("distributor_id", chunk) \
-                            .execute()
-                        for d in (entity_res.data or []):
-                            entities_map[d["distributor_id"]] = {
-                                "name": d.get("mantri_name"),
-                                "village": d.get("village"),
-                                "taluka": d.get("taluka"),
-                                "district": d.get("district"),
-                                "mobile": d.get("mantri_mobile")
-                            }
-                    else:
-                        entity_res = db.table("customers") \
-                            .select("customer_id, name, village, taluka, district, mobile") \
-                            .in_("customer_id", chunk) \
-                            .execute()
-                        for c in (entity_res.data or []):
-                            entities_map[c["customer_id"]] = {
-                                "name": c.get("name"),
-                                "village": c.get("village"),
-                                "taluka": c.get("taluka"),
-                                "district": c.get("district"),
-                                "mobile": c.get("mobile")
-                            }
-
-            # Build converted mantri rows
-            for sale in all_sales:
-                e_id = sale.get(id_field)
-                ent = entities_map.get(e_id, {})
-                converted_mantris.append({
-                    "sale_id": sale.get("sale_id"),
-                    "invoice_no": sale.get("invoice_no"),
-                    "sale_date": sale.get("sale_date"),
-                    "total_amount": sale.get("total_amount", 0),
-                    "distributor_id": e_id,
-                    "mantri_name": ent.get("name", "Unknown"),
-                    "village": ent.get("village", ""),
-                    "taluka": ent.get("taluka", ""),
-                    "district": ent.get("district", ""),
-                    "mantri_mobile": ent.get("mobile", ""),
+                ent_name = name_map.get(log.get("customer_id"), "Unknown")
+                call_durations.append({
+                    "name": ent_name,
+                    "time_taken": tt,
                 })
-
-        total_conversions = len(converted_mantris)
-        total_revenue = sum(m.get("total_amount", 0) or 0 for m in converted_mantris)
 
         return {
             "email": email,
@@ -1584,14 +1656,14 @@ def get_telecaller_profile(
             "stats": {
                 "total_assigned": total_assigned,
                 "total_called": total_called,
-                "pending": total_assigned - total_called,
-                "completion_rate": round((total_called / total_assigned * 100) if total_assigned > 0 else 0, 1),
+                "pending": pending_count,
+                "completion_rate": completion_rate,
                 "total_conversions": total_conversions,
                 "total_revenue": total_revenue,
-                "conversion_rate": round((total_conversions / total_called * 100) if total_called > 0 else 0, 1),
+                "conversion_rate": conversion_rate,
             },
             "converted_mantris": converted_mantris,
-            "call_durations": call_durations if "call_durations" in locals() else [],
+            "call_durations": call_durations,
         }
 
     except Exception as e:
@@ -1757,7 +1829,7 @@ def get_admin_assignments(
             elif u_role not in ("admin", "developer"):
                 q = q.eq("entity_type", "customer")
 
-            q_res = q.execute()
+            q_res = q.execute_all()
             rows = q_res.data or []
 
             total = len(rows)
@@ -1848,7 +1920,7 @@ def get_admin_assignments(
                 assign_res = db.table("calling_assignments") \
                     .select("user_email, customer_id") \
                     .eq("assigned_date", d) \
-                    .execute()
+                    .execute_all()
 
                 # Build telecaller → set of their assigned distributor IDs
                 telecaller_dists: dict = {}
@@ -1907,7 +1979,7 @@ def export_admin_assignments_excel(
             .select("*") \
             .eq("assigned_date", d) \
             .order("assignment_id") \
-            .execute()
+            .execute_all()
 
         assignments = res.data or []
 
