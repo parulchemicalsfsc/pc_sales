@@ -65,6 +65,11 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
 import { useCallLogger } from "../hooks/useCallLogger";
 import { FEATURE_FLAGS } from "../config/featureFlags";
+import TelecallerQuestionnaire, {
+  initialQuestionnaireData,
+  QuestionnaireData,
+  formatQuestionnaireNotes,
+} from "../components/TelecallerQuestionnaire";
 
 // ── Types ──────────────────────────────────────────────
 interface Assignment {
@@ -155,6 +160,7 @@ type WizardState = {
   notes: string; callbackDate: string;
   dmName: string; dmPhone: string; dmScheduleToggle: boolean; dmScheduleDate: string;
   otherScheduleToggle: boolean; otherScheduleDate: string;
+  questionnaire: QuestionnaireData;
 };
 
 type WizardAction =
@@ -168,7 +174,8 @@ const initialWizardState: WizardState = {
   callSubReason: "", qualityFollowUpDate: "", callRetry: "",
   notes: "", callbackDate: "",
   dmName: "", dmPhone: "", dmScheduleToggle: false, dmScheduleDate: "",
-  otherScheduleToggle: false, otherScheduleDate: ""
+  otherScheduleToggle: false, otherScheduleDate: "",
+  questionnaire: initialQuestionnaireData,
 };
 
 function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -287,6 +294,7 @@ export default function CallingList() {
   const setDmScheduleDate = (v: any) => dispatchWizard({ type: "SET", field: "dmScheduleDate", value: v });
   const setOtherScheduleToggle = (v: any) => dispatchWizard({ type: "SET", field: "otherScheduleToggle", value: v });
   const setOtherScheduleDate = (v: any) => dispatchWizard({ type: "SET", field: "otherScheduleDate", value: v });
+  const setQuestionnaire = (v: any) => dispatchWizard({ type: "SET", field: "questionnaire", value: typeof v === "function" ? v(wizardState.questionnaire) : v });
 
   const resetWizard = () => {
     setOutcome("");
@@ -744,12 +752,14 @@ export default function CallingList() {
       if (callConn === "connected") {
         if (callReach === "reached") {
           // If Take Order was explicitly chosen, override finalOutcome now.
+          const qNotes = formatQuestionnaireNotes(wizardState.questionnaire);
+          const qSuffix = qNotes ? ` | ${qNotes}` : "";
           if (isTakeOrder) {
             finalOutcome = "take_order";
-            finalNotes = `[Customer Reached - Interested - Take Order] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
+            finalNotes = `[Customer Reached - Interested - Take Order] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails}${qSuffix} | ${finalNotes}`;
           } else if (callInterest === "interested") {
             finalOutcome = "connected";
-            finalNotes = `[Customer Reached - Interested] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails} | ${finalNotes}`;
+            finalNotes = `[Customer Reached - Interested] Intro F.S. Calcival: ${interestedIntro ? 'Yes' : 'No'} | Details: ${interestedDetails}${qSuffix} | ${finalNotes}`;
           } else if (callInterest === "not_interested") {
             finalOutcome = "connected";
             let reasonText = callReason;
@@ -889,8 +899,16 @@ export default function CallingList() {
 
     try {
       setSubmitting(true);
+      const qNotes = formatQuestionnaireNotes(wizardState.questionnaire);
+      const callLogNotes = [
+        notes || "Initiating Order",
+        interestedIntro ? "Intro F.S. Calcival: Yes" : "",
+        interestedDetails ? `Details: ${interestedDetails}` : "",
+        qNotes,
+      ].filter(Boolean).join(" | ");
+
       if (targetItem.assignment_id) {
-        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", notes || "Initiating Order");
+        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", callLogNotes);
       } else {
         const entityType = role === "sales_manager" ? "distributor" : "customer";
         const entityId = entityType === "customer" ? targetItem.customer_id : targetItem.entity_id;
@@ -898,7 +916,7 @@ export default function CallingList() {
           entity_id: entityId,
           entity_type: entityType,
           call_outcome: "take_order",
-          notes: notes || "Initiating Order",
+          notes: callLogNotes,
         });
       }
       setDialogOpen(false);
@@ -1937,7 +1955,7 @@ export default function CallingList() {
       </Dialog>
 
       {/* ── Post-Call Dialog ── */}
-      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); } }} maxWidth="xs" fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
+      <Dialog open={dialogOpen || qcDialogOpen} onClose={() => { if (!submitting) { setDialogOpen(false); setQcDialogOpen(false); setOrderCallItem(null); setCallbackCallItem(null); } }} maxWidth={callInterest === "interested" ? "sm" : "xs"} fullWidth fullScreen={isMobile} PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, p: 0.5 } }}>
         <DialogTitle sx={{ fontWeight: 800, fontSize: 18, pb: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <Box>
             {isQuickCall ? `Log Call Outcome (${qcCurrentIndex + 1} of ${qcQueue.length})` : "Log Call Outcome"}
@@ -2100,7 +2118,11 @@ export default function CallingList() {
                         fullWidth
                         value={interestedDetails}
                         onChange={e => setInterestedDetails(e.target.value)}
-                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 }, mb: 2 }}
+                      />
+                      <TelecallerQuestionnaire
+                        data={wizardState.questionnaire}
+                        onChange={setQuestionnaire}
                       />
                     </Box>
                   )}
