@@ -162,12 +162,13 @@ def ingest_vouchers(
     top_company         = (payload.company_name or "").strip()
     synced_at           = datetime.now(IST).isoformat()
 
-    rows = []
+    rows_by_key = {}
     for v in payload.vouchers:
         if not v.voucher_id:
             continue
         row_company = (v.company_name or top_company or "").strip()
-        rows.append({
+        composite_key = (row_company, v.voucher_id)
+        rows_by_key[composite_key] = {
             "voucher_id":        v.voucher_id,
             "voucher_no":        v.voucher_no or "",
             "voucher_type":      v.voucher_type or "",
@@ -185,7 +186,9 @@ def ingest_vouchers(
             "connector_version": connector_version or "",
             "is_deleted":        False,
             "deleted_at":        None,
-        })
+        }
+
+    rows = list(rows_by_key.values())
 
     if not rows:
         return {"upserted": 0, "message": "No valid vouchers in batch."}
