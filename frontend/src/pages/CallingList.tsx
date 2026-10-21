@@ -69,6 +69,7 @@ import TelecallerQuestionnaire, {
   initialQuestionnaireData,
   QuestionnaireData,
   formatQuestionnaireNotes,
+  cleanQuestionnaireData,
 } from "../components/TelecallerQuestionnaire";
 
 // ── Types ──────────────────────────────────────────────
@@ -808,6 +809,7 @@ export default function CallingList() {
     }
     try {
       setSubmitting(true);
+      const surveyJson = cleanQuestionnaireData(wizardState.questionnaire) || undefined;
       if (isQuickCall) {
         // Quick call logging
         const qcItem = qcQueue[qcCurrentIndex];
@@ -819,6 +821,7 @@ export default function CallingList() {
           call_outcome: finalOutcome,
           notes: finalNotes,
           callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined))),
+          survey_data: surveyJson,
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
         // Next in queue
@@ -841,7 +844,8 @@ export default function CallingList() {
           activeItem!.assignment_id, 
           finalOutcome, 
           finalNotes, 
-          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined)))
+          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined))),
+          surveyJson
         );
         setToast({ msg: "Call logged successfully", sev: "success" });
         setDialogOpen(false);
@@ -907,8 +911,9 @@ export default function CallingList() {
         qNotes,
       ].filter(Boolean).join(" | ");
 
+      const surveyJson = cleanQuestionnaireData(wizardState.questionnaire) || undefined;
       if (targetItem.assignment_id) {
-        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", callLogNotes);
+        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", callLogNotes, undefined, surveyJson);
       } else {
         const entityType = role === "sales_manager" ? "distributor" : "customer";
         const entityId = entityType === "customer" ? targetItem.customer_id : targetItem.entity_id;
@@ -917,6 +922,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: "take_order",
           notes: callLogNotes,
+          survey_data: surveyJson,
         });
       }
       setDialogOpen(false);

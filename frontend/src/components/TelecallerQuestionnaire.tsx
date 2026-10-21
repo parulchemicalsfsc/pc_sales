@@ -873,4 +873,63 @@ export function formatQuestionnaireNotes(q: QuestionnaireData): string {
   return `[Questionnaire Answers] ${parts.join(" | ")}`;
 }
 
+/**
+ * Check if the questionnaire has at least one answer entered
+ */
+export function hasQuestionnaireData(q?: QuestionnaireData): boolean {
+  if (!q) return false;
+  return Boolean(
+    q.isPashupalak ||
+    q.yearsExperience ||
+    q.totalAnimals ||
+    q.cowsCount ||
+    q.buffaloesCount ||
+    q.bigAnimalsCount ||
+    q.smallAnimalsCount ||
+    q.milkingCount ||
+    q.nonMilkingCount ||
+    q.pregnantCount ||
+    q.nonPregnantCount ||
+    q.hasGivenCalcium ||
+    q.calciumCompany ||
+    (q.animalProblems && q.animalProblems.length > 0) ||
+    q.otherProblemDetails ||
+    (q.breedCategories && q.breedCategories.length > 0) ||
+    q.otherBreedDetails ||
+    q.hasOtherProductIssues ||
+    q.otherProductIssuesDetails
+  );
+}
+
+/**
+ * Format questionnaire data into a clean, typed JSON object for algorithms and DB
+ */
+export function cleanQuestionnaireData(q?: QuestionnaireData): Record<string, any> | null {
+  if (!q || !hasQuestionnaireData(q)) return null;
+  return {
+    is_pashupalak: q.isPashupalak === "yes" ? true : q.isPashupalak === "no" ? false : null,
+    years_experience: q.yearsExperience ? Number(q.yearsExperience) || q.yearsExperience : null,
+    total_animals: q.totalAnimals ? Number(q.totalAnimals) || q.totalAnimals : null,
+    breakdown: {
+      cows: q.cowsCount ? Number(q.cowsCount) || q.cowsCount : null,
+      buffaloes: q.buffaloesCount ? Number(q.buffaloesCount) || q.buffaloesCount : null,
+      big: q.bigAnimalsCount ? Number(q.bigAnimalsCount) || q.bigAnimalsCount : null,
+      small: q.smallAnimalsCount ? Number(q.smallAnimalsCount) || q.smallAnimalsCount : null,
+      milking: q.milkingCount ? Number(q.milkingCount) || q.milkingCount : null,
+      non_milking: q.nonMilkingCount ? Number(q.nonMilkingCount) || q.nonMilkingCount : null,
+      pregnant: q.pregnantCount ? Number(q.pregnantCount) || q.pregnantCount : null,
+      non_pregnant: q.nonPregnantCount ? Number(q.nonPregnantCount) || q.nonPregnantCount : null,
+    },
+    has_given_calcium: q.hasGivenCalcium === "yes" ? true : q.hasGivenCalcium === "no" ? false : null,
+    calcium_company: q.calciumCompany || null,
+    animal_problems: q.animalProblems || [],
+    other_problem_details: q.otherProblemDetails || null,
+    breed_categories: q.breedCategories || [],
+    other_breed_details: q.otherBreedDetails || null,
+    has_other_product_issues: q.hasOtherProductIssues === "yes" ? true : q.hasOtherProductIssues === "no" ? false : null,
+    other_product_issues_details: q.otherProductIssuesDetails || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export default TelecallerQuestionnaire;

@@ -9,7 +9,7 @@ import math
 import logging
 from datetime import datetime, date, timedelta
 import pytz
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Header, Body
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ class CallStatusUpdate(BaseModel):
     call_outcome: str  # 'connected', 'not_reachable', 'callback', 'wrong_number'
     notes: Optional[str] = None
     callback_date: Optional[str] = None
+    survey_data: Optional[Dict[str, Any]] = None
 
 class ReassignRequest(BaseModel):
     assignment_id: int
@@ -52,6 +53,7 @@ class AdhocCallRequest(BaseModel):
     call_outcome: str       # connected, not_reachable, callback, wrong_number
     notes: Optional[str] = None
     callback_date: Optional[str] = None
+    survey_data: Optional[Dict[str, Any]] = None
 
 class ReorderAssignmentsRequest(BaseModel):
     assignment_ids: list[int]
@@ -1037,7 +1039,19 @@ def log_adhoc_call(
         }
         if body.call_outcome == "callback" and body.callback_date:
             log_row["callback_date"] = body.callback_date
+        if body.survey_data:
+            log_row["survey_data"] = body.survey_data
+
         db.table("call_logs").insert(log_row).execute()
+
+        # If survey_data provided and entity is customer, update cattle_profile
+        if body.survey_data and body.entity_type == "customer":
+            try:
+                db.table("customers").eq("customer_id", body.entity_id).update({
+                    "cattle_profile": body.survey_data
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to update customer cattle_profile: {e}")
 
         # Log activity with resolved entity name
         try:
@@ -1161,6 +1175,9 @@ def update_call_status(
             "call_outcome": body.call_outcome,
             "notes": body.notes or "",
         }
+        if body.survey_data:
+            log_data["survey_data"] = body.survey_data
+
         # Try inserting with time_taken. If it fails due to missing column, we fallback to without it.
         # But we assume the DB migration was run.
         if time_taken is not None:
@@ -1176,6 +1193,15 @@ def update_call_status(
                 db.table("call_logs").insert(log_data).execute()
             else:
                 raise e
+
+        # Update customer cattle_profile if survey_data is provided
+        if body.survey_data and assignment.get("customer_id"):
+            try:
+                db.table("customers").eq("customer_id", assignment["customer_id"]).update({
+                    "cattle_profile": body.survey_data
+                }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to update customer cattle_profile: {e}")
 
         # 5. If callback is selected with a date, schedule new assignment + send notifications
         if body.call_outcome == "callback" and body.callback_date:
