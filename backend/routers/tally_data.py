@@ -381,18 +381,54 @@ def get_filter_options(
 ):
     """Returns distinct voucher types, customers, and companies for dropdown filters."""
     try:
-        # Fetch distinct companies across active vouchers
-        co_res = db.table("tally_vouchers").select("company_name").eq("is_deleted", False).execute()
-        companies = sorted({r.get("company_name") for r in (co_res.data or []) if r.get("company_name")})
+        # Fetch all distinct companies across active vouchers (paginated past 1,000-row limit)
+        companies_set = set()
+        offset = 0
+        page_size = 1000
+        while True:
+            co_res = (
+                db.table("tally_vouchers")
+                .select("company_name")
+                .eq("is_deleted", False)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            rows = co_res.data or []
+            for r in rows:
+                cname = r.get("company_name")
+                if cname:
+                    companies_set.add(cname)
+            if len(rows) < page_size:
+                break
+            offset += page_size
 
-        q = db.table("tally_vouchers").select("voucher_type, customer_name").eq("is_deleted", False)
-        if company:
-            q = q.eq("company_name", company.strip())
-        res   = q.execute()
-        rows  = res.data or []
-        types = sorted({r.get("voucher_type") for r in rows if r.get("voucher_type")})
-        custs = sorted({r.get("customer_name") for r in rows if r.get("customer_name")})
-        return {"voucher_types": types, "customers": custs, "companies": companies}
+        companies = sorted(companies_set)
+
+        types_set = set()
+        custs_set = set()
+        offset = 0
+        while True:
+            q = (
+                db.table("tally_vouchers")
+                .select("voucher_type, customer_name")
+                .eq("is_deleted", False)
+            )
+            if company:
+                q = q.eq("company_name", company.strip())
+            res = q.range(offset, offset + page_size - 1).execute()
+            rows = res.data or []
+            for r in rows:
+                vt = r.get("voucher_type")
+                if vt:
+                    types_set.add(vt)
+                cn = r.get("customer_name")
+                if cn:
+                    custs_set.add(cn)
+            if len(rows) < page_size:
+                break
+            offset += page_size
+
+        return {"voucher_types": sorted(types_set), "customers": sorted(custs_set), "companies": companies}
     except Exception as e:
         print(f"[tally_data] filter_options error: {e}")
         return {"voucher_types": [], "customers": [], "companies": []}
