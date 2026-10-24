@@ -228,6 +228,7 @@ export default function TallyData() {
     if (lower.includes("receipt")) return "info";
     if (lower.includes("payment")) return "warning";
     if (lower.includes("contra")) return "secondary";
+    if (lower.includes("journal")) return "secondary";
     if (lower.includes("purchase")) return "error";
     return "default";
   };

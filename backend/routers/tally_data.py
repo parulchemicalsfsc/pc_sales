@@ -229,15 +229,26 @@ def reconcile_cleanup(
     deleted_at = datetime.now(IST).isoformat()
 
     try:
-        # Fetch all currently active voucher_ids for this company
-        result = (
-            db.table("tally_vouchers")
-            .select("voucher_id")
-            .eq("is_deleted", False)
-            .eq("company_name", company)
-            .execute()
-        )
-        db_active_ids = [r["voucher_id"] for r in (result.data or []) if r.get("voucher_id")]
+        # Fetch all currently active voucher_ids for this company (paginated past 1,000-row limit)
+        db_active_ids = []
+        offset = 0
+        while True:
+            result = (
+                db.table("tally_vouchers")
+                .select("voucher_id")
+                .eq("is_deleted", False)
+                .eq("company_name", company)
+                .range(offset, offset + _AUDIT_PAGE_SIZE - 1)
+                .execute()
+            )
+            rows = result.data or []
+            for r in rows:
+                vid = r.get("voucher_id")
+                if vid:
+                    db_active_ids.append(vid)
+            if len(rows) < _AUDIT_PAGE_SIZE:
+                break
+            offset += _AUDIT_PAGE_SIZE
 
         active_set = set(active_ids)
         stale_ids  = [vid for vid in db_active_ids if vid not in active_set]
@@ -249,11 +260,14 @@ def reconcile_cleanup(
                 "db_active_before_cleanup": len(db_active_ids),
             }
 
-        # Single bulk update: soft-delete all stale vouchers in one query
-        db.table("tally_vouchers").update({
-            "is_deleted": True,
-            "deleted_at": deleted_at,
-        }).eq("company_name", company).in_("voucher_id", stale_ids).execute()
+        # Batch update in chunks of 50 to prevent HTTP 414/500 URI Too Long errors in PostgREST
+        _CLEANUP_BATCH = 50
+        for i in range(0, len(stale_ids), _CLEANUP_BATCH):
+            batch = stale_ids[i:i + _CLEANUP_BATCH]
+            db.table("tally_vouchers").update({
+                "is_deleted": True,
+                "deleted_at": deleted_at,
+            }).eq("company_name", company).in_("voucher_id", batch).execute()
 
         return {
             "soft_deleted": len(stale_ids),
