@@ -108,6 +108,10 @@ export const PERMISSIONS = {
     // Reviews
     VIEW_REVIEWS: "view_reviews",
     DELETE_REVIEWS: "delete_reviews",
+
+    // Recruitment
+    VIEW_RECRUITMENT: "view_recruitment",
+    MANAGE_RECRUITMENT: "manage_recruitment",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];

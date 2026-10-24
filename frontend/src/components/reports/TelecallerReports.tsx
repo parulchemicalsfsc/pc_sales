@@ -439,9 +439,11 @@ export default function TelecallerReports() {
 
             <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
               <Tooltip title="Refresh dashboard data">
-                <Button size="small" variant="contained" color="primary" startIcon={<RefreshIcon />} onClick={loadAll} disabled={loading} sx={{ fontWeight: 600, px: 2 }}>
-                  Refresh
-                </Button>
+                <span>
+                  <Button size="small" variant="contained" color="primary" startIcon={<RefreshIcon />} onClick={loadAll} disabled={loading} sx={{ fontWeight: 600, px: 2 }}>
+                    Refresh
+                  </Button>
+                </span>
               </Tooltip>
             </Box>
           </Box>

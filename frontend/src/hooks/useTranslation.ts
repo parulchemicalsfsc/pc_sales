@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useLanguageStore } from "../store/languageStore";
 import { getTranslation, getFieldTranslation } from "../i18n/i18n";
 
@@ -18,23 +19,29 @@ export const useTranslation = () => {
    * @param key - Translation key (e.g., 'nav.dashboard', 'common.add')
    * @param fallback - Optional fallback text if key not found
    */
-  const t = (key: string, fallback?: string): string => {
-    const translation = getTranslation(key, language);
-    // If translation is the same as key and fallback provided, use fallback
-    if (translation === key && fallback) {
-      return fallback;
-    }
-    return translation;
-  };
+  const t = useCallback(
+    (key: string, fallback?: string): string => {
+      const translation = getTranslation(key, language);
+      // If translation is the same as key and fallback provided, use fallback
+      if (translation === key && fallback) {
+        return fallback;
+      }
+      return translation;
+    },
+    [language]
+  );
 
   /**
    * Translate field names with automatic fallback
    * Useful for dynamic fields that may not be in translation files
    * @param fieldName - Field name to translate (e.g., 'customerName', 'totalAmount')
    */
-  const tf = (fieldName: string): string => {
-    return getFieldTranslation(fieldName, language);
-  };
+  const tf = useCallback(
+    (fieldName: string): string => {
+      return getFieldTranslation(fieldName, language);
+    },
+    [language]
+  );
 
   return {
     t, // Translate using key from JSON files

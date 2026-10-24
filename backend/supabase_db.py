@@ -142,6 +142,11 @@ class SupabaseTable:
         self._filters.append(f"{column}=is.{value}")
         return self
 
+    def not_null(self, column: str):
+        """Filter: column is not null (not.is.null)"""
+        self._filters.append(f"{column}=not.is.null")
+        return self
+
     def in_(self, column: str, values: list):
         """Filter: column in list of values"""
         values_str = ",".join(
