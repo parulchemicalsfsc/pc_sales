@@ -25,6 +25,7 @@ import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import TranslateIcon from "@mui/icons-material/Translate";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useLanguageStore } from "../store/languageStore";
+import VoiceTextField from "./VoiceTextField";
 
 export type QuestionnaireLang = "gu" | "en" | "hi";
 
@@ -644,7 +645,7 @@ export const TelecallerQuestionnaire: React.FC<TelecallerQuestionnaireProps> = (
                     />
                   ))}
                 </Stack>
-                <TextField
+                <VoiceTextField
                   size="small"
                   fullWidth
                   placeholder={t.calciumCompanyPlaceholder}
@@ -700,7 +701,7 @@ export const TelecallerQuestionnaire: React.FC<TelecallerQuestionnaireProps> = (
               })}
             </Stack>
 
-            <TextField
+            <VoiceTextField
               size="small"
               fullWidth
               placeholder={t.otherProblemPlaceholder}
@@ -753,7 +754,7 @@ export const TelecallerQuestionnaire: React.FC<TelecallerQuestionnaireProps> = (
               })}
             </Stack>
 
-            <TextField
+            <VoiceTextField
               size="small"
               fullWidth
               placeholder={t.otherBreedPlaceholder}
@@ -794,7 +795,7 @@ export const TelecallerQuestionnaire: React.FC<TelecallerQuestionnaireProps> = (
             </Stack>
 
             {data.hasOtherProductIssues === "yes" && (
-              <TextField
+              <VoiceTextField
                 size="small"
                 fullWidth
                 multiline

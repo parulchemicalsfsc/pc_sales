@@ -63,8 +63,8 @@ import {
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
-import { useCallLogger } from "../hooks/useCallLogger";
 import { FEATURE_FLAGS } from "../config/featureFlags";
+import VoiceTextField from "../components/VoiceTextField";
 import TelecallerQuestionnaire, {
   initialQuestionnaireData,
   QuestionnaireData,
@@ -166,8 +166,7 @@ type WizardState = {
 
 type WizardAction =
   | { type: "SET"; field: keyof WizardState; value: any }
-  | { type: "RESET" }
-  | { type: "APPLY_AI_FIELDS"; fields: any }; // we use `any` to avoid strict import tying, AIFields from useCallLogger
+  | { type: "RESET" };
 
 const initialWizardState: WizardState = {
   callConn: "", callReach: "", callInterest: "",
@@ -183,38 +182,8 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
     case "SET": return { ...state, [action.field]: action.value };
     case "RESET": return initialWizardState;
-    case "APPLY_AI_FIELDS": return mapAIFieldsToWizardState(action.fields);
     default: return state;
   }
-}
-
-function mapAIFieldsToWizardState(f: any): WizardState {
-  const s = { ...initialWizardState, notes: f.notes || "" };
-  if (!f.call_connected) {
-    return { ...s, callConn: "not_connected",
-      callRetry: f.retry_or_close || "",
-      callbackDate: f.retry_or_close === "retry" ? (f.callback_datetime || "") : "" };
-  }
-  const s2 = { ...s, callConn: "connected" };
-  if (f.customer_reached === false) {
-    return { ...s2, callReach: "not_reached", callReason: f.not_reached_reason || "" };
-  }
-  if (f.customer_reached === true) {
-    const s3 = { ...s2, callReach: "reached" };
-    if (f.interest === "interested") {
-      return { ...s3, callInterest: "interested",
-        interestedIntro: !!f.introduced_product,
-        interestedDetails: f.customer_details || "" };
-    }
-    if (f.interest === "not_interested") {
-      return { ...s3, callInterest: "not_interested",
-        callReason: f.not_interested_reason || "",
-        callSubReason: f.reason_details || "",
-        qualityFollowUpDate: f.quality_followup_date || "" };
-    }
-    return s3;
-  }
-  return s2;
 }
 
 
@@ -301,8 +270,6 @@ export default function CallingList() {
     setOutcome("");
     dispatchWizard({ type: "RESET" });
   };
-
-  const aiLogger = useCallLogger("auto");
 
   // Estimation Calculator Dialog
   const [calcOpen, setCalcOpen] = useState(false);
@@ -673,7 +640,6 @@ export default function CallingList() {
       setOutcome("");
       dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
-      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -693,7 +659,6 @@ export default function CallingList() {
       setOutcome("");
       dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
-      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -708,7 +673,6 @@ export default function CallingList() {
       setOutcome("");
       dispatchWizard({ type: "RESET" });
       setDialogOpen(true);
-      if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
     }, 400);
   };
 
@@ -881,7 +845,6 @@ export default function CallingList() {
     setOutcome("");
     dispatchWizard({ type: "RESET" });
     setQcDialogOpen(true);
-    if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.startRecording();
   };
 
   // Take Order Dialog
@@ -1976,14 +1939,6 @@ export default function CallingList() {
               );
             })()}
           </Box>
-          {FEATURE_FLAGS.CALL_LOGGER_BETA && aiLogger.isRecording && (
-            <Chip 
-              size="small" 
-              label="Recording" 
-              icon={<Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', ml: 1, mr: -0.5 }} />} 
-              sx={{ height: 24, bgcolor: alpha('#ef4444', 0.1), color: '#ef4444', fontWeight: 600, border: `1px solid ${alpha('#ef4444', 0.2)}` }} 
-            />
-          )}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
 
@@ -2116,7 +2071,7 @@ export default function CallingList() {
                         label={<Typography variant="body2">Introduced F.S. Calcival</Typography>}
                         sx={{ mb: 1 }}
                       />
-                      <TextField
+                      <VoiceTextField
                         label="Collect customer details"
                         size="small"
                         multiline
@@ -2124,6 +2079,7 @@ export default function CallingList() {
                         fullWidth
                         value={interestedDetails}
                         onChange={e => setInterestedDetails(e.target.value)}
+                        placeholder="Customer details or speak (Alt+V / mic)..."
                         sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 }, mb: 2 }}
                       />
                       <TelecallerQuestionnaire
@@ -2155,7 +2111,7 @@ export default function CallingList() {
                       </FormControl>
 
                       {["Expensive", "Trust Issue", "Using Other Brand", "Other"].includes(callReason) && (
-                        <TextField
+                        <VoiceTextField
                           label={
                             callReason === "Using Other Brand" ? "Brand name & result?" :
                             callReason === "Expensive" ? "YES / NO" :
@@ -2166,7 +2122,7 @@ export default function CallingList() {
                           fullWidth
                           value={callSubReason}
                           onChange={e => setCallSubReason(e.target.value)}
-                          placeholder="Details..."
+                          placeholder="Details or speak (Alt+V / mic)..."
                           sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: surface } }}
                         />
                       )}
@@ -2315,30 +2271,14 @@ export default function CallingList() {
             </Box>
           )}
 
-          {/* AI Logger Transcript Panel */}
-          {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && (
-            <Box sx={{ mb: 3, p: 2, borderRadius: 2, bgcolor: isDark ? "rgba(255,255,255,0.02)" : "#f8fafc", border: `1px solid ${border}` }}>
-              <Stack direction="row" alignItems="center" gap={1} mb={1}>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>LIVE TRANSCRIPT</Typography>
-                {aiLogger.isAnalyzing && <CircularProgress size={12} />}
-              </Stack>
-              <Typography variant="body2" sx={{ color: "text.secondary", minHeight: 40, fontStyle: !aiLogger.liveTranscript ? "italic" : "normal" }}>
-                {aiLogger.liveTranscript || "Listening..."}
-              </Typography>
-              {aiLogger.error && (
-                <Typography variant="caption" color="error.main" display="block" mt={1}>{aiLogger.error}</Typography>
-              )}
-            </Box>
-          )}
-
-          <TextField
+          <VoiceTextField
             label="Notes (optional)"
             multiline
             rows={3}
             fullWidth
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            placeholder="Write call notes here..."
+            placeholder="Write call notes or speak (Press Alt+V or click mic)..."
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
           
@@ -2364,8 +2304,7 @@ export default function CallingList() {
               setOrderCallItem(null); 
               setCallbackCallItem(null); 
               resetWizard(); 
-              if (FEATURE_FLAGS.CALL_LOGGER_BETA) aiLogger.cancelRecording();
-            }} disabled={submitting || aiLogger.isAnalyzing} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
+            }} disabled={submitting} sx={{ borderRadius: 2, textTransform: "none" }}>Cancel</Button>
           </Stack>
           
           <Stack direction="row" spacing={1}>
@@ -2383,25 +2322,6 @@ export default function CallingList() {
               >
                 Take Order
               </Button>
-            
-            {FEATURE_FLAGS.CALL_LOGGER_BETA && (aiLogger.isRecording || aiLogger.liveTranscript) && !aiLogger.hasAnalyzed && (
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={async () => {
-                  aiLogger.stopRecording();
-                  const fields = await aiLogger.analyze();
-                  if (fields) {
-                    dispatchWizard({ type: "APPLY_AI_FIELDS", fields });
-                  }
-                }}
-                disabled={submitting || aiLogger.isAnalyzing}
-                startIcon={aiLogger.isAnalyzing ? <CircularProgress size={14} color="inherit" /> : <Box component="span" sx={{ fontSize: 16 }}>✨</Box>}
-                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
-              >
-                Stop & Auto-Fill
-              </Button>
-            )}
 
             <Button
               variant="contained"
@@ -2602,13 +2522,14 @@ export default function CallingList() {
               InputLabelProps={{ shrink: true }}
               sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
             />
-            <TextField
+            <VoiceTextField
               label="Notes (optional)"
               multiline
               rows={2}
               fullWidth
               value={orderNotes}
               onChange={(e) => setOrderNotes(e.target.value)}
+              placeholder="Any specific delivery instructions, notes or speak (Alt+V / mic)..."
               sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
             />
           </Stack>
