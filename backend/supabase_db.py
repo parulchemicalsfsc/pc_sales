@@ -236,6 +236,40 @@ class SupabaseTable:
 
         return SupabaseResponse(response.json(), count=count)
 
+    def execute_all(self, batch_size: int = 1000) -> "SupabaseResponse":
+        """Fetch all matching records in batches of `batch_size` (<= 1000)
+        to overcome Supabase / PostgREST default 1,000-row limit.
+        Preserves all query filters, selects, and conditions.
+        """
+        all_data = []
+        offset = self._offset or 0
+        original_limit = self._limit
+        original_offset = self._offset
+        count = None
+
+        try:
+            while True:
+                self._offset = offset
+                self._limit = batch_size
+                res = self.execute()
+                data = res.data or []
+                if count is None and res.count is not None:
+                    count = res.count
+                if not data:
+                    break
+                all_data.extend(data)
+                if len(data) < batch_size:
+                    break
+                offset += batch_size
+                if original_limit and len(all_data) >= original_limit:
+                    all_data = all_data[:original_limit]
+                    break
+        finally:
+            self._offset = original_offset
+            self._limit = original_limit
+
+        return SupabaseResponse(all_data, count=count if count is not None else len(all_data))
+
     def insert(
         self, data: Union[Dict[str, Any], List[Dict[str, Any]]], upsert: bool = False, on_conflict: Optional[str] = None
     ):

@@ -775,7 +775,7 @@ export const automationAPI = {
     const response = await apiClient.post("/api/automation/start-call-timer", { assignment_id: assignmentId });
     return response.data;
   },
-  updateCallStatus: async (assignmentId: number, outcome: string, notes?: string, callbackDate?: string) => {
+  updateCallStatus: async (assignmentId: number, outcome: string, notes?: string, callbackDate?: string, surveyData?: any) => {
     const payload: any = {
       assignment_id: assignmentId,
       call_outcome: outcome,
@@ -784,10 +784,13 @@ export const automationAPI = {
     if (callbackDate) {
       payload.callback_date = callbackDate;
     }
+    if (surveyData) {
+      payload.survey_data = surveyData;
+    }
     const response = await apiClient.post("/api/automation/update-call-status", payload);
     return response.data;
   },
-  logAdhocCall: async (payload: { entity_id: number; entity_type: string; call_outcome: string; notes?: string; callback_date?: string }) => {
+  logAdhocCall: async (payload: { entity_id: number; entity_type: string; call_outcome: string; notes?: string; callback_date?: string; survey_data?: any }) => {
     const response = await apiClient.post("/api/automation/log-adhoc-call", payload);
     return response.data;
   },
@@ -1277,6 +1280,14 @@ export const telecallerOrderAPI = {
     });
     return response;
   },
+  exportSelectedOrders: async (orderIds: number[]) => {
+    const response = await apiClient.post("/api/telecaller-orders/export-selected", {
+      order_ids: orderIds,
+    }, {
+      responseType: 'blob',
+    });
+    return response;
+  },
 };
 
 /**
@@ -1341,6 +1352,31 @@ export const callLoggerAPI = {
   },
   analyzeTranscript: async (transcript: string) => {
     const response = await apiClient.post("/api/call-logger/analyze", { transcript });
+    return response.data;
+  },
+};
+
+// Tally Integration API
+export const tallyAPI = {
+  getVouchers: async (params?: {
+    page?: number;
+    page_size?: number;
+    voucher_type?: string;
+    customer?: string;
+    company?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+  }) => {
+    const response = await apiClient.get("/api/tally/vouchers", { params });
+    return response.data;
+  },
+  getStats: async (params?: { company?: string }) => {
+    const response = await apiClient.get("/api/tally/stats", { params });
+    return response.data;
+  },
+  getFilterOptions: async (params?: { company?: string }) => {
+    const response = await apiClient.get("/api/tally/filter-options", { params });
     return response.data;
   },
 };

@@ -55,6 +55,7 @@ from routers import (
     call_logger,
     field_officers,
     recruitment,
+    tally_data,
 )
 from scheduler import start_scheduler
 
@@ -188,3 +189,4 @@ app.include_router(telecaller_orders, prefix="/api/telecaller-orders")
 app.include_router(call_logger, prefix="/api/call-logger")
 app.include_router(recruitment, prefix="/api/recruitment")
 
+app.include_router(tally_data.router, prefix="/api/tally")

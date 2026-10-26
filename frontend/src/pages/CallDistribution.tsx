@@ -113,13 +113,13 @@ export default function CallDistribution() {
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  // Bulk state
-  const [bulkEmail, setBulkEmail] = useState("");
-  const [bulkPriority, setBulkPriority] = useState("Medium");
-  const [bulkCount, setBulkCount] = useState(1);
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [availableCounts, setAvailableCounts] = useState<{ High: number; Medium: number; Low: number; Any?: number }>({ High: 0, Medium: 0, Low: 0 });
-  const [countsLoading, setCountsLoading] = useState(false);
+  // [BULK ASSIGN REMOVED FROM UI — backend retained]
+  // const [bulkEmail, setBulkEmail] = useState("");
+  // const [bulkPriority, setBulkPriority] = useState("Medium");
+  // const [bulkCount, setBulkCount] = useState(1);
+  // const [bulkLoading, setBulkLoading] = useState(false);
+  // const [availableCounts, setAvailableCounts] = useState<{ High: number; Medium: number; Low: number; Any?: number }>({ High: 0, Medium: 0, Low: 0 });
+  // const [countsLoading, setCountsLoading] = useState(false);
 
   // Pagination for individual reassign
   const [reassignPage, setReassignPage] = useState(0);
@@ -277,32 +277,10 @@ export default function CallDistribution() {
     }
   };
 
-  const effectiveBulkPriority = viewFilter === "telecaller" ? "Any" : bulkPriority;
+  // const effectiveBulkPriority = viewFilter === "telecaller" ? "Any" : bulkPriority;
 
-  const handleBulk = async () => {
-    const maxAvail = availableCounts[effectiveBulkPriority as keyof typeof availableCounts] || 0;
-    const effectiveCount = Math.min(bulkCount, maxAvail);
-    if (effectiveCount < 1) {
-      setToast({ msg: `No ${effectiveBulkPriority === "Any" ? "" : effectiveBulkPriority} calls available to assign`, sev: "error" });
-      return;
-    }
-    try {
-      setBulkLoading(true);
-      const res = await automationAPI.bulkReassign(bulkEmail, effectiveBulkPriority, effectiveCount);
-      setToast({ msg: res.message || "Assigned!", sev: "success" });
-      loadData();
-      // Refresh available counts after assignment
-      if (bulkEmail) {
-        const counts = await automationAPI.getAvailableCounts(bulkEmail).catch(() => ({ High: 0, Medium: 0, Low: 0, Any: 0 }));
-        setAvailableCounts(counts);
-        setBulkCount(Math.min(bulkCount, counts[effectiveBulkPriority as keyof typeof counts] || 0) || 1);
-      }
-    } catch (e: any) {
-      setToast({ msg: e?.response?.data?.detail || "Bulk assign failed", sev: "error" });
-    } finally {
-      setBulkLoading(false);
-    }
-  };
+  // [BULK ASSIGN HANDLER REMOVED FROM UI — backend retained]
+  // const handleBulk = async () => { ... };
 
   const handleTransfer = async () => {
     if (transferFrom === transferTo) {
@@ -344,38 +322,10 @@ export default function CallDistribution() {
   }, [adminData, viewFilter, smSummary]);
 
 
-  // Fetch available counts whenever bulkEmail changes
-  useEffect(() => {
-    if (!bulkEmail) {
-      setAvailableCounts({ High: 0, Medium: 0, Low: 0, Any: 0 });
-      return;
-    }
-    let cancelled = false;
-    setCountsLoading(true);
-    automationAPI.getAvailableCounts(bulkEmail)
-      .then((counts) => {
-        if (!cancelled) {
-          setAvailableCounts(counts);
-          // Clamp current bulkCount to max available for current priority
-          const effPri = viewFilter === "telecaller" ? "Any" : bulkPriority;
-          const max = counts[effPri as keyof typeof counts] || 0;
-          setBulkCount(prev => max > 0 ? Math.min(prev, max) : 1);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAvailableCounts({ High: 0, Medium: 0, Low: 0, Any: 0 });
-      })
-      .finally(() => { if (!cancelled) setCountsLoading(false); });
-    return () => { cancelled = true; };
-  }, [bulkEmail]);
+  // [BULK ASSIGN useEffect removed — backend retained]
 
-  // Current max for the selected priority
-  const maxCount = availableCounts[effectiveBulkPriority as keyof typeof availableCounts] || 0;
-
-  // Active dropdown list depending on view
-  const activeBulkList = viewFilter === "telecaller" ? tcTelecallers
-    : viewFilter === "sales_manager" ? smTelecallers
-    : telecallers;
+  // Active dropdown list for Transfer (still needed)
+  // const activeBulkList = ...; // removed with bulk assign
 
   const activeTransferList = viewFilter === "telecaller" ? tcTelecallers
     : viewFilter === "sales_manager" ? smTelecallers
@@ -912,84 +862,7 @@ export default function CallDistribution() {
             </Box>
           )}
 
-          <Divider sx={{ my: 4 }} />
-
-          {/* ── Bulk Assign ── */}
-          <Paper
-            elevation={0}
-            sx={{
-              p: 2.5,
-              mb: 3,
-              borderRadius: 3,
-              border: `1px solid ${theme.palette.divider}`,
-            }}
-          >
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary", mb: 2, textTransform: "uppercase", letterSpacing: 0.5, fontSize: "0.7rem" }}>
-              {viewFilter === "sales_manager" ? "Bulk Assign by Priority (Sales Managers)" : viewFilter === "telecaller" ? "Bulk Assign (Telecallers)" : "Bulk Assign by Priority"}
-            </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
-              <FormControl size="small" sx={{ minWidth: 180 }}>
-                <InputLabel>
-                  {viewFilter === "sales_manager" ? "Sales Manager" : t("callDistribution.telecaller", "Telecaller")}
-                </InputLabel>
-                <Select
-                  label={viewFilter === "sales_manager" ? "Sales Manager" : t("callDistribution.telecaller", "Telecaller")}
-                  value={bulkEmail}
-                  onChange={e => { setBulkEmail(e.target.value as string); }}
-                  sx={{ borderRadius: 2 }}
-                >
-                  {activeBulkList.map(t => (
-                    <MenuItem key={t.email} value={t.email}>{t.name || t.email.split("@")[0]}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {viewFilter !== "telecaller" && (
-                <FormControl size="small" sx={{ minWidth: 130 }}>
-                  <InputLabel>{t("callDistribution.priority", "Priority")}</InputLabel>
-                  <Select
-                    label="Priority"
-                    value={bulkPriority}
-                    onChange={e => {
-                      const newPriority = e.target.value as string;
-                      setBulkPriority(newPriority);
-                    }}
-                    sx={{ borderRadius: 2 }}
-                  >
-                    <MenuItem value="High">🔴 High</MenuItem>
-                    <MenuItem value="Medium">🟡 Medium</MenuItem>
-                    <MenuItem value="Low">🟢 Low</MenuItem>
-                  </Select>
-                </FormControl>
-              )}
-              {(() => {
-                return (
-                  <TextField
-                    size="small"
-                    type="number"
-                    label={maxCount > 0 ? `Count (max: ${maxCount})` : "Count"}
-                    value={bulkCount}
-                    onChange={e => {
-                      const val = Math.max(1, parseInt(e.target.value) || 1);
-                      setBulkCount(maxCount > 0 ? Math.min(val, maxCount) : val);
-                    }}
-                    sx={{ width: 160, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-                    inputProps={{ min: 1, max: maxCount > 0 ? maxCount : undefined }}
-                    disabled={maxCount === 0 && !countsLoading}
-                    helperText={countsLoading ? "Loading availability..." : (maxCount === 0 && bulkEmail ? `No ${effectiveBulkPriority === "Any" ? "" : effectiveBulkPriority} calls available` : "")}
-                  />
-                );
-              })()}
-              <Button
-                variant="contained"
-                disabled={!bulkEmail || bulkLoading || (maxCount === 0 && !countsLoading)}
-                startIcon={bulkLoading ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
-                onClick={handleBulk}
-                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, px: 3 }}
-              >
-                {t("callDistribution.assign", "Assign")}
-              </Button>
-            </Stack>
-          </Paper>
+          {/* Bulk Assign section removed from UI — backend functionality retained */}
 
           {/* ── Transfer Pending Calls (Half-Day) ── */}
           <Paper
@@ -1312,7 +1185,7 @@ export default function CallDistribution() {
               { title: "Distribute Now", desc: "Click \"Distribute Now\" to assign today's uncalled Sabhasads to all active telecallers. Do this once at the start of the day. It auto-runs at 10 AM if not done manually." },
               { title: "Re-distribute", desc: "Use \"Re-distribute\" to reshuffles all remaining pending calls across telecallers. This is useful if workloads become uneven mid-day." },
               { title: "Telecaller Cards", desc: "Each card shows progress: total assigned, calls done, completion %, and order conversions. Click a card to see the full performance profile." },
-              { title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
+              // { title: "Bulk Assign", desc: "Manually send a batch of calls (by priority level) to a specific telecaller using the Bulk Assign section." },
               { title: "Transfer Pending Calls", desc: "If a telecaller is on half-day or absent, use Transfer to move all their pending calls to another available telecaller instantly." },
               { title: "Individual Reassign", desc: "Scroll to the Reassign table to move any specific pending contact to a different telecaller using the Move To dropdown." },
               { title: "10 AM Countdown", desc: "The progress bar shows time remaining until 10 AM auto-distribution. Manual distribution before 10 AM prevents the auto-run." },

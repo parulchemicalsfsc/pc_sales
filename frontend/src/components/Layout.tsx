@@ -40,6 +40,7 @@ import {
   Group as GroupIcon,
   Assessment as AssessmentIcon,
   CloudUpload as CloudUploadIcon,
+  ReceiptLong as ReceiptLongIcon,
   PhoneInTalk as PhoneInTalkIcon,
   LocalShipping as LocalShippingIcon,
   Brightness4,
@@ -254,6 +255,13 @@ const navigationItems: NavItem[] = [
     icon: <CloudUploadIcon />,
     path: "/import",
     permission: PERMISSIONS.IMPORT_DATA,
+  },
+  {
+    id: "tally-data",
+    labelKey: "nav.tallyData",
+    icon: <ReceiptLongIcon />,
+    path: "/tally-data",
+    permission: PERMISSIONS.VIEW_TALLY_DATA,
   },
   {
     id: "lead-dashboard",

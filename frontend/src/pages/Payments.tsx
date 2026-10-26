@@ -156,10 +156,11 @@ export default function Payments() {
     if (pendingPayment) {
       console.log("Sale ID:", pendingPayment.sale_id);
       console.log("Pending Amount:", pendingPayment.pending_amount);
+      const isRefund = !!(pendingPayment as any)._isRefundDue;
       setFormData({
         sale_id: pendingPayment.sale_id,
         payment_date: new Date().toISOString().split("T")[0],
-        payment_method: "Cash",
+        payment_method: isRefund ? "Refund Paid" : "Cash",
         amount: pendingPayment.pending_amount,
         rrn: "",
         reference: "",
@@ -177,6 +178,23 @@ export default function Payments() {
       });
     }
     setOpenDialog(true);
+  };
+
+  const handleSaleChange = (selectedSaleId: number) => {
+    const isRefund = refundDueSales.some((r: any) => r.sale_id === selectedSaleId);
+    const refundSale = refundDueSales.find((r: any) => r.sale_id === selectedSaleId);
+    const pendingSale = pendingPayments.find((p: any) => p.sale_id === selectedSaleId);
+    const target = refundSale || pendingSale;
+    const autoAmount = target ? (target.refund_amount ?? target.pending_amount ?? 0) : 0;
+
+    setFormData((prev) => ({
+      ...prev,
+      sale_id: selectedSaleId,
+      amount: autoAmount,
+      payment_method: isRefund
+        ? (prev.payment_method.toLowerCase().includes("refund") ? prev.payment_method : "Refund Paid")
+        : (prev.payment_method.toLowerCase().includes("refund") ? "Cash" : prev.payment_method),
+    }));
   };
 
   const handleCloseDialog = () => {
@@ -280,7 +298,7 @@ export default function Payments() {
       headerName: t("payments.method"),
       width: 140,
       renderCell: (params) => {
-        const isRefund = (params.value || "").toLowerCase() === "refund paid";
+        const isRefund = (params.value || "").toLowerCase().includes("refund");
         return (
           <Chip
             label={params.value}
@@ -297,7 +315,7 @@ export default function Payments() {
       headerName: t("fields.amount", "Amount"),
       width: 130,
       renderCell: (params) => {
-        const isRefund = ((params.row as any).payment_method || "").toLowerCase() === "refund paid";
+        const isRefund = ((params.row as any).payment_method || "").toLowerCase().includes("refund");
         return (
           <Typography variant="body2" fontWeight={600} color={isRefund ? "error.main" : "success.main"}>
             {isRefund ? "-" : "+"}₹{params.value?.toLocaleString()}
@@ -588,7 +606,7 @@ export default function Payments() {
                   {payments
                     .reduce((sum, p) => {
                       const amt = p.amount || 0;
-                      return (p.payment_method || "").toLowerCase() === "refund paid"
+                      return (p.payment_method || "").toLowerCase().includes("refund")
                         ? sum - amt   // money OUT — reduces net collected
                         : sum + amt;
                     }, 0)
@@ -729,174 +747,198 @@ export default function Payments() {
           fullWidth
           fullScreen={isMobile}
         >
-          <DialogTitle>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <ReceiptIcon />
-              {t("payments.recordPayment", "Record Payment")}
-            </Box>
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  select
-                  label={t("payments.selectInvoice", "Select Sale/Invoice *")}
-                  value={formData.sale_id}
-                  onChange={(e) =>
-                    setFormData({ ...formData, sale_id: Number(e.target.value) })
-                  }
-                >
-                  <MenuItem value={0}>
-                    {t("payments.selectInvoice", "Select Invoice")}
-                  </MenuItem>
-                  {/* Refund-due sales shown first with a label */}
-                  {refundDueSales.map((sale) => (
-                    <MenuItem key={`refund-${sale.sale_id}`} value={sale.sale_id}>
-                      {sale.invoice_no} - {sale.customer_name} (Refund: ₹{Number(sale.refund_amount ?? sale.pending_amount).toLocaleString()})
-                    </MenuItem>
-                  ))}
-                  {pendingPayments.map((sale) => (
-                    <MenuItem key={sale.sale_id} value={sale.sale_id}>
-                      {sale.invoice_no} - {sale.customer_name} (₹
-                      {sale.pending_amount.toLocaleString()}{" "}
-                      {t("dashboard.pending")})
-                    </MenuItem>
-                  ))}
-                </TextField>
+          {(() => {
+            const isCurrentRefund =
+              refundDueSales.some((r: any) => r.sale_id === formData.sale_id) ||
+              formData.payment_method.toLowerCase().includes("refund");
 
-                {/* Purchase Summary Box */}
-                {formData.sale_id > 0 && (() => {
-                  const selectedSale = pendingPayments.find(p => p.sale_id === formData.sale_id)
-                    || refundDueSales.find((r: any) => r.sale_id === formData.sale_id);
-                  if (selectedSale) {
-                    return (
-                      <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: 'background.default' }}>
-                        <Typography variant="subtitle2" gutterBottom>Purchase Summary</Typography>
-                        {selectedSale.items_summary && (
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
-                            Items: {selectedSale.items_summary}
-                          </Typography>
-                        )}
-                        <Grid container spacing={2}>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Total Amount</Typography>
-                            <Typography variant="body1" fontWeight="bold">₹{selectedSale.total_amount.toLocaleString()}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Paid Amount</Typography>
-                            <Typography variant="body1" color="success.main">₹{selectedSale.paid_amount.toLocaleString()}</Typography>
-                          </Grid>
-                          <Grid item xs={4}>
-                            <Typography variant="caption" color="text.secondary">Pending</Typography>
-                            <Typography variant="body1" color="error.main">₹{selectedSale.pending_amount.toLocaleString()}</Typography>
-                          </Grid>
-                        </Grid>
-                      </Paper>
-                    );
-                  }
-                  return null;
-                })()}
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  type="date"
-                  label={t("payments.date", "Payment Date")}
-                  value={formData.payment_date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, payment_date: e.target.value })
-                  }
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  select
-                  label={t("payments.method")}
-                  value={formData.payment_method}
-                  onChange={(e) =>
-                    setFormData({ ...formData, payment_method: e.target.value })
-                  }
-                >
-                  <MenuItem value="Cash">
-                    {t("payments.methodCash", "Cash")}
-                  </MenuItem>
-                  <MenuItem value="UPI">
-                    {t("payments.methodUpi", "UPI")}
-                  </MenuItem>
-                  <MenuItem value="Bank Transfer">
-                    {t("payments.methodBank", "Bank Transfer")}
-                  </MenuItem>
-                  <MenuItem value="Cheque">
-                    {t("payments.methodCheque", "Cheque")}
-                  </MenuItem>
-                  <MenuItem value="Card">
-                    {t("payments.methodCard", "Card")}
-                  </MenuItem>
-                  <MenuItem value="Refund Paid" sx={{ color: "info.main", fontWeight: 600 }}>
-                    Refund Paid to Customer
-                  </MenuItem>
-                </TextField>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  type="number"
-                  label={`${tf("amount")} *`}
-                  value={formData.amount}
-                  onChange={(e) =>
-                    setFormData({ ...formData, amount: Number(e.target.value) })
-                  }
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">₹</InputAdornment>
-                    ),
-                  }}
-                  inputProps={{ min: 0, step: 0.01 }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label={t("payments.rrn", "RRN / Transaction ID")}
-                  value={formData.rrn}
-                  onChange={(e) =>
-                    setFormData({ ...formData, rrn: e.target.value })
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label={t("payments.reference", "Reference")}
-                  value={formData.reference}
-                  onChange={(e) =>
-                    setFormData({ ...formData, reference: e.target.value })
-                  }
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  multiline
-                  rows={3}
-                  label={tf("notes")}
-                  value={formData.notes}
-                  onChange={(e) =>
-                    setFormData({ ...formData, notes: e.target.value })
-                  }
-                />
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
-            <Button onClick={handleSubmit} variant="contained" disabled={submitting} startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}>
-              {submitting ? "Processing..." : t("payments.recordPayment", "Record Payment")}
-            </Button>
-          </DialogActions>
+            return (
+              <>
+                <DialogTitle>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <ReceiptIcon color={isCurrentRefund ? "secondary" : "primary"} />
+                    <Typography variant="h6" fontWeight={700}>
+                      {isCurrentRefund ? "Record Refund to Customer" : t("payments.recordPayment", "Record Payment")}
+                    </Typography>
+                    {isCurrentRefund && (
+                      <Chip label="Refund Due" color="secondary" size="small" sx={{ ml: 1, fontWeight: 600 }} />
+                    )}
+                  </Box>
+                </DialogTitle>
+                <DialogContent>
+                  {isCurrentRefund && (
+                    <Alert severity="info" sx={{ mt: 1, mb: 2 }}>
+                      This transaction will record money paid <strong>OUT</strong> to the customer, settling the refund balance owed.
+                    </Alert>
+                  )}
+                  <Grid container spacing={2} sx={{ mt: isCurrentRefund ? 0 : 1 }}>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        select
+                        label={t("payments.selectInvoice", "Select Sale/Invoice *")}
+                        value={formData.sale_id}
+                        onChange={(e) => handleSaleChange(Number(e.target.value))}
+                      >
+                        <MenuItem value={0}>
+                          {t("payments.selectInvoice", "Select Invoice")}
+                        </MenuItem>
+                        {/* Refund-due sales shown first with a label */}
+                        {refundDueSales.map((sale) => (
+                          <MenuItem key={`refund-${sale.sale_id}`} value={sale.sale_id}>
+                            {sale.invoice_no} - {sale.customer_name} (Refund: ₹{Number(sale.refund_amount ?? sale.pending_amount).toLocaleString()})
+                          </MenuItem>
+                        ))}
+                        {pendingPayments.map((sale) => (
+                          <MenuItem key={sale.sale_id} value={sale.sale_id}>
+                            {sale.invoice_no} - {sale.customer_name} (₹
+                            {sale.pending_amount.toLocaleString()}{" "}
+                            {t("dashboard.pending")})
+                          </MenuItem>
+                        ))}
+                      </TextField>
+
+                      {/* Purchase Summary Box */}
+                      {formData.sale_id > 0 && (() => {
+                        const selectedSale = pendingPayments.find(p => p.sale_id === formData.sale_id)
+                          || refundDueSales.find((r: any) => r.sale_id === formData.sale_id);
+                        if (selectedSale) {
+                          const isRef = !!(selectedSale as any)._isRefundDue || refundDueSales.some((r: any) => r.sale_id === formData.sale_id);
+                          return (
+                            <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: isRef ? 'secondary.50' : 'background.default', borderColor: isRef ? 'secondary.light' : 'divider' }}>
+                              <Typography variant="subtitle2" gutterBottom fontWeight={600} color={isRef ? 'secondary.main' : 'text.primary'}>
+                                {isRef ? "Refund Summary" : "Purchase Summary"}
+                              </Typography>
+                              {selectedSale.items_summary && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic' }}>
+                                  Items: {selectedSale.items_summary}
+                                </Typography>
+                              )}
+                              <Grid container spacing={2}>
+                                <Grid item xs={4}>
+                                  <Typography variant="caption" color="text.secondary">Total Amount</Typography>
+                                  <Typography variant="body1" fontWeight="bold">₹{selectedSale.total_amount?.toLocaleString()}</Typography>
+                                </Grid>
+                                <Grid item xs={4}>
+                                  <Typography variant="caption" color="text.secondary">Net Paid</Typography>
+                                  <Typography variant="body1" color="success.main">₹{selectedSale.paid_amount?.toLocaleString()}</Typography>
+                                </Grid>
+                                <Grid item xs={4}>
+                                  <Typography variant="caption" color="text.secondary">{isRef ? "Refund Due" : "Pending"}</Typography>
+                                  <Typography variant="body1" color={isRef ? "secondary.main" : "error.main"} fontWeight={700}>
+                                    ₹{(selectedSale.refund_amount ?? selectedSale.pending_amount)?.toLocaleString()}
+                                  </Typography>
+                                </Grid>
+                              </Grid>
+                            </Paper>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        type="date"
+                        label={isCurrentRefund ? "Refund Date" : t("payments.date", "Payment Date")}
+                        value={formData.payment_date}
+                        onChange={(e) =>
+                          setFormData({ ...formData, payment_date: e.target.value })
+                        }
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        select
+                        label={isCurrentRefund ? "Refund Method" : t("payments.method")}
+                        value={formData.payment_method}
+                        onChange={(e) =>
+                          setFormData({ ...formData, payment_method: e.target.value })
+                        }
+                      >
+                        {isCurrentRefund ? [
+                          <MenuItem key="refund-cash" value="Refund Paid">Refund Paid (Cash / General)</MenuItem>,
+                          <MenuItem key="refund-bank" value="Refund Paid (Bank Transfer)">Refund Paid (Bank Transfer)</MenuItem>,
+                          <MenuItem key="refund-upi" value="Refund Paid (UPI)">Refund Paid (UPI)</MenuItem>,
+                          <MenuItem key="refund-cheque" value="Refund Paid (Cheque)">Refund Paid (Cheque)</MenuItem>,
+                        ] : [
+                          <MenuItem key="cash" value="Cash">{t("payments.methodCash", "Cash")}</MenuItem>,
+                          <MenuItem key="upi" value="UPI">{t("payments.methodUpi", "UPI")}</MenuItem>,
+                          <MenuItem key="bank" value="Bank Transfer">{t("payments.methodBank", "Bank Transfer")}</MenuItem>,
+                          <MenuItem key="cheque" value="Cheque">{t("payments.methodCheque", "Cheque")}</MenuItem>,
+                          <MenuItem key="card" value="Card">{t("payments.methodCard", "Card")}</MenuItem>,
+                          <MenuItem key="refund" value="Refund Paid" sx={{ color: "info.main", fontWeight: 600 }}>Refund Paid to Customer</MenuItem>,
+                        ]}
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label={isCurrentRefund ? "Refund Amount *" : `${tf("amount")} *`}
+                        value={formData.amount}
+                        onChange={(e) =>
+                          setFormData({ ...formData, amount: Number(e.target.value) })
+                        }
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">₹</InputAdornment>
+                          ),
+                        }}
+                        inputProps={{ min: 0, step: 0.01 }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        label={t("payments.rrn", "RRN / Transaction ID")}
+                        value={formData.rrn}
+                        onChange={(e) =>
+                          setFormData({ ...formData, rrn: e.target.value })
+                        }
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        label={t("payments.reference", "Reference")}
+                        value={formData.reference}
+                        onChange={(e) =>
+                          setFormData({ ...formData, reference: e.target.value })
+                        }
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        multiline
+                        rows={3}
+                        label={tf("notes")}
+                        value={formData.notes}
+                        onChange={(e) =>
+                          setFormData({ ...formData, notes: e.target.value })
+                        }
+                      />
+                    </Grid>
+                  </Grid>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={handleCloseDialog} disabled={submitting}>{t("common.cancel")}</Button>
+                  <Button
+                    onClick={handleSubmit}
+                    variant="contained"
+                    color={isCurrentRefund ? "secondary" : "primary"}
+                    disabled={submitting}
+                    startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+                  >
+                    {submitting ? "Processing..." : isCurrentRefund ? "Record Refund" : t("payments.recordPayment", "Record Payment")}
+                  </Button>
+                </DialogActions>
+              </>
+            );
+          })()}
         </Dialog>
       </Box>
     </PermissionGate>

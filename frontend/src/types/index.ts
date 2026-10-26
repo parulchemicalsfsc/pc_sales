@@ -621,3 +621,37 @@ export interface TelecallerOrderCreate {
   products: TelecallerOrderItem[];
   notes?: string;
 }
+
+// Tally Integration Types
+export interface TallyVoucher {
+  id: number;
+  voucher_id: string;
+  voucher_no?: string;
+  voucher_type?: string;
+  date?: string;
+  customer_name?: string;
+  particulars?: string;
+  debit: number;
+  credit: number;
+  narration?: string;
+  items_summary?: string;
+  extra_fields?: Record<string, any>;
+  is_deleted?: boolean;
+  synced_at?: string;
+  deleted_at?: string;
+  connector_version?: string;
+  company_name?: string;
+  alter_id?: string;
+}
+
+export interface TallyStats {
+  total_active: number;
+  total_deleted: number;
+  last_synced_at?: string | null;
+}
+
+export interface TallyFilterOptions {
+  voucher_types: string[];
+  customers: string[];
+  companies?: string[];
+}

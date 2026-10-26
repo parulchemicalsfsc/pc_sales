@@ -42,6 +42,7 @@ import LeadPipeline from "./pages/LeadPipeline";
 import LeadWorkspace from "./pages/LeadWorkspace";
 import LeadHistory from "./pages/LeadHistory";
 import Reviews from "./pages/Reviews";
+import TallyData from "./pages/TallyData";
 import RecruitmentWorkspace from "./pages/RecruitmentWorkspace";
 import { createAppTheme } from "./theme/theme";
 import { PERMISSIONS } from "./config/permissions";
@@ -210,6 +211,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.IMPORT_DATA}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <DataImport />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/tally-data"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_TALLY_DATA}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <TallyData />
                       </Layout>
                     </ProtectedRoute>
                   }

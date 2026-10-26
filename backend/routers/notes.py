@@ -264,9 +264,13 @@ def create_note(
             ]
             auto_pickup_text = ", ".join(pickup_desc_parts)
 
-            note_data["requires_pickup"] = True
-            note_data["pickup_items"] = auto_pickup_text
-            note_data["pickup_status"] = "pending_pickup"
+            note_data["requires_pickup"] = bool(note.requires_pickup)
+            if note.requires_pickup:
+                note_data["pickup_items"] = note.pickup_items if note.pickup_items else auto_pickup_text
+                note_data["pickup_status"] = "pending_pickup"
+            else:
+                note_data["pickup_items"] = None
+                note_data["pickup_status"] = None
             note_data["return_items"] = note.return_items  # Snapshot with sale-time rates
 
 
@@ -355,6 +359,20 @@ def create_note(
         if created_debit_sale:
             response_body["debit_sale"] = created_debit_sale
             response_body["message"] += f". A new sale (Invoice: {created_debit_sale.get('invoice_no')}) and payment have been automatically recorded."
+
+        # Log activity
+        if user_email:
+            try:
+                activity_logger = get_activity_logger(db)
+                activity_logger.log_create(
+                    user_email=user_email,
+                    entity_type="note",
+                    entity_name=f"{note.note_type.upper()} Note for Sale {note.sale_id} — ₹{note.amount}",
+                    entity_id=created_note.get("note_id"),
+                    metadata={"note_type": note.note_type, "amount": float(note.amount), "sale_id": note.sale_id},
+                )
+            except Exception:
+                pass  # Don't fail the request if logging fails
 
         return response_body
 
