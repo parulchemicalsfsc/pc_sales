@@ -29,11 +29,8 @@
     "leadPipeline": "Lead Pipeline",
     "leadWorkspace": "Lead Workspace",
     "leadHistory": "મારા બધા લીડ્સ",
-<<<<<<< HEAD
-    "recruitment": "ભરતી (Recruitment)"
-=======
+    "recruitment": "ભરતી (Recruitment)",
     "tallyData": "ટેલી ડેટા"
->>>>>>> origin/main
   },
   "common": {
     "add": "ઉમેરો",

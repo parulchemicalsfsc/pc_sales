@@ -29,11 +29,8 @@
     "leadHistory": "All My Leads",
     "reviews": "Reviews",
     "demoScheduler": "Demo Scheduler",
-<<<<<<< HEAD
-    "recruitment": "Recruitment"
-=======
+    "recruitment": "Recruitment",
     "tallyData": "Tally Data"
->>>>>>> origin/main
   },
   "common": {
     "add": "Add",

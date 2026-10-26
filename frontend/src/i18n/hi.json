@@ -30,11 +30,8 @@
     "leadPipeline": "Lead Pipeline",
     "leadWorkspace": "Lead Workspace",
     "leadHistory": "सभी मेरे लीड्स",
-<<<<<<< HEAD
-    "recruitment": "भर्ती (Recruitment)"
-=======
+    "recruitment": "भर्ती (Recruitment)",
     "tallyData": "टैली डेटा"
->>>>>>> origin/main
   },
   "common": {
     "add": "जोड़ें",
