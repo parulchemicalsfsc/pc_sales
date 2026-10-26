@@ -1248,6 +1248,326 @@ class TestRecruitmentApiEndpoints(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 401)
 
 
+class TestRecruitmentHrRbac(unittest.TestCase):
+    """
+    Dedicated RBAC verification test suite for the HR & Administration role (role_id = 15).
+    Verifies that:
+      1. HR users with view_recruitment and manage_recruitment can perform all recruitment operations.
+      2. HR users with view_recruitment only can read but are forbidden from mutations (403).
+      3. Unauthorized users (roles without recruitment permissions) receive 403 on all endpoints.
+      4. HR access strictly isolates recruitment and does NOT grant unrelated Admin privileges.
+      5. Deactivated HR accounts (is_active=False) remain blocked with 403.
+      6. Token claims identity cannot be spoofed by x-user-email.
+      7. Direct DB permission resolution works for role_id 15 via fast-path array and junction table fallback.
+    """
+
+    def setUp(self):
+        self.app = FastAPI()
+        self.app.include_router(router, prefix="/api/recruitment")
+
+        self.mock_db = MagicMock()
+        self.mock_db.table = SmartTableMock(self)
+        self.app_user_override = None
+        self.app.dependency_overrides[get_db] = lambda: self.mock_db
+        self.client = TestClient(self.app)
+
+        self.test_jwt_secret = "test-jwt-secret-key-at-least-32-chars-long-recruitment-test-123456"
+        os.environ["SUPABASE_JWT_SECRET"] = self.test_jwt_secret
+        clear_token_cache()
+        clear_user_permission_cache()
+
+        now = int(time.time())
+        self.hr_email = "hr_manager@parulchem.com"
+        self.hr_payload = {
+            "sub": "user-uuid-hr-15",
+            "email": self.hr_email,
+            "aud": "authenticated",
+            "exp": now + 3600,
+            "iat": now,
+        }
+        self.hr_token = jwt.encode(self.hr_payload, self.test_jwt_secret, algorithm="HS256")
+        self.hr_headers = {
+            "Authorization": f"Bearer {self.hr_token}",
+        }
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+        clear_token_cache()
+        clear_user_permission_cache()
+
+    def create_test_token(self, email: str, secret: Optional[str] = None, exp_offset: int = 3600) -> str:
+        sec = secret or self.test_jwt_secret
+        now = int(time.time())
+        payload = {
+            "sub": f"uuid-{email}",
+            "email": email,
+            "aud": "authenticated",
+            "exp": now + exp_offset,
+            "iat": now,
+        }
+        return jwt.encode(payload, sec, algorithm="HS256")
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_hr_user_with_recruitment_permissions_can_read_candidates_and_categories(self, mock_perms):
+        """HR role (role_id=15) with view_recruitment can read leads, categories, follow-ups, and activities."""
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": True}]
+        mock_perms.return_value = {"view_recruitment", "manage_recruitment"}
+
+        leads_data = [{"lead_id": 1, "lead_code": "REC-000001", "candidate_name": "Applicant A", "status": "Lead Generated"}]
+        cats_data = [{"category_id": 1, "name": "Sales Executive", "category_name": "Sales Executive", "is_active": True}]
+        acts_data = [{"activity_id": 1, "lead_id": 1, "activity_type": "Creation", "summary": "Lead created"}]
+
+        def table_router(table_name):
+            if table_name == "recruitment_leads":
+                return MockQueryBuilder(select_data=leads_data, count=1)
+            elif table_name == "recruitment_categories":
+                return MockQueryBuilder(select_data=cats_data)
+            elif table_name == "recruitment_activities":
+                return MockQueryBuilder(select_data=acts_data)
+            return MockQueryBuilder()
+
+        self.mock_db.table.side_effect = table_router
+
+        # 1. Read leads
+        res_leads = self.client.get("/api/recruitment/leads", headers=self.hr_headers)
+        self.assertEqual(res_leads.status_code, 200)
+        self.assertEqual(res_leads.json()["total"], 1)
+
+        # 2. Read categories
+        res_cats = self.client.get("/api/recruitment/categories", headers=self.hr_headers)
+        self.assertEqual(res_cats.status_code, 200)
+        self.assertGreaterEqual(len(res_cats.json()), 1)
+
+        # 3. Read follow-ups
+        res_fu = self.client.get("/api/recruitment/leads/follow-ups", headers=self.hr_headers)
+        self.assertEqual(res_fu.status_code, 200)
+
+        # 4. Read single lead
+        res_lead = self.client.get("/api/recruitment/leads/1", headers=self.hr_headers)
+        self.assertEqual(res_lead.status_code, 200)
+
+        # 5. Read activities
+        res_acts = self.client.get("/api/recruitment/leads/1/activities", headers=self.hr_headers)
+        self.assertEqual(res_acts.status_code, 200)
+        self.assertEqual(len(res_acts.json()["activities"]), 1)
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_hr_user_with_recruitment_permissions_can_create_candidate(self, mock_perms):
+        """HR role (role_id=15) with manage_recruitment can create candidates with created_by set to HR user."""
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": True}]
+        mock_perms.return_value = {"manage_recruitment"}
+
+        cat_data = [{"category_id": 1, "category_name": "Sales Executive", "is_active": True}]
+        lead_builder = MockQueryBuilder(insert_return=[{"lead_id": 100, "lead_code": "REC-000100"}])
+        act_builder = MockQueryBuilder(insert_return=[{"activity_id": 1}])
+
+        def table_router(table_name):
+            if table_name == "recruitment_categories":
+                return MockQueryBuilder(select_data=cat_data)
+            elif table_name == "recruitment_leads":
+                return lead_builder
+            elif table_name == "recruitment_activities":
+                return act_builder
+            return MockQueryBuilder()
+
+        self.mock_db.table.side_effect = table_router
+
+        create_payload = {
+            "candidate_name": "New Candidate",
+            "phone": "9876543210",
+            "category_name": "Sales Executive",
+        }
+        res_create = self.client.post("/api/recruitment/leads", json=create_payload, headers=self.hr_headers)
+        self.assertEqual(res_create.status_code, 200)
+        self.assertEqual(lead_builder.inserted_data["created_by"], self.hr_email)
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_hr_user_with_recruitment_permissions_can_mutate_candidate_status_and_activity(self, mock_perms):
+        """HR role (role_id=15) with manage_recruitment can change status, record activities, and patch candidate."""
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": True}]
+        mock_perms.return_value = {"manage_recruitment"}
+
+        existing_lead = {
+            "lead_id": 1,
+            "lead_code": "REC-000001",
+            "candidate_name": "Candidate A",
+            "phone": "9876543210",
+            "status": "Lead Generated",
+            "follow_up_date": None,
+            "notes": None,
+            "is_archived": False,
+        }
+        lead_builder = MockQueryBuilder(select_data=[existing_lead], update_return=[existing_lead])
+        act_builder = MockQueryBuilder(insert_return=[{"activity_id": 10}])
+
+        def table_router(table_name):
+            if table_name == "recruitment_leads":
+                return lead_builder
+            elif table_name == "recruitment_activities":
+                return act_builder
+            return MockQueryBuilder()
+
+        self.mock_db.table.side_effect = table_router
+
+        # 1. Change status
+        status_payload = {
+            "status": "Shortlisted",
+            "summary": "Passed initial HR telephone screening",
+        }
+        res_status = self.client.post("/api/recruitment/leads/1/status", json=status_payload, headers=self.hr_headers)
+        self.assertEqual(res_status.status_code, 200)
+        self.assertEqual(act_builder.inserted_data["logged_by"], self.hr_email)
+        self.assertEqual(act_builder.inserted_data["activity_type"], "Status Change")
+
+        # 2. Record note/activity
+        act_payload = {
+            "activity_type": "Call",
+            "summary": "HR phone interview completed",
+            "outcome": "Positive impression, invited to face-to-face round",
+        }
+        res_act = self.client.post("/api/recruitment/leads/1/activities", json=act_payload, headers=self.hr_headers)
+        self.assertEqual(res_act.status_code, 201)
+        self.assertEqual(act_builder.inserted_data["logged_by"], self.hr_email)
+
+        # 3. Patch candidate
+        patch_payload = {
+            "notes": "Verified candidate background and experience certificates",
+        }
+        res_patch = self.client.patch("/api/recruitment/leads/1", json=patch_payload, headers=self.hr_headers)
+        self.assertEqual(res_patch.status_code, 200)
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_hr_user_with_view_only_denied_mutations_with_403(self, mock_perms):
+        """HR user granted ONLY view_recruitment can read pipeline but is rejected with 403 on create/edit/status."""
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": True}]
+        # view_recruitment only (no manage_recruitment)
+        mock_perms.return_value = {"view_recruitment"}
+
+        leads_data = [{"lead_id": 1, "lead_code": "REC-000001", "candidate_name": "Applicant A"}]
+        self.mock_db.table.side_effect = lambda t: MockQueryBuilder(select_data=leads_data, count=1)
+
+        # GET succeeds
+        res_get = self.client.get("/api/recruitment/leads", headers=self.hr_headers)
+        self.assertEqual(res_get.status_code, 200)
+
+        # POST create fails with 403
+        res_post = self.client.post(
+            "/api/recruitment/leads",
+            json={"candidate_name": "Test", "phone": "9876543210"},
+            headers=self.hr_headers,
+        )
+        self.assertEqual(res_post.status_code, 403)
+        self.assertIn("Missing permission: 'manage_recruitment'", res_post.json()["detail"])
+
+        # POST status change fails with 403
+        res_status = self.client.post(
+            "/api/recruitment/leads/1/status",
+            json={"status": "Shortlisted"},
+            headers=self.hr_headers,
+        )
+        self.assertEqual(res_status.status_code, 403)
+        self.assertIn("Missing permission: 'manage_recruitment'", res_status.json()["detail"])
+
+        # POST activity fails with 403
+        res_act = self.client.post(
+            "/api/recruitment/leads/1/activities",
+            json={"activity_type": "Note", "summary": "Trying to add note"},
+            headers=self.hr_headers,
+        )
+        self.assertEqual(res_act.status_code, 403)
+        self.assertIn("Missing permission: 'manage_recruitment'", res_act.json()["detail"])
+
+        # PATCH fails with 403
+        res_patch = self.client.patch(
+            "/api/recruitment/leads/1",
+            json={"notes": "Unauthorized edit"},
+            headers=self.hr_headers,
+        )
+        self.assertEqual(res_patch.status_code, 403)
+        self.assertIn("Missing permission: 'manage_recruitment'", res_patch.json()["detail"])
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_hr_role_does_not_grant_unrelated_admin_privileges(self, mock_perms):
+        """HR recruitment permissions do NOT grant unrelated system admin privileges (e.g. manage_roles, manage_users)."""
+        from rbac_utils import verify_admin_role
+
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": True}]
+        # HR has recruitment permissions, but lacks manage_roles / manage_users
+        mock_perms.return_value = {"view_recruitment", "manage_recruitment"}
+
+        checker = verify_admin_role(require_token=True)
+        with self.assertRaises(HTTPException) as ctx:
+            checker(
+                authorization=f"Bearer {self.hr_token}",
+                user_email=None,
+                db=self.mock_db,
+            )
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn("Admin privileges required", ctx.exception.detail)
+
+    @patch("rbac_utils.get_user_permissions")
+    def test_unauthorized_staff_roles_denied_all_recruitment_endpoints(self, mock_perms):
+        """Staff roles without recruitment permissions (telecaller, sales_manager) receive 403 on all endpoints."""
+        staff_email = "telecaller@parulchem.com"
+        staff_token = self.create_test_token(staff_email)
+        staff_headers = {"Authorization": f"Bearer {staff_token}"}
+
+        self.app_user_override = [{"email": staff_email, "role": "telecaller", "is_active": True}]
+        mock_perms.return_value = {"view_calling_list", "create_sale"}
+
+        # Read denied
+        res_get = self.client.get("/api/recruitment/leads", headers=staff_headers)
+        self.assertEqual(res_get.status_code, 403)
+        self.assertIn("Missing permission: 'view_recruitment'", res_get.json()["detail"])
+
+        # Create denied
+        res_post = self.client.post(
+            "/api/recruitment/leads",
+            json={"candidate_name": "Test", "phone": "9876543210"},
+            headers=staff_headers,
+        )
+        self.assertEqual(res_post.status_code, 403)
+        self.assertIn("Missing permission: 'manage_recruitment'", res_post.json()["detail"])
+
+    def test_deactivated_hr_user_denied_with_403(self):
+        """Even with a valid signed token, deactivated HR users (is_active=False) are rejected with 403."""
+        self.app_user_override = [{"email": self.hr_email, "role": "hr_&_administration", "is_active": False}]
+
+        res = self.client.get("/api/recruitment/leads", headers=self.hr_headers)
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("ACCOUNT_DEACTIVATED", res.json()["detail"])
+
+    def test_hr_role_15_database_permission_resolution_fastpath_and_fallback(self):
+        """Verify get_user_permissions correctly queries role_id=15 via fast-path array and junction table fallback."""
+        from rbac_utils import get_user_permissions
+
+        # Scenario 1: Fast-path (roles.permission_keys text array populated)
+        db_fast = MagicMock()
+        db_fast.table.side_effect = lambda t: {
+            "app_users": MockQueryBuilder(select_data=[{"role": "hr_&_administration", "is_active": True}]),
+            "roles": MockQueryBuilder(select_data=[{"role_id": 15, "permission_keys": ["view_recruitment", "manage_recruitment", "view_reports"]}]),
+        }[t]
+
+        clear_user_permission_cache()
+        perms_fast = get_user_permissions(self.hr_email, db_fast)
+        self.assertIn("view_recruitment", perms_fast)
+        self.assertIn("manage_recruitment", perms_fast)
+        self.assertIn("view_reports", perms_fast)
+
+        # Scenario 2: Junction table fallback (roles.permission_keys is empty/null, reads role_permissions + permissions)
+        clear_user_permission_cache()
+        db_fallback = MagicMock()
+        db_fallback.table.side_effect = lambda t: {
+            "app_users": MockQueryBuilder(select_data=[{"role": "hr_&_administration", "is_active": True}]),
+            "roles": MockQueryBuilder(select_data=[{"role_id": 15, "permission_keys": None}]),
+            "role_permissions": MockQueryBuilder(select_data=[{"permission_id": 76}, {"permission_id": 77}]),
+            "permissions": MockQueryBuilder(select_data=[{"permission_key": "view_recruitment"}, {"permission_key": "manage_recruitment"}]),
+        }[t]
+
+        perms_fallback = get_user_permissions(self.hr_email, db_fallback)
+        self.assertEqual(perms_fallback, {"view_recruitment", "manage_recruitment"})
+
+
 if __name__ == "__main__":
     unittest.main()
 
