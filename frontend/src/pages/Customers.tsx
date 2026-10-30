@@ -207,14 +207,18 @@ export default function Customers() {
       }
       setPhoneError("");
 
+      const cleanCustomerCode = formData.customer_code?.trim()
+        ? toUpperCaseSafe(formData.customer_code.trim())
+        : undefined;
+
       const payload = {
         ...formData,
-        name: toUpperCaseSafe(formData.name),
-        village: toUpperCaseSafe(formData.village),
-        taluka: toUpperCaseSafe(formData.taluka),
-        district: toUpperCaseSafe(formData.district),
+        name: toUpperCaseSafe(formData.name?.trim()),
+        village: toUpperCaseSafe(formData.village?.trim()),
+        taluka: toUpperCaseSafe(formData.taluka?.trim()),
+        district: toUpperCaseSafe(formData.district?.trim()),
         state: formData.state,
-        customer_code: toUpperCaseSafe(formData.customer_code),
+        customer_code: cleanCustomerCode,
       } as Customer;
 
       // ── Duplicate probe (non-blocking) ──────────────────────────────────
@@ -240,8 +244,10 @@ export default function Customers() {
       const detail = err?.response?.data?.detail || err?.message || "";
       if (err?.response?.status === 422 && detail) {
         setPhoneError(detail);
-      } else if (err?.response?.status === 409 && err?.response?.data?.detail) {
-        setError(err.response.data.detail);
+      } else if (err?.response?.status === 409 && detail) {
+        setError(detail);
+      } else if (detail && typeof detail === "string") {
+        setError(detail);
       } else if (err?.isNetworkError || err?.response?.status >= 500) {
         setError("Network error or server error. Please check if customer was saved before trying again.");
       } else {
@@ -267,8 +273,8 @@ export default function Customers() {
       try {
         await pendingSubmitFn();
       } catch (err: any) {
-        const detail = err?.response?.data?.detail;
-        if (err?.response?.status === 409 && detail) {
+        const detail = err?.response?.data?.detail || err?.message || "";
+        if (detail && typeof detail === "string") {
           setError(detail);
         } else {
           setError(err instanceof Error ? err.message : "Failed to save");

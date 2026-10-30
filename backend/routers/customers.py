@@ -13,9 +13,14 @@ INDIAN_MOBILE_RE = re.compile(r'^[0-9]{10}$')
 
 def validate_mobile(mobile: Optional[str]) -> str:
     """Validate Indian 10-digit mobile number. Returns cleaned value or raises HTTPException."""
-    if not mobile or not mobile.strip():
+    if not mobile or not str(mobile).strip():
         raise HTTPException(status_code=422, detail="Phone number is required")
-    cleaned = mobile.strip()
+    cleaned = str(mobile).strip()
+    if cleaned.startswith("+91"):
+        cleaned = cleaned[3:].strip()
+    elif cleaned.startswith("0") and len(cleaned) == 11:
+        cleaned = cleaned[1:].strip()
+    cleaned = re.sub(r"[\s\-\(\)]", "", cleaned)
     if not INDIAN_MOBILE_RE.match(cleaned):
         raise HTTPException(
             status_code=422,
@@ -207,21 +212,26 @@ def create_customer(
         # Backend does not block duplicate phone numbers.
 
         customer_data = {
-            "name": customer.name,
+            "name": customer.name.strip() if customer.name else "",
             "mobile": mobile,
-            "village": customer.village,
-            "taluka": customer.taluka,
-            "district": customer.district,
-            "adhar_no": customer.adhar_no,
-            "status": customer.status,
+            "village": customer.village.strip() if customer.village else None,
+            "taluka": customer.taluka.strip() if customer.taluka else None,
+            "district": customer.district.strip() if customer.district else None,
+            "state": customer.state.strip() if customer.state else "Gujarat",
+            "adhar_no": customer.adhar_no.strip() if customer.adhar_no else None,
+            "status": customer.status or "Active",
         }
 
         # Add customer_code if provided
-        if customer.customer_code:
-            existing = db.table("customers").select("customer_id").eq("customer_code", customer.customer_code).execute()
+        clean_code = customer.customer_code.strip() if customer.customer_code else None
+        if clean_code:
+            existing = db.table("customers").select("customer_id").eq("customer_code", clean_code).execute()
             if existing.data and len(existing.data) > 0:
-                raise HTTPException(status_code=409, detail="Customer code already exists. Please use a different customer code.")
-            customer_data["customer_code"] = customer.customer_code
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Customer code '{clean_code}' already exists. Please use a different customer code.",
+                )
+            customer_data["customer_code"] = clean_code
 
         response = db.table("customers").insert(customer_data).execute()
 
@@ -238,7 +248,7 @@ def create_customer(
                     entity_id=created_customer.get("customer_id"),
                     new_state=created_customer,
                     metadata={
-                        "customer_code": customer.customer_code,
+                        "customer_code": customer_data.get("customer_code"),
                         "mobile": customer.mobile,
                         "village": customer.village,
                     },
@@ -247,9 +257,17 @@ def create_customer(
             return {"message": "Customer created", "data": created_customer}
         else:
             return {"message": "Customer created"}
+    except HTTPException:
+        raise
     except Exception as e:
+        error_msg = str(e)
+        if "23505" in error_msg or "duplicate key" in error_msg.lower():
+            raise HTTPException(
+                status_code=409,
+                detail="A customer with this code or mobile number already exists.",
+            )
         raise HTTPException(
-            status_code=500, detail=f"Error creating customer: {str(e)}"
+            status_code=500, detail=f"Error creating customer: {error_msg}"
         )
 
 
@@ -273,18 +291,34 @@ def update_customer(
         before_data = before_resp.data[0] if before_resp.data else {}
 
         customer_data = {
-            "name": customer.name,
+            "name": customer.name.strip() if customer.name else "",
             "mobile": mobile,
-            "village": customer.village,
-            "taluka": customer.taluka,
-            "district": customer.district,
-            "adhar_no": customer.adhar_no,
-            "status": customer.status,
+            "village": customer.village.strip() if customer.village else None,
+            "taluka": customer.taluka.strip() if customer.taluka else None,
+            "district": customer.district.strip() if customer.district else None,
+            "state": customer.state.strip() if customer.state else "Gujarat",
+            "adhar_no": customer.adhar_no.strip() if customer.adhar_no else None,
+            "status": customer.status or "Active",
         }
 
         # Add customer_code if provided
-        if customer.customer_code:
-            customer_data["customer_code"] = customer.customer_code
+        clean_code = customer.customer_code.strip() if customer.customer_code else None
+        if clean_code:
+            existing = (
+                db.table("customers")
+                .select("customer_id")
+                .eq("customer_code", clean_code)
+                .neq("customer_id", customer_id)
+                .execute()
+            )
+            if existing.data and len(existing.data) > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Customer code '{clean_code}' already exists. Please use a different customer code.",
+                )
+            customer_data["customer_code"] = clean_code
+        else:
+            customer_data["customer_code"] = None
 
         response = (
             db.table("customers")
@@ -315,8 +349,14 @@ def update_customer(
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e)
+        if "23505" in error_msg or "duplicate key" in error_msg.lower():
+            raise HTTPException(
+                status_code=409,
+                detail="A customer with this code or mobile number already exists.",
+            )
         raise HTTPException(
-            status_code=500, detail=f"Error updating customer: {str(e)}"
+            status_code=500, detail=f"Error updating customer: {error_msg}"
         )
 
 
