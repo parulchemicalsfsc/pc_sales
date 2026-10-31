@@ -424,3 +424,105 @@ class ImportHistory(BaseModel):
     import_status: str = "SUCCESS"
     created_at: Optional[str] = None
 
+
+# ======================
+# Recruitment Module
+# ======================
+
+class RecruitmentCategory(BaseModel):
+    category_id: Optional[int] = None
+    name: str
+    category_name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class RecruitmentLeadBase(BaseModel):
+    candidate_name: str
+    email: Optional[str] = None
+    phone: str
+    alternate_phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = "Gujarat"
+    category_id: Optional[int] = None
+    source: Optional[str] = "Manual"
+    current_company: Optional[str] = None
+    current_designation: Optional[str] = None
+    total_experience_years: float = 0.0
+    highest_qualification: Optional[str] = None
+    current_ctc: Optional[float] = None
+    expected_ctc: Optional[float] = None
+    notice_period_days: Optional[int] = None
+    key_skills: Optional[str] = None
+    resume_url: Optional[str] = None
+    questionnaire_responses: Optional[dict] = {}
+    status: str = "Lead Generated"
+    status_notes: Optional[str] = None
+    follow_up_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
+class RecruitmentLeadCreate(RecruitmentLeadBase):
+    allow_duplicate: bool = False
+
+
+class RecruitmentLeadUpdate(BaseModel):
+    candidate_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    alternate_phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    category_id: Optional[int] = None
+    source: Optional[str] = None
+    current_company: Optional[str] = None
+    current_designation: Optional[str] = None
+    total_experience_years: Optional[float] = None
+    highest_qualification: Optional[str] = None
+    current_ctc: Optional[float] = None
+    expected_ctc: Optional[float] = None
+    notice_period_days: Optional[int] = None
+    key_skills: Optional[str] = None
+    resume_url: Optional[str] = None
+    questionnaire_responses: Optional[dict] = None
+    status: Optional[str] = None
+    status_notes: Optional[str] = None
+    follow_up_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+    is_archived: Optional[bool] = None
+
+
+class RecruitmentActivity(BaseModel):
+    activity_id: Optional[int] = None
+    lead_id: int
+    activity_type: str
+    old_status: Optional[str] = None
+    new_status: Optional[str] = None
+    summary: str
+    details: Optional[str] = None
+    outcome: Optional[str] = None
+    next_action: Optional[str] = None
+    follow_up_date: Optional[str] = None
+    logged_by: str
+    is_auto: bool = False
+    logged_at: Optional[str] = None
+
+
+class RecruitmentActivityCreate(BaseModel):
+    activity_type: str = "Note"
+    summary: str
+    details: Optional[str] = None
+    outcome: Optional[str] = None
+    next_action: Optional[str] = None
+    follow_up_date: Optional[str] = None
+
+
+class RecruitmentStatusChange(BaseModel):
+    status: str
+    status_notes: Optional[str] = None
+    follow_up_date: Optional[str] = None
+
+
+

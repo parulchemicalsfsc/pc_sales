@@ -64,6 +64,7 @@ import {
   ExpandLess,
   ExpandMore,
   EventNote as EventNoteIcon,
+  AssignmentInd as AssignmentIndIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -115,6 +116,7 @@ const TOP_LEVEL_ROUTES = new Set([
   "/calling-list",
   "/activity",
   "/orders",
+  "/recruitment",
   "/admin",
   "/call-distribution",
   "/user-management",
@@ -856,13 +858,71 @@ export default function Layout({
           })}
 
         {/* Admin Navigation - Only for users with admin permissions */}
-        {(hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) ||
+        {(hasPermission(PERMISSIONS.VIEW_RECRUITMENT) ||
+          hasPermission(PERMISSIONS.VIEW_ACTIVITY_LOGS) ||
           hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) ||
           hasPermission(PERMISSIONS.VIEW_USERS) ||
           hasPermission(PERMISSIONS.MANAGE_PRICING) ||
           hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
             <>
               <Divider sx={{ my: 1 }} />
+              {hasPermission(PERMISSIONS.VIEW_RECRUITMENT) && (
+                <ListItem disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    onClick={() => handleNavigation("/recruitment")}
+                    sx={{
+                      borderRadius: sidebarExpanded ? 2 : "50%",
+                      mx: sidebarExpanded ? 1 : "auto",
+                      my: sidebarExpanded ? 0 : 0.25,
+                      width: sidebarExpanded ? "auto" : 44,
+                      height: sidebarExpanded ? "auto" : 44,
+                      minHeight: sidebarExpanded ? 48 : 44,
+                      px: sidebarExpanded ? 2 : 0,
+                      py: sidebarExpanded ? 1 : 0,
+                      justifyContent: "center",
+                      backgroundColor: isActive("/recruitment")
+                        ? theme.palette.mode === "dark"
+                          ? "rgba(144, 202, 249, 0.16)"
+                          : "rgba(25, 118, 210, 0.08)"
+                        : "transparent",
+                      color: isActive("/recruitment")
+                        ? theme.palette.primary.main
+                        : "inherit",
+                      "&:hover": {
+                        backgroundColor:
+                          theme.palette.mode === "dark"
+                            ? "rgba(144, 202, 249, 0.08)"
+                            : "rgba(25, 118, 210, 0.04)",
+                      },
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <ListItemIcon
+                      sx={{
+                        color: isActive("/recruitment")
+                          ? theme.palette.primary.main
+                          : "inherit",
+                        minWidth: sidebarExpanded ? 40 : 0,
+                        justifyContent: "center",
+                      }}
+                    >
+                      <AssignmentIndIcon />
+                    </ListItemIcon>
+                    {sidebarExpanded && (
+                      <ListItemText
+                        primary={t("nav.recruitment", "Recruitment")}
+                        primaryTypographyProps={{
+                          fontWeight: isActive("/recruitment") ? 600 : 500,
+                          fontSize: "0.875rem",
+                          noWrap: true,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      />
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              )}
               {hasPermission(PERMISSIONS.RUN_CALL_DISTRIBUTION) && (
                 <ListItem disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton

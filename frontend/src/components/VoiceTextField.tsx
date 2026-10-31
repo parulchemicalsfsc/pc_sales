@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import {
   TextField,
   TextFieldProps,
@@ -15,6 +15,8 @@ import {
 } from "@mui/material";
 import KeyboardVoiceIcon from "@mui/icons-material/KeyboardVoice";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
+import GraphicEqIcon from "@mui/icons-material/GraphicEq";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { useSpeechToText, SpeechLanguage, SPEECH_LANG_MAP } from "../hooks/useSpeechToText";
 
 // Pulsing animation for active mic
@@ -24,13 +26,18 @@ const pulseAnimation = keyframes`
     transform: scale(1);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
-    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+    transform: scale(1.06);
   }
   100% {
     box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
     transform: scale(1);
   }
+`;
+
+const waveBarAnimation = keyframes`
+  0%, 100% { height: 6px; }
+  50% { height: 16px; }
 `;
 
 export interface VoiceTextFieldProps extends Omit<TextFieldProps, "onChange"> {
@@ -54,12 +61,11 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
 
-  // Keep a ref to the latest base value when speech started
-  const currentValueRef = useRef(value);
-  currentValueRef.current = value;
+  // Holds text that was present in the input before the current voice session began
+  const baseValueRef = useRef(value);
 
-  // Track the text that was finalized during this dictation session
-  const sessionFinalRef = useRef("");
+  // Keep baseValueRef synced when idle so manual typing is tracked
+  const isListeningRef = useRef(false);
 
   const updateValue = (newValue: string) => {
     if (onValueChange) {
@@ -73,23 +79,25 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
     }
   };
 
-  const handleTranscript = (text: string, isFinal: boolean) => {
-    const base = currentValueRef.current;
-    const cleanText = text.trim();
-    if (!cleanText) return;
+  const handleTranscript = (fullSessionText: string, isFinal: boolean) => {
+    const cleanSessionText = fullSessionText.trim();
+    if (!cleanSessionText) return;
+
+    const base = baseValueRef.current.trim();
+    const separator = base ? " " : "";
+    const combined = base ? `${base}${separator}${cleanSessionText}` : cleanSessionText;
+
+    updateValue(combined);
 
     if (isFinal) {
-      // Append finalized speech to the field
-      const separator = base && !base.endsWith(" ") && !base.endsWith("\n") ? " " : "";
-      const updated = base + separator + cleanText;
-      updateValue(updated);
-      sessionFinalRef.current += (sessionFinalRef.current ? " " : "") + cleanText;
+      baseValueRef.current = combined;
     }
   };
 
   const {
     isListening,
-    interimTranscript,
+    liveTranscript,
+    audioLevel,
     error,
     language,
     startListening,
@@ -101,11 +109,31 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
     onTranscript: handleTranscript,
   });
 
-  // Handle Alt+V hotkey to toggle voice typing when focused
+  isListeningRef.current = isListening;
+
+  // When speech starts, snapshot whatever is in the input box right now
+  const handleToggle = () => {
+    if (!isListening) {
+      baseValueRef.current = value || "";
+      toggleListening();
+    } else {
+      stopListening();
+    }
+  };
+
+  // Allow manual typing to update base value
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    baseValueRef.current = e.target.value;
+    if (onChange) {
+      onChange(e);
+    }
+  };
+
+  // Keyboard shortcut Alt+V to toggle speech-to-text
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.altKey && (e.key === "v" || e.key === "V")) {
       e.preventDefault();
-      toggleListening();
+      handleToggle();
     }
     if (props.onKeyDown) {
       props.onKeyDown(e);
@@ -117,9 +145,9 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
       <TextField
         {...props}
         value={value}
-        onChange={onChange}
+        onChange={handleInputChange}
         onKeyDown={handleKeyDown}
-        placeholder={isListening ? "Listening... speak now" : placeholder}
+        placeholder={isListening ? "Listening... start talking now" : placeholder}
         InputProps={{
           ...InputProps,
           endAdornment: (
@@ -135,7 +163,7 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
                 title={
                   isListening
                     ? "Click or press Alt+V to stop dictation"
-                    : `Voice Typing (Click or press Alt+V to speak in ${SPEECH_LANG_MAP[language].label})`
+                    : `Keyboard Voice Typing: Click or press Alt+V to speak in ${SPEECH_LANG_MAP[language].label}`
                 }
                 arrow
               >
@@ -144,7 +172,7 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    toggleListening();
+                    handleToggle();
                   }}
                   color={isListening ? "error" : "primary"}
                   sx={{
@@ -155,10 +183,10 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
                     color: isListening ? theme.palette.error.main : theme.palette.primary.main,
                     border: `1px solid ${
                       isListening
-                        ? alpha(theme.palette.error.main, 0.4)
+                        ? alpha(theme.palette.error.main, 0.5)
                         : alpha(theme.palette.primary.main, 0.2)
                     }`,
-                    animation: isListening ? `${pulseAnimation} 1.8s infinite` : "none",
+                    animation: isListening ? `${pulseAnimation} 1.5s infinite` : "none",
                     "&:hover": {
                       bgcolor: isListening
                         ? alpha(theme.palette.error.main, 0.25)
@@ -167,7 +195,7 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
                   }}
                 >
                   {isListening ? (
-                    <StopCircleIcon sx={{ fontSize: 20 }} />
+                    <StopCircleIcon sx={{ fontSize: 22 }} />
                   ) : (
                     <KeyboardVoiceIcon sx={{ fontSize: 20 }} />
                   )}
@@ -178,15 +206,15 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
         }}
       />
 
-      {/* Active Voice Dictation Banner / Language Controls */}
+      {/* Active Voice Bar */}
       {isListening && (
         <Box
           sx={{
             mt: 0.75,
             p: 1,
-            borderRadius: 1.5,
-            bgcolor: isDark ? "rgba(239,68,68,0.08)" : "#fef2f2",
-            border: `1px solid ${alpha(theme.palette.error.main, 0.25)}`,
+            borderRadius: 2,
+            bgcolor: isDark ? "rgba(239, 68, 68, 0.1)" : "#fff1f2",
+            border: `1px solid ${alpha(theme.palette.error.main, 0.3)}`,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -197,28 +225,61 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
           <Stack direction="row" alignItems="center" spacing={1}>
             <Box
               sx={{
-                width: 8,
-                height: 8,
+                width: 10,
+                height: 10,
                 borderRadius: "50%",
                 bgcolor: "#ef4444",
-                boxShadow: "0 0 6px #ef4444",
+                boxShadow: "0 0 8px #ef4444",
               }}
             />
-            <Typography variant="caption" sx={{ fontWeight: 700, color: "error.main" }}>
-              LISTENING ({SPEECH_LANG_MAP[language].label.toUpperCase()}):
+            <Typography variant="caption" sx={{ fontWeight: 700, color: "error.main", letterSpacing: 0.5 }}>
+              LISTENING ({SPEECH_LANG_MAP[language].nativeName}):
             </Typography>
+
+            {/* Audio Wave Bars */}
+            <Box sx={{ display: "flex", alignItems: "center", gap: "2px", height: 16 }}>
+              <Box
+                sx={{
+                  width: 3,
+                  bgcolor: "#ef4444",
+                  borderRadius: 1,
+                  height: audioLevel > 10 ? Math.max(6, Math.min(16, audioLevel / 4)) : 6,
+                  transition: "height 0.1s ease",
+                }}
+              />
+              <Box
+                sx={{
+                  width: 3,
+                  bgcolor: "#ef4444",
+                  borderRadius: 1,
+                  height: audioLevel > 10 ? Math.max(8, Math.min(18, audioLevel / 3)) : 8,
+                  transition: "height 0.1s ease",
+                }}
+              />
+              <Box
+                sx={{
+                  width: 3,
+                  bgcolor: "#ef4444",
+                  borderRadius: 1,
+                  height: audioLevel > 10 ? Math.max(5, Math.min(14, audioLevel / 5)) : 5,
+                  transition: "height 0.1s ease",
+                }}
+              />
+            </Box>
+
             <Typography
               variant="caption"
               sx={{
                 color: "text.primary",
-                fontStyle: interimTranscript ? "normal" : "italic",
-                maxWidth: 220,
+                fontStyle: liveTranscript ? "normal" : "italic",
+                fontWeight: liveTranscript ? 600 : 400,
+                maxWidth: { xs: 140, sm: 220 },
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {interimTranscript || "Speak clearly into microphone…"}
+              {liveTranscript || "Speak into microphone…"}
             </Typography>
           </Stack>
 
@@ -233,29 +294,44 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
                   color={language === lang ? "primary" : "default"}
                   variant={language === lang ? "filled" : "outlined"}
                   sx={{
-                    height: 22,
-                    fontSize: "0.7rem",
+                    height: 24,
+                    fontSize: "0.72rem",
                     fontWeight: language === lang ? 700 : 500,
                     cursor: "pointer",
                   }}
                 />
               ))}
               <Chip
-                label="Done"
+                label="Done (Alt+V)"
                 size="small"
                 color="error"
                 onClick={stopListening}
-                sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700, cursor: "pointer", ml: 0.5 }}
+                sx={{ height: 24, fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", ml: 0.5 }}
               />
             </Stack>
           )}
         </Box>
       )}
 
+      {/* Error notification */}
       {error && !isListening && (
-        <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5, px: 0.5 }}>
-          {error}
-        </Typography>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.75,
+            mt: 0.75,
+            p: 1,
+            borderRadius: 1.5,
+            bgcolor: isDark ? "rgba(239, 68, 68, 0.12)" : "#fef2f2",
+            border: `1px solid ${alpha(theme.palette.error.main, 0.25)}`,
+          }}
+        >
+          <ErrorOutlineIcon color="error" sx={{ fontSize: 16 }} />
+          <Typography variant="caption" color="error.main" sx={{ fontWeight: 500 }}>
+            {error}
+          </Typography>
+        </Box>
       )}
     </Box>
   );

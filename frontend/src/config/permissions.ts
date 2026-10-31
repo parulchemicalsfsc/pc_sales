@@ -109,6 +109,9 @@ export const PERMISSIONS = {
     VIEW_REVIEWS: "view_reviews",
     DELETE_REVIEWS: "delete_reviews",
 
+    // Recruitment
+    VIEW_RECRUITMENT: "view_recruitment",
+    MANAGE_RECRUITMENT: "manage_recruitment",
     // Tally Data
     VIEW_TALLY_DATA: "view_tally_data",
 } as const;

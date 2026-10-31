@@ -1,4 +1,5 @@
 import axios, { AxiosError } from "axios";
+import { supabase } from "../lib/supabaseClient";
 
 // Resolve API base URL from the single canonical env var: VITE_API_BASE_URL
 // Set this in:
@@ -32,10 +33,51 @@ export const apiClient = axios.create({
   },
 });
 
-// Add request interceptor to include user email and role in headers
+// Add request interceptor to include Supabase JWT Bearer token, user email, and role in headers
 apiClient.interceptors.request.use(
-  (config) => {
-    // Get user email from localStorage (set after login)
+  async (config) => {
+    // 1. Authoritative: Get current access token from Supabase client session.
+    // getSession() automatically handles token refresh if expired or near expiry.
+    let token: string | null = null;
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (!error && session?.access_token) {
+        token = session.access_token;
+        try {
+          localStorage.setItem("supabase_token", token);
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn("[API] Failed to get session from Supabase:", err);
+    }
+
+    // 2. Fallback to localStorage if SDK check returned nothing
+    if (!token) {
+      token = localStorage.getItem("supabase_token");
+    }
+
+    // 3. Fallback to scanning localStorage for Supabase SDK storage key
+    if (!token) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(key) || "{}");
+            if (parsed.access_token) {
+              token = parsed.access_token;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 4. Attach Bearer token to Authorization header if present
+    if (token) {
+      config.headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    // 5. Retain legacy headers for backward compatibility with un-migrated endpoints
     const userEmail = localStorage.getItem("user_email");
     if (userEmail) {
       config.headers["x-user-email"] = userEmail;
@@ -55,6 +97,13 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    // If backend reports 401 Unauthorized, remove stale token from localStorage
+    if (error.response?.status === 401) {
+      try {
+        localStorage.removeItem("supabase_token");
+      } catch (_) {}
+    }
+
     if (error.code === "ECONNABORTED" || error.message.includes("timeout")) {
       const timeoutError = new Error(
         "Request timeout - Server may be starting up",

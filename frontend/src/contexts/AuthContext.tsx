@@ -7,12 +7,11 @@ import React, {
   useRef,
 } from "react";
 import { Session, User } from "@supabase/supabase-js";
-import { createClient } from "@supabase/supabase-js";
 import { activityAPI } from "../services/api";
+import { supabase } from "../lib/supabaseClient";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Re-export single canonical Supabase client for all consumers
+export { supabase };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface AuthContextType {
@@ -48,8 +47,24 @@ const fetchLoginData = async (
 ): Promise<{ permissions: Set<string>; role: string | null; is_active: boolean }> => {
   try {
     const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+    let token = localStorage.getItem("supabase_token");
+    if (!token) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          token = session.access_token;
+          try {
+            localStorage.setItem("supabase_token", token);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    const headers: Record<string, string> = { "x-user-email": email };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
     const res = await fetch(`${API_BASE}/api/rbac/my-permissions`, {
-      headers: { "x-user-email": email },
+      headers,
     });
     if (res.status === 403) {
       // Backend returned ACCOUNT_DEACTIVATED
@@ -100,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!is_active) {
       await supabase.auth.signOut();
       localStorage.removeItem("user_email");
+      localStorage.removeItem("supabase_token");
       setPermissions(new Set());
       setPermissionsLoaded(true);
       if (opts?.throwIfDeactivated) throw new Error("ACCOUNT_DEACTIVATED");
@@ -120,51 +136,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Initial auth check + subscriber ─────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
       if (s?.user?.email) {
         localStorage.setItem("user_email", s.user.email);
       }
+      if (s?.access_token) {
+        localStorage.setItem("supabase_token", s.access_token);
+      } else {
+        localStorage.removeItem("supabase_token");
+      }
       
-      const savedEmail = localStorage.getItem("user_email");
-      setUser(s?.user ?? (savedEmail ? { email: savedEmail } as any : null));
-      setRole(normalizeRole(s?.user?.user_metadata?.role) || localStorage.getItem("user_role"));
+      const activeUser = s?.user ?? null;
+      setUser(activeUser);
+      setRole(normalizeRole(s?.user?.user_metadata?.role) || (activeUser ? localStorage.getItem("user_role") : null));
 
-      loadPermissions(s?.user ?? (savedEmail ? { email: savedEmail } : null) as any).finally(() => setLoading(false));
+      if (activeUser) {
+        loadPermissions(activeUser).finally(() => setLoading(false));
+      } else {
+        setPermissions(new Set());
+        setPermissionsLoaded(true);
+        setLoading(false);
+      }
+    }).catch((err) => {
+      console.error("[Auth] Initial getSession error:", err);
+      setSession(null);
+      setUser(null);
+      setPermissions(new Set());
+      setPermissionsLoaded(true);
+      setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, s) => {
-        // TOKEN_REFRESHED_FAILED fires when Supabase can't refresh the token
-        // (e.g. during a Supabase service outage or after clearing cookies).
-        // Silently ignore it — the user is still authenticated via our backend
-        // RBAC and their localStorage email. Don't clear session or force logout.
         if (event === "TOKEN_REFRESHED_FAILED" as any) {
-          console.warn("[Auth] Supabase token refresh failed — ignoring (backend RBAC is unaffected)");
+          console.warn("[Auth] Supabase token refresh failed");
+        }
+
+        if (event === "SIGNED_OUT") {
+          setSession(null);
+          setUser(null);
+          setRole(null);
+          setPermissions(new Set());
+          setPermissionsLoaded(true);
+          localStorage.removeItem("user_email");
+          localStorage.removeItem("user_role");
+          localStorage.removeItem("supabase_token");
           return;
         }
 
-        // If Supabase drops the session due to expiration but we have an active backend session (email in localStorage),
-        // we can ignore the SIGNED_OUT event unless it was an explicit user action (handled by our signOut function).
-        if (event === "SIGNED_OUT" && localStorage.getItem("user_email")) {
-            console.warn("[Auth] Supabase emitted SIGNED_OUT unexpectedly (likely token expiration). Ignoring since we have user_email.");
-            return;
-        }
-
         setSession(s);
-        setUser(s?.user ?? { email: localStorage.getItem("user_email") } as any);
-        setRole(normalizeRole(s?.user?.user_metadata?.role) || localStorage.getItem("user_role"));
+        const currentUser = s?.user ?? null;
+        setUser(currentUser);
+        setRole(normalizeRole(s?.user?.user_metadata?.role) || (currentUser ? localStorage.getItem("user_role") : null));
 
         if (s?.user?.email) {
           localStorage.setItem("user_email", s.user.email);
-        } else if (event === "SIGNED_OUT") {
-          // Only clear on explicit sign-out, not on refresh failures
-          localStorage.removeItem("user_email");
+        }
+        if (s?.access_token) {
+          localStorage.setItem("supabase_token", s.access_token);
+        } else {
+          localStorage.removeItem("supabase_token");
         }
 
-        // Skip permission load on SIGNED_IN — signIn() already handles it
-        // to avoid resetting permissionsLoaded mid-navigation.
-        // Also skip on TOKEN_REFRESHED since it's not a meaningful state change.
         if (event !== "SIGNED_IN" && event !== "TOKEN_REFRESHED") {
-          loadPermissions(s?.user ?? null);
+          if (currentUser) {
+            loadPermissions(currentUser);
+          } else {
+            setPermissions(new Set());
+            setPermissionsLoaded(true);
+          }
         }
       }
     );
@@ -224,6 +264,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (data.user?.email) {
       localStorage.setItem("user_email", data.user.email);
     }
+    if (data.session?.access_token) {
+      localStorage.setItem("supabase_token", data.session.access_token);
+    }
 
     // ── Single call: fetches is_active + role + permissions together ─────────
     // Drops the old separate check-status round trip entirely.
@@ -243,10 +286,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Log LOGOUT event first (silent fail ok — don't block actual logout)
     activityAPI.logAuth("LOGOUT").catch(() => { });
     await supabase.auth.signOut();
+    setSession(null);
+    setUser(null);
+    setRole(null);
     setPermissions(new Set());
     setPermissionsLoaded(false);
     localStorage.removeItem("user_email");
     localStorage.removeItem("user_role");
+    localStorage.removeItem("supabase_token");
   };
 
   return (
