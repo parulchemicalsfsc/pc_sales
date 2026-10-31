@@ -472,9 +472,9 @@ export default function TeamTargetsTab({ selectedFoId, selectedMonth, onViewRout
             columns={columns}
             loading={loading}
             autoHeight
-            pageSize={10}
-            rowsPerPageOptions={[10, 25]}
-            disableSelectionOnClick
+            initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
+            pageSizeOptions={[10, 25]}
+            disableRowSelectionOnClick
             density="comfortable"
             sx={{ border: "none" }}
           />

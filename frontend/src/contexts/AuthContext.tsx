@@ -243,9 +243,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const hasPermission = useCallback(
     (permission: string): boolean => {
       if (!user) return false;
+      const currentRole = (role || localStorage.getItem('user_role') || '').toLowerCase();
+      if (currentRole === 'admin' || currentRole === 'developer') {
+        return true;
+      }
       return permissions.has(permission);
     },
-    [user, permissions]
+    [user, permissions, role]
   );
 
   // ── refreshPermissions: force re-fetch ──────────────────────────────────────

@@ -316,9 +316,9 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
             columns={officerColumns}
             loading={loading}
             autoHeight
-            pageSize={5}
-            rowsPerPageOptions={[5, 10]}
-            disableSelectionOnClick
+            initialState={{ pagination: { paginationModel: { pageSize: 5 } } }}
+            pageSizeOptions={[5, 10]}
+            disableRowSelectionOnClick
             density="comfortable"
           />
         </CardContent>
@@ -382,7 +382,7 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
             <TableBody>
               {receipts.map((rec) => (
                 <TableRow key={rec.receipt_id} hover>
-                  <TableCell fontWeight={600}>{rec.receipt_id}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{rec.receipt_id}</TableCell>
                   <TableCell>{rec.fo_name}</TableCell>
                   <TableCell>{rec.customer_name}</TableCell>
                   <TableCell>{rec.date}</TableCell>

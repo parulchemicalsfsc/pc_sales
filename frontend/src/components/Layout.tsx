@@ -890,6 +890,62 @@ export default function Layout({
           hasPermission(PERMISSIONS.MANAGE_ROLES)) && (
             <>
               <Divider sx={{ my: 1 }} />
+              {/* Field Manager (MOD-16) for Admin */}
+              <ListItem disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  onClick={() => handleNavigation('/field-manager')}
+                  sx={{
+                    borderRadius: sidebarExpanded ? 2 : '50%',
+                    mx: sidebarExpanded ? 1 : 'auto',
+                    my: sidebarExpanded ? 0 : 0.25,
+                    width: sidebarExpanded ? 'auto' : 44,
+                    height: sidebarExpanded ? 'auto' : 44,
+                    minHeight: sidebarExpanded ? 48 : 44,
+                    px: sidebarExpanded ? 2 : 0,
+                    py: sidebarExpanded ? 1 : 0,
+                    justifyContent: 'center',
+                    backgroundColor: isActive('/field-manager')
+                      ? theme.palette.mode === 'dark'
+                        ? 'rgba(25, 118, 210, 0.16)'
+                        : 'rgba(25, 118, 210, 0.08)'
+                      : 'transparent',
+                    color: isActive('/field-manager')
+                      ? theme.palette.primary.main
+                      : 'inherit',
+                    '&:hover': {
+                      backgroundColor:
+                        theme.palette.mode === 'dark'
+                          ? 'rgba(25, 118, 210, 0.08)'
+                          : 'rgba(25, 118, 210, 0.04)',
+                    },
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <ListItemIcon
+                    sx={{
+                      color: isActive('/field-manager')
+                        ? theme.palette.primary.main
+                        : 'inherit',
+                      minWidth: sidebarExpanded ? 40 : 0,
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <AssignmentIndIcon />
+                  </ListItemIcon>
+                  {sidebarExpanded && (
+                    <ListItemText
+                      primary='Field Manager'
+                      primaryTypographyProps={{
+                        fontWeight: isActive('/field-manager') ? 600 : 500,
+                        fontSize: '0.875rem',
+                        noWrap: true,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+              </ListItem>
               {hasPermission(PERMISSIONS.VIEW_RECRUITMENT) && (
                 <ListItem disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton
