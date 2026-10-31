@@ -201,6 +201,13 @@ const navigationItems: NavItem[] = [
     ]
   },
   {
+    id: "field-manager",
+    labelKey: "nav.fieldManager",
+    icon: <AssignmentIndIcon />,
+    path: "/field-manager",
+    permission: PERMISSIONS.MANAGE_FO_OPERATIONS,
+  },
+  {
     id: "customers",
     labelKey: "nav.customers",
     icon: <PeopleIcon />,
@@ -728,6 +735,15 @@ export default function Layout({
               return accessibleChildren.length > 0;
             }
             if (item.permission) {
+              if (item.id === "field-manager") {
+                return (
+                  hasPermission(item.permission) ||
+                  hasPermission(PERMISSIONS.VIEW_FIELD_OFFICERS) ||
+                  role === "admin" ||
+                  role === "developer" ||
+                  role === "sales_manager"
+                );
+              }
               return hasPermission(item.permission);
             }
             return true;
@@ -799,6 +815,7 @@ export default function Layout({
                           item.id === "distributors-group" ? "Distributor" :
                           item.id === "customers" ? "Sabhasad" :
                           item.id === "orders" ? "Order Management" :
+                          item.id === "field-manager" ? "Field Manager" :
                           t(item.labelKey)
                         }
                         primaryTypographyProps={{

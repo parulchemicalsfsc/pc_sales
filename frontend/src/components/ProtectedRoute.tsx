@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, requiredPermission }: ProtectedRouteProps) {
-  const { user, loading, hasPermission } = useAuth();
+  const { user, loading, hasPermission, role } = useAuth();
   const location = useLocation();
 
   // Show loading spinner while checking authentication
@@ -35,6 +35,12 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
 
   // Check for required permission
   if (requiredPermission && !hasPermission(requiredPermission)) {
+    if (requiredPermission === 'manage_fo_operations') {
+      const allowed = hasPermission('view_field_officers') || role === 'admin' || role === 'developer' || role === 'sales_manager';
+      if (allowed) {
+        return <>{children}</>;
+      }
+    }
     // Prevent infinite loop if they are trying to access dashboard itself
     if (requiredPermission === 'view_dashboard') {
       if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
