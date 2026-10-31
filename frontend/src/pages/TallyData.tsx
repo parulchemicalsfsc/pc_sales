@@ -28,6 +28,7 @@ import {
   TableRow,
   TableCell,
   TableContainer,
+  TablePagination,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -90,6 +91,8 @@ export default function TallyData() {
   // Customer Breakdown State
   const [customerVouchers, setCustomerVouchers] = useState<TallyVoucher[]>([]);
   const [customerLoading, setCustomerLoading] = useState(false);
+  const [customerPage, setCustomerPage] = useState(0);
+  const [customerRowsPerPage, setCustomerRowsPerPage] = useState(50);
 
   // Load stats & filter options on mount
   const fetchMetadata = useCallback(async () => {
@@ -168,11 +171,13 @@ export default function TallyData() {
       return;
     }
     setCustomerLoading(true);
+    setCustomerPage(0);
     try {
       const params: any = {
         customer: custName,
         page: 1,
-        page_size: 200, // Load up to 200 for full statement view
+        page_size: 5000, // Load full customer ledger so true running balance & grand totals calculate accurately
+        order: "asc",
       };
       if (selectedCompany) params.company = selectedCompany;
       const res = await tallyAPI.getVouchers(params);
@@ -355,6 +360,17 @@ export default function TallyData() {
       records: withRunningBalance,
     };
   }, [customerVouchers, voucherType, search, dateFrom, dateTo]);
+
+  // Reset customer page when any filter changes
+  useEffect(() => {
+    setCustomerPage(0);
+  }, [voucherType, search, dateFrom, dateTo, selectedCustomer]);
+
+  // Sliced records for smooth table pagination
+  const pagedCustomerRecords = useMemo(() => {
+    const start = customerPage * customerRowsPerPage;
+    return customerSummary.records.slice(start, start + customerRowsPerPage);
+  }, [customerSummary.records, customerPage, customerRowsPerPage]);
 
   // Columns for DataGrid in "All Vouchers"
   const columns: GridColDef[] = useMemo(
@@ -1088,7 +1104,7 @@ export default function TallyData() {
                             </TableCell>
                           </TableRow>
                         ) : (
-                          customerSummary.records.map((row) => {
+                          pagedCustomerRecords.map((row) => {
                             const items = row.items_summary || "";
                             const narr = row.narration || "";
                             const itemDisplay = items && narr ? `${items} — ${narr}` : items || narr || "—";
@@ -1182,6 +1198,23 @@ export default function TallyData() {
                     </Table>
                   )}
                 </TableContainer>
+
+                {/* Pagination Controls */}
+                {customerSummary.records.length > 0 && (
+                  <TablePagination
+                    component="div"
+                    count={customerSummary.records.length}
+                    page={customerPage}
+                    onPageChange={(_, newPage) => setCustomerPage(newPage)}
+                    rowsPerPage={customerRowsPerPage}
+                    onRowsPerPageChange={(e) => {
+                      setCustomerRowsPerPage(parseInt(e.target.value, 10));
+                      setCustomerPage(0);
+                    }}
+                    rowsPerPageOptions={[25, 50, 100, 200]}
+                    sx={{ borderTop: "1px solid", borderColor: "divider" }}
+                  />
+                )}
 
                 {/* Footer Totals Bar matching Mock DB Viewer */}
                 <Box

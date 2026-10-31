@@ -1318,6 +1318,7 @@ export const tallyAPI = {
     search?: string;
     date_from?: string;
     date_to?: string;
+    order?: string;
   }) => {
     const response = await apiClient.get("/api/tally/vouchers", { params });
     return response.data;

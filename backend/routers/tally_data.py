@@ -285,13 +285,14 @@ def reconcile_cleanup(
 @router.get("/vouchers")
 def list_vouchers(
     page:         int   = Query(1, ge=1),
-    page_size:    int   = Query(50, ge=1, le=200),
+    page_size:    int   = Query(50, ge=1, le=5000),
     voucher_type: Optional[str] = Query(None),
     customer:     Optional[str] = Query(None),
     search:       Optional[str] = Query(None),
     date_from:    Optional[str] = Query(None),
     date_to:      Optional[str] = Query(None),
     company:      Optional[str] = Query(None),
+    order:        Optional[str] = Query("desc"),
     db: SupabaseClient = Depends(get_db),
     user_email: str = Depends(verify_permission("view_tally_data")),
 ):
@@ -324,8 +325,9 @@ def list_vouchers(
                 f"particulars.ilike.%{search}%"
             )
 
+        desc_order = False if order and order.strip().lower() == "asc" else True
         offset = (page - 1) * page_size
-        query  = query.order("date", desc=True).range(offset, offset + page_size - 1)
+        query  = query.order("date", desc=desc_order).order("created_at", desc=desc_order).range(offset, offset + page_size - 1)
 
         result = query.execute()
         total  = result.count if result.count is not None else len(result.data)
