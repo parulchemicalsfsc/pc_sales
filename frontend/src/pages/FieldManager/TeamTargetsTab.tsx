@@ -43,9 +43,9 @@ import type { FieldOfficer, TeamKPI } from "../../types/aura";
 import { format } from "date-fns";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
   selectedMonth: string; // "YYYY-MM"
-  onViewRoute: (foId: string) => void;
+  onViewRoute: (foEmail: string) => void;
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
@@ -122,7 +122,7 @@ function SetTargetDialog({
 
   useEffect(() => {
     if (open) {
-      setForm((f) => ({ ...f, fo_user_id: preselectedFoId ?? "", month_year: currentMonth }));
+      setForm((f: SetTargetPayload) => ({ ...f, fo_user_id: preselectedFoId ?? "", month_year: currentMonth }));
       setError(null);
       setSuccess(false);
     }
@@ -154,7 +154,7 @@ function SetTargetDialog({
             select
             label="Field Officer"
             value={form.fo_user_id}
-            onChange={(e) => setForm((f) => ({ ...f, fo_user_id: e.target.value }))}
+            onChange={(e) => setForm((f: SetTargetPayload) => ({ ...f, fo_user_id: e.target.value }))}
             fullWidth
           >
             {officers.map((o) => (
@@ -167,7 +167,7 @@ function SetTargetDialog({
             label="Month (YYYY-MM)"
             type="month"
             value={form.month_year}
-            onChange={(e) => setForm((f) => ({ ...f, month_year: e.target.value }))}
+            onChange={(e) => setForm((f: SetTargetPayload) => ({ ...f, month_year: e.target.value }))}
             fullWidth
             InputLabelProps={{ shrink: true }}
           />
@@ -175,7 +175,7 @@ function SetTargetDialog({
             label="Monthly Revenue Target (₹)"
             type="number"
             value={form.target_amount}
-            onChange={(e) => setForm((f) => ({ ...f, target_amount: Number(e.target.value) }))}
+            onChange={(e) => setForm((f: SetTargetPayload) => ({ ...f, target_amount: Number(e.target.value) }))}
             fullWidth
             inputProps={{ min: 0 }}
           />
@@ -183,7 +183,7 @@ function SetTargetDialog({
             label="Monthly Volume Target (Liters of F.S. Calcival)"
             type="number"
             value={form.target_liters}
-            onChange={(e) => setForm((f) => ({ ...f, target_liters: Number(e.target.value) }))}
+            onChange={(e) => setForm((f: SetTargetPayload) => ({ ...f, target_liters: Number(e.target.value) }))}
             fullWidth
             inputProps={{ min: 0 }}
           />
@@ -191,7 +191,7 @@ function SetTargetDialog({
             label="Monthly Visit Count Target"
             type="number"
             value={form.target_visits}
-            onChange={(e) => setForm((f) => ({ ...f, target_visits: Number(e.target.value) }))}
+            onChange={(e) => setForm((f: SetTargetPayload) => ({ ...f, target_visits: Number(e.target.value) }))}
             fullWidth
             inputProps={{ min: 0 }}
           />
@@ -230,7 +230,7 @@ function StatusChip({ status }: { status: FieldOfficer["today_status"] }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function TeamTargetsTab({ selectedFoId, selectedMonth, onViewRoute }: Props) {
+export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewRoute }: Props) {
   const [officers, setOfficers] = useState<FieldOfficer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -244,7 +244,7 @@ export default function TeamTargetsTab({ selectedFoId, selectedMonth, onViewRout
       try {
         const params: { month?: string; manager_email?: string } = { month: selectedMonth };
         const res = await auraManagerAPI.getOfficers(params);
-        const data: FieldOfficer[] = res.data?.officers ?? res.data ?? [];
+        const data: FieldOfficer[] = res.data?.officers ?? [];
         setOfficers(data);
       } catch (e: unknown) {
         const err = e as { message?: string };
@@ -254,7 +254,7 @@ export default function TeamTargetsTab({ selectedFoId, selectedMonth, onViewRout
       }
     };
     fetchOfficers();
-  }, [selectedMonth, selectedFoId]);
+  }, [selectedMonth, selectedFoEmail]);
 
   // Compute team KPI from officers
   const kpi: TeamKPI = {
@@ -282,7 +282,7 @@ export default function TeamTargetsTab({ selectedFoId, selectedMonth, onViewRout
       : 0;
 
   const displayedOfficers =
-    selectedFoId === "all" ? officers : officers.filter((o) => o.fo_user_id === selectedFoId);
+    selectedFoEmail === "all" ? officers : officers.filter((o) => o.fo_user_id === selectedFoEmail);
 
   const columns: GridColDef[] = [
     {

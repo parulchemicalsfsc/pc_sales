@@ -2,19 +2,7 @@
  * FieldManagerWorkspace.tsx
  * ──────────────────────────────────────────────────────────────────────────
  * Main Workspace for MOD-16: Field Officer Management & Verification Console.
- *
- * Layout:
- * - Persistent top bar:
- *   - Field Officer Selector (1 : N Dropdown / "All My Officers")
- *   - Date & Month Pickers
- *   - Live Notification Bell for FO plan/order edits (with badge and popover)
- * - MUI v5 <Tabs> across 6 operational sub-views:
- *   1. Team Overview & Targets
- *   2. Route Audit & Live GPS Map
- *   3. Visit Verification & 2nd-Pitch
- *   4. Discount Analytics Ledger
- *   5. Forensic Edit Audit Log
- *   6. Stock & Sample Approvals
+ * Powered by AURA Manager & Caller Bridge APIs (v2.0.0).
  */
 
 import { useState, useEffect } from "react";
@@ -23,8 +11,6 @@ import {
   Typography,
   Tabs,
   Tab,
-  Card,
-  CardContent,
   Grid,
   TextField,
   MenuItem,
@@ -33,8 +19,6 @@ import {
   Menu,
   MenuItem as MuiMenuItem,
   ListItemText,
-  Divider,
-  Button,
   Chip,
   Paper,
 } from "@mui/material";
@@ -58,56 +42,54 @@ import EditAuditLogTab from "./EditAuditLogTab";
 import StockApprovalTab from "./StockApprovalTab";
 
 import { auraManagerAPI } from "../../services/auraApi";
-import type { FieldOfficer, AuraNotification } from "../../types/aura";
+import type { FieldOfficerItem, RecentActivityItem } from "../../types/aura";
 
 export default function FieldManagerWorkspace() {
   const [tabIndex, setTabIndex] = useState<number>(0);
-  const [selectedFoId, setSelectedFoId] = useState<string | "all">("all");
+  const [selectedFoEmail, setSelectedFoEmail] = useState<string | "all">("all");
   const [selectedMonth, setSelectedMonth] = useState<string>(format(new Date(), "yyyy-MM"));
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
 
-  const [officers, setOfficers] = useState<FieldOfficer[]>([]);
-  const [notifications, setNotifications] = useState<AuraNotification[]>([]);
+  const [officers, setOfficers] = useState<FieldOfficerItem[]>([]);
+  const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([]);
   const [notifAnchor, setNotifAnchor] = useState<null | HTMLElement>(null);
+  const [alertsCount, setAlertsCount] = useState<number>(0);
 
   // Fetch officers for selector dropdown
   const loadOfficers = async () => {
     try {
-      const res = await auraManagerAPI.getOfficers({ month: selectedMonth });
-      const data: FieldOfficer[] = res.data?.officers ?? res.data ?? [];
+      const res = await auraManagerAPI.getOfficersList(selectedMonth);
+      const data: FieldOfficerItem[] = res.data?.field_officers ?? [];
       setOfficers(data);
     } catch (e) {
       console.warn("Could not load officers for dropdown", e);
     }
   };
 
-  // Fetch notifications
-  const loadNotifications = async () => {
+  // Fetch dashboard overview for alerts
+  const loadOverview = async () => {
     try {
-      const res = await auraManagerAPI.getNotifications({ unread_only: true });
-      const data: AuraNotification[] = res.data?.notifications ?? res.data ?? [];
-      setNotifications(data);
+      const res = await auraManagerAPI.getDashboardOverview(selectedMonth);
+      if (res.data) {
+        const totalAlerts =
+          (res.data.alerts?.pending_verifications || 0) +
+          (res.data.alerts?.high_discount_orders || 0) +
+          (res.data.alerts?.plan_adherence_issues || 0);
+        setAlertsCount(totalAlerts);
+        setRecentActivities(res.data.recent_activity || []);
+      }
     } catch (e) {
-      console.warn("Could not load notifications", e);
+      console.warn("Could not load dashboard alerts", e);
     }
   };
 
   useEffect(() => {
     loadOfficers();
-    loadNotifications();
+    loadOverview();
   }, [selectedMonth]);
 
-  const handleMarkRead = async (id: string) => {
-    try {
-      await auraManagerAPI.markNotificationRead(id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-    } catch (e) {
-      console.warn("Failed to mark notification read", e);
-    }
-  };
-
-  const handleNavigateToRoute = (foId: string) => {
-    setSelectedFoId(foId);
+  const handleNavigateToRoute = (foEmail: string) => {
+    setSelectedFoEmail(foEmail);
     setTabIndex(1); // Jump to Route Audit Tab
   };
 
@@ -132,7 +114,7 @@ export default function FieldManagerWorkspace() {
               <Typography variant="h5" fontWeight={700}>
                 Field Officer Console
               </Typography>
-              <Chip label="MOD-16" size="small" color="primary" variant="outlined" />
+              <Chip label="v2.0.0" size="small" color="primary" variant="outlined" />
             </Box>
             <Typography variant="caption" color="text.secondary">
               AURA Management, Route Audit &amp; Verification Terminal
@@ -147,16 +129,16 @@ export default function FieldManagerWorkspace() {
                 select
                 size="small"
                 label="Select Officer"
-                value={selectedFoId}
-                onChange={(e) => setSelectedFoId(e.target.value)}
-                sx={{ minWidth: 200 }}
+                value={selectedFoEmail}
+                onChange={(e) => setSelectedFoEmail(e.target.value)}
+                sx={{ minWidth: 220 }}
               >
                 <MenuItem value="all">
                   <em>All My Officers ({officers.length})</em>
                 </MenuItem>
                 {officers.map((fo) => (
-                  <MenuItem key={fo.fo_user_id} value={fo.fo_user_id}>
-                    {fo.name} ({fo.today_status.replace("_", " ")})
+                  <MenuItem key={fo.email} value={fo.email}>
+                    {fo.name} ({fo.email})
                   </MenuItem>
                 ))}
               </TextField>
@@ -184,16 +166,16 @@ export default function FieldManagerWorkspace() {
               />
 
               {/* Refresh Button */}
-              <IconButton onClick={() => { loadOfficers(); loadNotifications(); }} title="Refresh Data">
+              <IconButton onClick={() => { loadOfficers(); loadOverview(); }} title="Refresh Data">
                 <RefreshIcon />
               </IconButton>
 
               {/* Notification Bell */}
               <IconButton
                 onClick={(e) => setNotifAnchor(e.currentTarget)}
-                color={notifications.length > 0 ? "primary" : "default"}
+                color={alertsCount > 0 ? "primary" : "default"}
               >
-                <Badge badgeContent={notifications.length} color="error">
+                <Badge badgeContent={alertsCount} color="error">
                   <BellIcon />
                 </Badge>
               </IconButton>
@@ -203,39 +185,37 @@ export default function FieldManagerWorkspace() {
                 anchorEl={notifAnchor}
                 open={Boolean(notifAnchor)}
                 onClose={() => setNotifAnchor(null)}
-                PaperProps={{ sx: { width: 340, maxHeight: 420 } }}
+                PaperProps={{ sx: { width: 350, maxHeight: 420 } }}
               >
                 <Box p={1.5} borderBottom="1px solid" borderColor="divider">
                   <Typography variant="subtitle2" fontWeight={700}>
-                    Field Officer Live Edits &amp; Alerts
+                    Recent Activity &amp; Live Alerts
                   </Typography>
                 </Box>
-                {notifications.length === 0 ? (
+                {recentActivities.length === 0 ? (
                   <Box p={2} textAlign="center">
                     <Typography variant="body2" color="text.secondary">
-                      No unread alerts
+                      No recent alerts for this period
                     </Typography>
                   </Box>
                 ) : (
-                  notifications.map((n) => (
-                    <MuiMenuItem
-                      key={n.id}
-                      onClick={() => handleMarkRead(n.id)}
-                      sx={{ alignItems: "flex-start", py: 1 }}
-                    >
+                  recentActivities.map((act, i) => (
+                    <MuiMenuItem key={i} sx={{ alignItems: "flex-start", py: 1 }}>
                       <ListItemText
                         primary={
                           <Typography variant="body2" fontWeight={600}>
-                            {n.title}
+                            {act.type.toUpperCase()}: {act.field_officer}
                           </Typography>
                         }
                         secondary={
                           <Box>
                             <Typography variant="caption" color="text.secondary">
-                              {n.body}
+                              Customer: {act.customer}
+                              {act.amount !== undefined ? ` · ₹${act.amount.toLocaleString()}` : ""}
+                              {act.discount_percent !== undefined ? ` (${act.discount_percent}% off)` : ""}
                             </Typography>
                             <Typography variant="caption" color="text.disabled" display="block">
-                              {new Date(n.created_at).toLocaleTimeString()}
+                              {new Date(act.timestamp).toLocaleTimeString()}
                             </Typography>
                           </Box>
                         }
@@ -271,7 +251,7 @@ export default function FieldManagerWorkspace() {
       {/* ── Tab Views ───────────────────────────────────────────────────── */}
       {tabIndex === 0 && (
         <TeamTargetsTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
           selectedMonth={selectedMonth}
           onViewRoute={handleNavigateToRoute}
         />
@@ -279,37 +259,36 @@ export default function FieldManagerWorkspace() {
 
       {tabIndex === 1 && (
         <RouteAuditTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
           selectedDate={selectedDate}
         />
       )}
 
       {tabIndex === 2 && (
         <VisitVerificationTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
           selectedDate={selectedDate}
         />
       )}
 
       {tabIndex === 3 && (
         <DiscountAnalyticsTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
           selectedMonth={selectedMonth}
         />
       )}
 
       {tabIndex === 4 && (
         <EditAuditLogTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
         />
       )}
 
       {tabIndex === 5 && (
         <StockApprovalTab
-          selectedFoId={selectedFoId}
+          selectedFoEmail={selectedFoEmail}
         />
       )}
     </Box>
   );
 }
-

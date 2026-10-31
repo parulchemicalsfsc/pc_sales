@@ -61,11 +61,11 @@ import { auraManagerAPI, type VerifyVisitPayload } from "../../services/auraApi"
 import type { CustomerVisit, VisitPhoto } from "../../types/aura";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
   selectedDate: string; // "YYYY-MM-DD"
 }
 
-export default function VisitVerificationTab({ selectedFoId, selectedDate }: Props) {
+export default function VisitVerificationTab({ selectedFoEmail, selectedDate }: Props) {
   const [visits, setVisits] = useState<CustomerVisit[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<CustomerVisit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,12 +92,12 @@ export default function VisitVerificationTab({ selectedFoId, selectedDate }: Pro
         date?: string;
         verification_status?: string;
       } = {
-        fo_user_id: selectedFoId === "all" ? undefined : selectedFoId,
+        fo_user_id: selectedFoEmail === "all" ? undefined : selectedFoEmail,
         date: selectedDate,
         verification_status: statusFilter === "all" ? undefined : statusFilter,
       };
       const res = await auraManagerAPI.getVisits(params);
-      const data: CustomerVisit[] = res.data?.visits ?? res.data ?? [];
+      const data: CustomerVisit[] = res.data?.visits ?? [];
       setVisits(data);
       if (data.length > 0 && !selectedVisit) {
         setSelectedVisit(data[0]);
@@ -114,7 +114,7 @@ export default function VisitVerificationTab({ selectedFoId, selectedDate }: Pro
 
   useEffect(() => {
     fetchVisits();
-  }, [selectedFoId, selectedDate, statusFilter]);
+  }, [selectedFoEmail, selectedDate, statusFilter]);
 
   // When selected visit changes, populate form
   useEffect(() => {
@@ -336,7 +336,7 @@ export default function VisitVerificationTab({ selectedFoId, selectedDate }: Pro
 
                   <Box display="flex" gap={1.5} flexWrap="wrap" mb={2}>
                     {selectedVisit.photos && selectedVisit.photos.length > 0 ? (
-                      selectedVisit.photos.map((p, idx) => (
+                      selectedVisit.photos.map((p: VisitPhoto, idx: number) => (
                         <Box
                           key={idx}
                           component="img"
@@ -372,30 +372,30 @@ export default function VisitVerificationTab({ selectedFoId, selectedDate }: Pro
                     sx={{ p: 1.5, mt: 0.5, bgcolor: "action.hover", borderRadius: 1 }}
                   >
                     <Typography variant="body2">
-                      {selectedVisit.fo_notes || "No observation notes submitted."}
+                      {selectedVisit.notes || (selectedVisit as any).fo_notes || "No observation notes submitted."}
                     </Typography>
                   </Paper>
 
                   {/* Orders & Receipts Booked */}
-                  {selectedVisit.linked_orders && selectedVisit.linked_orders.length > 0 && (
+                  {(((selectedVisit as any).linked_orders || selectedVisit.orders || []).length > 0) && (
                     <Box mt={2}>
                       <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
                         <OrderIcon fontSize="inherit" sx={{ verticalAlign: "middle", mr: 0.5 }} />
                         Orders Booked in This Visit:
                       </Typography>
-                      {selectedVisit.linked_orders.map((ord, i) => (
+                      {((selectedVisit as any).linked_orders || selectedVisit.orders || []).map((ord: any, i: number) => (
                         <Paper key={i} variant="outlined" sx={{ p: 1, mb: 1 }}>
                           <Box display="flex" justifyContent="space-between">
                             <Typography variant="body2" fontWeight={600}>
-                              Order #{ord.order_id} ({ord.order_type.toUpperCase()})
+                              Order #{ord.order_number || ord.order_id} ({ord.order_type ? ord.order_type.toUpperCase() : "STANDARD"})
                             </Typography>
                             <Typography variant="body2" color="success.main" fontWeight={700}>
-                              ₹{ord.total_amount.toLocaleString("en-IN")}
+                              ₹{(ord.order_total || ord.total_amount || 0).toLocaleString("en-IN")}
                             </Typography>
                           </Box>
-                          {ord.line_items && (
+                          {(ord.items || ord.line_items) && (
                             <Typography variant="caption" color="text.secondary">
-                              SKUs: {ord.line_items.map((li) => `${li.sku} x${li.qty}`).join(", ")}
+                              SKUs: {(ord.items || ord.line_items).map((li: any) => `${li.product_name || li.sku || "Item"} x${li.quantity || li.qty || 1}`).join(", ")}
                             </Typography>
                           )}
                         </Paper>
@@ -534,7 +534,7 @@ export default function VisitVerificationTab({ selectedFoId, selectedDate }: Pro
               />
               <Box p={1}>
                 <Typography variant="caption" color="text.secondary">
-                  Uploaded: {new Date(lightboxPhoto.upload_timestamp).toLocaleString()}
+                  Uploaded: {new Date(lightboxPhoto.upload_timestamp || lightboxPhoto.timestamp || Date.now()).toLocaleString()}
                   {lightboxPhoto.exif_timestamp ? ` · EXIF: ${new Date(lightboxPhoto.exif_timestamp).toLocaleString()}` : ""}
                 </Typography>
               </Box>

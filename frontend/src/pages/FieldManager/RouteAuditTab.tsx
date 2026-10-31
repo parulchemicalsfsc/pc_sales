@@ -58,7 +58,7 @@ import { auraManagerAPI, type InjectStopPayload } from "../../services/auraApi";
 import type { RouteAudit, RoutePlanItem, ActualVisitStop, LocationPoint } from "../../types/aura";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
   selectedDate: string; // "YYYY-MM-DD"
 }
 
@@ -105,7 +105,7 @@ const createCheckoutIcon = (isDrift: boolean) =>
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
+export default function RouteAuditTab({ selectedFoEmail, selectedDate }: Props) {
   const [audit, setAudit] = useState<RouteAudit | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +125,7 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
   const [injectSuccess, setInjectSuccess] = useState(false);
 
   useEffect(() => {
-    if (selectedFoId === "all") {
+    if (selectedFoEmail === "all") {
       setAudit(null);
       setLoading(false);
       return;
@@ -136,7 +136,7 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
       setError(null);
       try {
         const res = await auraManagerAPI.getRouteAudit({
-          fo_user_id: selectedFoId,
+          fo_user_id: selectedFoEmail,
           date: selectedDate,
         });
         setAudit(res.data?.audit ?? res.data ?? null);
@@ -149,16 +149,16 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
     };
 
     fetchAudit();
-  }, [selectedFoId, selectedDate]);
+  }, [selectedFoEmail, selectedDate]);
 
   // Handle Inject Stop
   const handleInjectSubmit = async () => {
-    if (selectedFoId === "all") return;
+    if (selectedFoEmail === "all") return;
     setInjectLoading(true);
     try {
       await auraManagerAPI.injectStop({
         ...injectForm,
-        fo_user_id: selectedFoId,
+        fo_user_id: selectedFoEmail,
         date: selectedDate,
         source: "manager_assigned",
       });
@@ -169,7 +169,7 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
       }, 1200);
       // Reload route audit
       const res = await auraManagerAPI.getRouteAudit({
-        fo_user_id: selectedFoId,
+        fo_user_id: selectedFoEmail,
         date: selectedDate,
       });
       setAudit(res.data?.audit ?? res.data ?? null);
@@ -181,7 +181,7 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
     }
   };
 
-  if (selectedFoId === "all") {
+  if (selectedFoEmail === "all") {
     return (
       <Card>
         <CardContent sx={{ py: 8, textAlign: "center" }}>
@@ -234,7 +234,7 @@ export default function RouteAuditTab({ selectedFoId, selectedDate }: Props) {
                   startIcon={<InjectIcon />}
                   onClick={() => {
                     setInjectForm({
-                      fo_user_id: selectedFoId,
+                      fo_user_id: selectedFoEmail,
                       date: selectedDate,
                       customer_id: "",
                       customer_name: "",

@@ -51,7 +51,7 @@ import type {
 } from "../../types/aura";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
   selectedMonth: string;
 }
 
@@ -132,7 +132,7 @@ function OrderRow({
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {order.line_items!.map((item, idx) => (
+                    {order.line_items!.map((item: any, idx: number) => (
                       <TableRow key={idx}>
                         <TableCell>{item.sku}</TableCell>
                         <TableCell align="right">{item.qty}</TableCell>
@@ -156,7 +156,7 @@ function OrderRow({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Props) {
+export default function DiscountAnalyticsTab({ selectedFoEmail, selectedMonth }: Props) {
   const [data, setData] = useState<DiscountAnalytics | null>(null);
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,14 +167,14 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
       setLoading(true);
       setError(null);
       try {
-        const foParam = selectedFoId === "all" ? undefined : selectedFoId;
+        const foParam = selectedFoEmail === "all" ? undefined : selectedFoEmail;
         const [discRes, recRes] = await Promise.all([
-          auraManagerAPI.getDiscounts({ fo_user_id: foParam, month: selectedMonth }),
-          auraManagerAPI.getReceipts({ fo_user_id: foParam, month: selectedMonth }),
+          auraManagerAPI.getDiscounts({ user_email: foParam, month_year: selectedMonth }),
+          auraManagerAPI.getReceipts({ month: selectedMonth }),
         ]);
 
-        setData(discRes.data);
-        const rList = recRes.data?.receipts ?? recRes.data ?? [];
+        setData(discRes.data.analytics);
+        const rList = recRes.data?.receipts ?? [];
         setReceipts(rList);
       } catch (e: unknown) {
         const err = e as { message?: string };
@@ -185,7 +185,7 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
     };
 
     fetchData();
-  }, [selectedFoId, selectedMonth]);
+  }, [selectedFoEmail, selectedMonth]);
 
   const summary = data?.summary ?? {
     gross_sales: 0,
@@ -226,13 +226,16 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
       field: "discount_pct",
       headerName: "Discount % of Gross",
       flex: 1,
-      renderCell: (p: GridRenderCellParams<OfficerDiscountSummary>) => (
-        <Chip
-          label={`${p.row.discount_pct.toFixed(1)}%`}
-          size="small"
-          color={p.row.discount_pct > 15 ? "error" : p.row.discount_pct > 10 ? "warning" : "default"}
-        />
-      ),
+      renderCell: (p: GridRenderCellParams<OfficerDiscountSummary>) => {
+        const pct = p.row.discount_pct ?? p.row.avg_discount_pct ?? 0;
+        return (
+          <Chip
+            label={`${pct.toFixed(1)}%`}
+            size="small"
+            color={pct > 15 ? "error" : pct > 10 ? "warning" : "default"}
+          />
+        );
+      },
     },
   ];
 
@@ -344,7 +347,7 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
               </TableRow>
             </TableHead>
             <TableBody>
-              {(data?.orders ?? []).map((order) => (
+              {(data?.orders ?? []).map((order: OrderDiscount) => (
                 <OrderRow key={order.order_id} order={order} />
               ))}
               {(data?.orders ?? []).length === 0 && (
@@ -383,14 +386,14 @@ export default function DiscountAnalyticsTab({ selectedFoId, selectedMonth }: Pr
               {receipts.map((rec) => (
                 <TableRow key={rec.receipt_id} hover>
                   <TableCell sx={{ fontWeight: 600 }}>{rec.receipt_id}</TableCell>
-                  <TableCell>{rec.fo_name}</TableCell>
+                  <TableCell>{rec.fo_name || rec.field_officer_name || "Field Officer"}</TableCell>
                   <TableCell>{rec.customer_name}</TableCell>
                   <TableCell>{rec.date}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600, color: "success.main" }}>
                     ₹{rec.amount.toLocaleString("en-IN")}
                   </TableCell>
                   <TableCell>
-                    <Chip label={rec.mode.toUpperCase()} size="small" variant="outlined" />
+                    <Chip label={(rec.mode || rec.payment_method || "CASH").toUpperCase()} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell align="center">
                     {rec.pdf_url ? (

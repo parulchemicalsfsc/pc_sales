@@ -33,7 +33,7 @@ import { auraManagerAPI } from "../../services/auraApi";
 import type { EditAuditLog } from "../../types/aura";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
 }
 
 // ─── JSON Diff Row ────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ function JsonDiffViewer({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function EditAuditLogTab({ selectedFoId }: Props) {
+export default function EditAuditLogTab({ selectedFoEmail }: Props) {
   const [logs, setLogs] = useState<EditAuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,13 +143,13 @@ export default function EditAuditLogTab({ selectedFoId }: Props) {
       setError(null);
       try {
         const params: Record<string, string | undefined> = {
-          fo_user_id: selectedFoId === "all" ? undefined : selectedFoId,
+          fo_user_id: selectedFoEmail === "all" ? undefined : selectedFoEmail,
           entity_type: entityTypeFilter === "all" ? undefined : entityTypeFilter,
           date_from: dateFrom || undefined,
           date_to: dateTo || undefined,
         };
         const res = await auraManagerAPI.getEditLogs(params);
-        const data: EditAuditLog[] = res.data?.logs ?? res.data ?? [];
+        const data: EditAuditLog[] = res.data?.logs ?? [];
         setLogs(data);
       } catch (e: unknown) {
         const err = e as { message?: string };
@@ -160,7 +160,7 @@ export default function EditAuditLogTab({ selectedFoId }: Props) {
     };
 
     fetchLogs();
-  }, [selectedFoId, entityTypeFilter, dateFrom, dateTo]);
+  }, [selectedFoEmail, entityTypeFilter, dateFrom, dateTo]);
 
   const entityColorMap: Record<string, "primary" | "secondary" | "warning" | "info" | "default"> = {
     route_plan: "warning",
@@ -246,7 +246,7 @@ export default function EditAuditLogTab({ selectedFoId }: Props) {
                     </Typography>
                   </Box>
                   <Typography variant="caption" color="text.secondary">
-                    {new Date(log.edited_at).toLocaleString()}
+                    {new Date(log.edited_at || log.timestamp || Date.now()).toLocaleString()}
                   </Typography>
                 </Box>
 
@@ -264,7 +264,7 @@ export default function EditAuditLogTab({ selectedFoId }: Props) {
                     Mandatory Field Officer Reason:
                   </Typography>
                   <Typography variant="body2" sx={{ fontStyle: "italic" }}>
-                    &ldquo;{log.edit_reason}&rdquo;
+                    &ldquo;{log.edit_reason || log.mandatory_reason || "No reason specified"}&rdquo;
                   </Typography>
                 </Alert>
 
@@ -275,7 +275,10 @@ export default function EditAuditLogTab({ selectedFoId }: Props) {
                     Payload Comparison
                   </Typography>
                 </Box>
-                <JsonDiffViewer before={log.before_snapshot} after={log.after_snapshot} />
+                <JsonDiffViewer
+                  before={log.before_snapshot || log.before_state || {}}
+                  after={log.after_snapshot || log.after_state || {}}
+                />
               </CardContent>
             </Card>
           ))}

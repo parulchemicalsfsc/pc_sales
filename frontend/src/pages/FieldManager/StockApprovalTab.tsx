@@ -46,10 +46,10 @@ import { auraManagerAPI } from "../../services/auraApi";
 import type { StockRequest } from "../../types/aura";
 
 interface Props {
-  selectedFoId: string | "all";
+  selectedFoEmail: string | "all";
 }
 
-export default function StockApprovalTab({ selectedFoId }: Props) {
+export default function StockApprovalTab({ selectedFoEmail }: Props) {
   const [requests, setRequests] = useState<StockRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,11 +71,11 @@ export default function StockApprovalTab({ selectedFoId }: Props) {
     setError(null);
     try {
       const params: { fo_user_id?: string; status?: string } = {
-        fo_user_id: selectedFoId === "all" ? undefined : selectedFoId,
+        fo_user_id: selectedFoEmail === "all" ? undefined : selectedFoEmail,
         status: statusFilter === "all" ? undefined : statusFilter,
       };
       const res = await auraManagerAPI.getStockRequests(params);
-      const data: StockRequest[] = res.data?.requests ?? res.data ?? [];
+      const data: StockRequest[] = res.data?.requests ?? [];
       setRequests(data);
     } catch (e: unknown) {
       const err = e as { message?: string };
@@ -87,7 +87,7 @@ export default function StockApprovalTab({ selectedFoId }: Props) {
 
   useEffect(() => {
     fetchRequests();
-  }, [selectedFoId, statusFilter]);
+  }, [selectedFoEmail, statusFilter]);
 
   // Handle Approve Full
   const handleApproveFull = async (req: StockRequest) => {
@@ -244,11 +244,11 @@ export default function StockApprovalTab({ selectedFoId }: Props) {
                         {req.request_id}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {new Date(req.requested_at).toLocaleDateString()}
+                        {new Date(req.requested_at || req.request_date || Date.now()).toLocaleDateString()}
                       </Typography>
                     </TableCell>
-                    <TableCell>{req.fo_name}</TableCell>
-                    <TableCell sx={{ fontWeight: 600 }}>{req.sku}</TableCell>
+                    <TableCell>{req.fo_name || req.field_officer?.name || "Field Officer"}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{req.sku || req.sku_name || "Item"}</TableCell>
                     <TableCell align="right">{req.requested_qty}</TableCell>
                     <TableCell align="right">
                       {req.approved_qty !== undefined ? (
