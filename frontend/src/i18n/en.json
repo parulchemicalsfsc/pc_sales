@@ -30,7 +30,8 @@
     "reviews": "Reviews",
     "demoScheduler": "Demo Scheduler",
     "recruitment": "Recruitment",
-    "tallyData": "Tally Data"
+    "tallyData": "Tally Data",
+    "fieldManager": "Field Manager"
   },
   "common": {
     "add": "Add",

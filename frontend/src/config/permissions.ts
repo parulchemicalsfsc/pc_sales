@@ -61,11 +61,13 @@ export const PERMISSIONS = {
     CREATE_DOCTOR: "create_doctor",
     EDIT_DOCTOR: "edit_doctor",
 
-    // Field Officers
+    // Field Officers & FO Management (MOD-16)
     VIEW_FIELD_OFFICERS: "view_field_officers",
     CREATE_FIELD_OFFICER: "create_field_officer",
     EDIT_FIELD_OFFICER: "edit_field_officer",
     DELETE_FIELD_OFFICER: "delete_field_officer",
+    MANAGE_FO_OPERATIONS: "manage_fo_operations",
+    VERIFY_FO_VISITS: "verify_fo_visits",
 
     // Reports
     VIEW_REPORTS: "view_reports",

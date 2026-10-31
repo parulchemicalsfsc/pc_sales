@@ -44,6 +44,7 @@ import LeadHistory from "./pages/LeadHistory";
 import Reviews from "./pages/Reviews";
 import TallyData from "./pages/TallyData";
 import RecruitmentWorkspace from "./pages/RecruitmentWorkspace";
+import FieldManagerWorkspace from "./pages/FieldManager/FieldManagerWorkspace";
 import { createAppTheme } from "./theme/theme";
 import { PERMISSIONS } from "./config/permissions";
 
@@ -171,6 +172,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DOCTORS}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Doctors />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/field-manager"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.MANAGE_FO_OPERATIONS}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <FieldManagerWorkspace />
                       </Layout>
                     </ProtectedRoute>
                   }

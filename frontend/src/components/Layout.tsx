@@ -191,6 +191,13 @@ const navigationItems: NavItem[] = [
         path: "/field-officers",
         permission: PERMISSIONS.VIEW_FIELD_OFFICERS,
       },
+      {
+        id: "field-manager",
+        labelKey: "nav.fieldManager",
+        icon: <AssignmentIndIcon />,
+        path: "/field-manager",
+        permission: PERMISSIONS.MANAGE_FO_OPERATIONS,
+      },
     ]
   },
   {
@@ -841,7 +848,7 @@ export default function Layout({
                               {child.icon}
                             </ListItemIcon>
                             <ListItemText
-                              primary={t(child.labelKey)}
+                              primary={child.id === "field-manager" ? "Field Manager" : t(child.labelKey)}
                               primaryTypographyProps={{
                                 fontWeight: isActive(child.path) ? 600 : 500,
                                 fontSize: "0.85rem",
