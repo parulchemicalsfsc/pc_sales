@@ -27,7 +27,7 @@ import {
   TableHead,
 } from "@mui/material";
 import { Paper } from "@mui/material";
-import { apiClient } from "../../services/api";
+import { plansAPI } from "../../services/api";
 import { format } from "date-fns";
 
 interface PlanStop {
@@ -73,13 +73,11 @@ export default function PlansByOfficerTab({ selectedDate, selectedFoEmail }: Pro
       setLoading(true);
       setError(null);
       try {
-        const res = await apiClient.get("/api/v1/plans/by-customer", {
-          params: {
-            plan_date: selectedDate,
-            user_email: selectedFoEmail === "all" ? undefined : selectedFoEmail,
-          },
+        const data = await plansAPI.getByCustomer({
+          plan_date: selectedDate,
+          user_email: selectedFoEmail === "all" ? undefined : selectedFoEmail,
         });
-        setPlans(res.data ?? []);
+        setPlans(data ?? []);
       } catch (e: unknown) {
         setError(
           e instanceof Error ? e.message : "Failed to fetch plans by customer"

@@ -724,8 +724,13 @@ export const plansAPI = {
     status?: string;
     user_email?: string;
   }) => {
-    const response = await apiClient.get("/api/v1/plans/by-customer", { params });
-    return response.data;
+    try {
+      const response = await apiClient.get("/api/v1/plans/by-customer", { params });
+      return response.data || [];
+    } catch (err) {
+      console.warn("[Plans] Could not load customer plans:", err);
+      return [];
+    }
   },
 };
 

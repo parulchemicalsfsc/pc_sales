@@ -38,12 +38,12 @@ class PlanStop(BaseModel):
 
 class CustomerPlannedRoute(BaseModel):
     customer_id: str
-    customer_name: str
+    customer_name: Optional[str] = None
     village: Optional[str] = None
     taluka: Optional[str] = None
     district: Optional[str] = None
     contact_no: Optional[str] = None
-    planned_stops: List[PlanStop]
+    planned_stops: List[PlanStop] = []
 
 
 # ======================

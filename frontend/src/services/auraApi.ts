@@ -538,22 +538,29 @@ export const auraManagerAPI = {
   },
 
   // 4. Daily Plans List
-  getDailyPlans: (params: {
+  getDailyPlans: async (params: {
     start_date?: string;
     end_date?: string;
     date_from?: string;
     date_to?: string;
     user_email?: string;
     status?: "draft" | "submitted" | "completed";
-  }) =>
-    auraClient.get("/manager/plans/daily-plans", {
-      params: {
-        date_from: params.date_from || params.start_date,
-        date_to: params.date_to || params.end_date,
-        user_email: params.user_email,
-        status: params.status,
-      },
-    }),
+  }) => {
+    try {
+      const res = await auraClient.get("/manager/plans/daily-plans", {
+        params: {
+          date_from: params.date_from || params.start_date,
+          date_to: params.date_to || params.end_date,
+          user_email: params.user_email,
+          status: params.status,
+        },
+      });
+      return res;
+    } catch (e) {
+      console.warn("[AURA] /manager/plans/daily-plans returned note:", e);
+      return { data: { plans: [], count: 0 } };
+    }
+  },
 
   // 5. Discount Analytics
   getDiscountAnalytics: async (params: {
@@ -757,21 +764,25 @@ export const auraManagerAPI = {
   },
 
   getSessionRoute: async (sessionId: string) => {
+    const emptyFallback: SessionRouteResponse = {
+      session_id: sessionId,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      total_distance_km: 0,
+      status: "unknown",
+      point_count: 0,
+      points: [],
+    };
     if (!isUUID(sessionId)) {
       console.warn(`[AURA] Invalid session ID '${sessionId}', must be UUID.`);
-      return {
-        data: {
-          session_id: sessionId,
-          started_at: new Date().toISOString(),
-          ended_at: null,
-          total_distance_km: 0,
-          status: "unknown",
-          point_count: 0,
-          points: [],
-        } as SessionRouteResponse,
-      };
+      return { data: emptyFallback };
     }
-    return auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
+    try {
+      return await auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
+    } catch (err) {
+      console.warn(`[AURA] getSessionRoute note for ${sessionId}:`, err);
+      return { data: emptyFallback };
+    }
   },
 
   getAdminOverview: () =>

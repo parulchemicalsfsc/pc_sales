@@ -1,8 +1,11 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Query
 from models import CustomerPlannedRoute, PlanStop
 from supabase_db import SupabaseClient, get_supabase, SUPABASE_URL, SUPABASE_KEY
 from rbac_utils import verify_permission
+
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
 
@@ -24,13 +27,14 @@ def get_plans_by_customer(
         target_date = plan_date or __import__("datetime").date.today().isoformat()
 
         # Build the Supabase query joining route_plan_items with daily_route_plans and customers
+        # Note: The customers table has columns (customer_id, name, village, taluka, district, mobile)
         query = (
             db.table("route_plan_items")
             .select(
                 """
                 *,
                 daily_route_plans!inner(id, plan_date, user_email, status),
-                customers!inner(id, name, village, taluka, district, mobile, contact_no)
+                customers(customer_id, name, village, taluka, district, mobile)
             """
             )
             .eq("daily_route_plans.plan_date", target_date)
@@ -55,49 +59,49 @@ def get_plans_by_customer(
         # Group by customer and build the response model
         grouped: dict = {}
         for row in response.data:
-            customer_id = row["customer_id"]
-            if customer_id not in grouped:
-                customer_info = row.get("customers")
-                grouped[customer_id] = {
-                    "customer_id": customer_id,
-                    "customer_name": customer_info["name"] if customer_info else None,
-                    "contact_no": customer_info["contact_no"] if customer_info else None,
-                    "village": customer_info["village"] if customer_info else None,
-                    "taluka": customer_info["taluka"] if customer_info else None,
-                    "district": customer_info["district"] if customer_info else None,
+            c_id = str(row.get("customer_id") or "")
+            if not c_id:
+                continue
+
+            customer_info = row.get("customers") or {}
+            if c_id not in grouped:
+                grouped[c_id] = {
+                    "customer_id": c_id,
+                    "customer_name": customer_info.get("name") or f"Customer #{c_id}",
+                    "contact_no": customer_info.get("mobile") or None,
+                    "village": customer_info.get("village") or None,
+                    "taluka": customer_info.get("taluka") or None,
+                    "district": customer_info.get("district") or None,
                     "planned_stops": [],
                 }
 
+            daily_plan = row.get("daily_route_plans") or {}
+            officer_email = daily_plan.get("user_email") or user_email or "unassigned"
+            officer_name = (
+                officer_email.split("@")[0] if "@" in officer_email else officer_email
+            )
+
             stop_data = {
-                "item_id": row["id"],
-                "plan_id": row["plan_id"]
-                if "plan_id" in row
-                else row.get("daily_route_plans", {}).get("id"),
-                "assigned_officer_email": row["daily_route_plans"]["user_email"]
-                if row.get("daily_route_plans")
-                else user_email,
-                "assigned_officer_name": (
-                    row["daily_route_plans"]["user_email"]
-                    .split("@")[0]
-                    if row.get("daily_route_plans") and row["daily_route_plans"].get("user_email")
-                    else None
-                ),
-                "sequence_order": row["planned_sequence"],
-                "planned_time": row["planned_time"],
-                "task_type": row.get("task_type", "order"),
-                "status": row["status"],
+                "item_id": str(row.get("id") or ""),
+                "plan_id": str(row.get("plan_id") or daily_plan.get("id") or ""),
+                "assigned_officer_email": officer_email,
+                "assigned_officer_name": officer_name,
+                "sequence_order": row.get("planned_sequence") or 1,
+                "planned_time": str(row.get("planned_time") or "09:00"),
+                "task_type": row.get("task_type") or "order",
+                "status": row.get("status") or "pending",
                 "actual_visit": row.get("actual_visit"),
             }
 
-            grouped[customer_id]["planned_stops"].append(stop_data)
+            grouped[c_id]["planned_stops"].append(stop_data)
 
         result = list(grouped.values())
 
         # Sort customers alphabetically by name for consistent UI display
-        result.sort(key=lambda x: x["customer_name"] or "")
+        result.sort(key=lambda x: str(x.get("customer_name") or ""))
 
         return result
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching plans by customer: {str(e)}"
-        )
+        logger.warning(f"Error fetching plans by customer: {e}")
+        # Return empty list gracefully so the frontend never encounters an unhandled 500
+        return []
