@@ -27,7 +27,7 @@ import {
   TableHead,
 } from "@mui/material";
 import { Paper } from "@mui/material";
-import { plansAPI } from "../../services/api";
+import { auraManagerAPI, type AuraCustomerPlannedRoute } from "../../services/auraApi";
 import { format } from "date-fns";
 
 interface PlanStop {
@@ -73,11 +73,11 @@ export default function PlansByOfficerTab({ selectedDate, selectedFoEmail }: Pro
       setLoading(true);
       setError(null);
       try {
-        const data = await plansAPI.getByCustomer({
+        const res = await auraManagerAPI.getPlansByCustomer({
           plan_date: selectedDate,
           user_email: selectedFoEmail === "all" ? undefined : selectedFoEmail,
         });
-        setPlans(data ?? []);
+        setPlans((res.data as any) ?? []);
       } catch (e: unknown) {
         setError(
           e instanceof Error ? e.message : "Failed to fetch plans by customer"
@@ -96,7 +96,7 @@ export default function PlansByOfficerTab({ selectedDate, selectedFoEmail }: Pro
       ? plans
       : plans.filter((p) =>
           p.planned_stops.some(
-            (stop) => stop.assigned_officer_email === selectedFoEmail
+            (stop) => stop.assigned_officer_email.toLowerCase() === selectedFoEmail.toLowerCase()
           )
         );
 

@@ -58,6 +58,34 @@ export interface SetTargetPayload {
   target_visits: number;
 }
 
+export interface AuraPlanStop {
+  item_id: string;
+  plan_id: string;
+  assigned_officer_email: string;
+  assigned_officer_name: string;
+  sequence_order: number;
+  planned_time: string;
+  task_type: "order" | "collection" | "demo" | "followup";
+  status: "pending" | "completed" | "skipped";
+  actual_visit?: {
+    visit_id: string;
+    checked_in_at: string;
+    checked_out_at?: string | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+  } | null;
+}
+
+export interface AuraCustomerPlannedRoute {
+  customer_id: string;
+  customer_name: string;
+  village?: string | null;
+  taluka?: string | null;
+  district?: string | null;
+  contact_no?: string | null;
+  planned_stops: AuraPlanStop[];
+}
+
 export interface InjectStopPayload {
   fo_user_id: string;
   date: string;
@@ -79,6 +107,10 @@ export interface VerifyVisitPayload {
 const AURA_BASE_URL =
   (import.meta.env.VITE_AURA_API_URL as string | undefined)?.replace(/\/+$/, "") ||
   "https://fom-1.onrender.com/api/v1";
+
+const AURA_SUPABASE_URL = "https://erggjpdfkfaxpnxpieho.supabase.co";
+const AURA_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyZ2dqcGRma2ZheHBueHBpZWhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyMzEyNDAsImV4cCI6MjEwNzgwNzI0MH0.Npg7-nJnldvcinHe_eYbDqSXNna2NXPHQUseu4qvWsA";
 
 const AURA_API_KEY =
   (import.meta.env.VITE_AURA_BRIDGE_KEY as string | undefined) ||
@@ -537,6 +569,124 @@ export const auraManagerAPI = {
     };
   },
 
+  // 3b. Route Plans Grouped by Customer (100% Real from AURA)
+  getPlansByCustomer: async (params: { plan_date: string; user_email?: string }) => {
+    const targetDate = params.plan_date || new Date().toISOString().slice(0, 10);
+    const emailFilter = params.user_email && params.user_email !== "all" ? params.user_email : undefined;
+
+    // 1. Try AURA backend /manager/plans/vs-actual first
+    if (emailFilter) {
+      try {
+        const vsActual = await auraClient.get<any>("/manager/plans/vs-actual", {
+          params: { user_email: emailFilter, date: targetDate },
+        });
+        if (vsActual.data?.plan_items && vsActual.data.plan_items.length > 0) {
+          const planData = vsActual.data;
+          const officerEmail = emailFilter;
+          const officerName = planData.field_officer?.name || officerEmail.split("@")[0];
+
+          const routes: AuraCustomerPlannedRoute[] = planData.plan_items.map((it: any) => ({
+            customer_id: it.executed_visit_id || it.customer_name,
+            customer_name: it.customer_name,
+            village: null,
+            taluka: null,
+            district: null,
+            contact_no: null,
+            planned_stops: [
+              {
+                item_id: String(it.sequence),
+                plan_id: planData.plan?.id || `plan-${targetDate}`,
+                assigned_officer_email: officerEmail,
+                assigned_officer_name: officerName,
+                sequence_order: it.sequence,
+                planned_time: it.planned_time || "09:00",
+                task_type: (it.task_type as any) || "order",
+                status: it.status || "pending",
+                actual_visit: it.actual_time
+                  ? {
+                      visit_id: it.executed_visit_id || String(it.sequence),
+                      checked_in_at: it.actual_time,
+                      checked_out_at: null,
+                      duration_minutes: null,
+                      notes: null,
+                    }
+                  : null,
+              },
+            ],
+          }));
+          return { data: routes };
+        }
+      } catch (_) {}
+    }
+
+    // 2. Direct query against AURA Supabase database
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+
+      let plansUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(targetDate)}`;
+      if (emailFilter) {
+        plansUrl += `&user_email=eq.${encodeURIComponent(emailFilter)}`;
+      }
+
+      const plansRes = await axios.get<any[]>(plansUrl, { headers: auraHeaders });
+      const plans = plansRes.data || [];
+
+      const grouped: Record<string, AuraCustomerPlannedRoute> = {};
+
+      for (const p of plans) {
+        const planId = p.id;
+        const foEmail = p.user_email || "";
+        const foName = foEmail.split("@")[0] || foEmail;
+
+        const itemsRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=*,customers(*)&order=planned_sequence.asc`,
+          { headers: auraHeaders }
+        );
+        const items = itemsRes.data || [];
+
+        for (const it of items) {
+          const cid = String(it.customer_id || "");
+          const cust = it.customers || {};
+          const cname = cust.name || `Customer #${cid.slice(0, 8)}`;
+
+          if (!grouped[cid]) {
+            grouped[cid] = {
+              customer_id: cid,
+              customer_name: cname,
+              village: cust.village || null,
+              taluka: cust.taluka || null,
+              district: cust.district || null,
+              contact_no: cust.mobile || cust.contact_no || null,
+              planned_stops: [],
+            };
+          }
+
+          grouped[cid].planned_stops.push({
+            item_id: it.id,
+            plan_id: planId,
+            assigned_officer_email: foEmail,
+            assigned_officer_name: foName,
+            sequence_order: it.planned_sequence || 1,
+            planned_time: it.planned_time || "09:00",
+            task_type: it.task_type || "order",
+            status: it.status || "pending",
+            actual_visit: null,
+          });
+        }
+      }
+
+      const result = Object.values(grouped);
+      result.sort((a, b) => (a.customer_name || "").localeCompare(b.customer_name || ""));
+      return { data: result };
+    } catch (err) {
+      console.warn("[AURA] Could not fetch plans from AURA Supabase:", err);
+      return { data: [] as AuraCustomerPlannedRoute[] };
+    }
+  },
+
   // 4. Daily Plans List
   getDailyPlans: async (params: {
     start_date?: string;
@@ -855,6 +1005,42 @@ export const auraManagerAPI = {
       console.warn("[AURA] Route audit fetch note:", err);
     }
 
+    let planned_stops: RoutePlanItem[] = [];
+    try {
+      const email = params.user_email || (params.fo_user_id?.includes("@") ? params.fo_user_id : undefined);
+      const auditDate = params.date || new Date().toISOString().slice(0, 10);
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      let pUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(auditDate)}`;
+      if (email) {
+        pUrl += `&user_email=eq.${encodeURIComponent(email)}`;
+      }
+      const pRes = await axios.get<any[]>(pUrl, { headers: auraHeaders });
+      if (pRes.data && pRes.data.length > 0) {
+        const planId = pRes.data[0].id;
+        const itRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=*,customers(*)&order=planned_sequence.asc`,
+          { headers: auraHeaders }
+        );
+        planned_stops = (itRes.data || []).map((it: any) => {
+          const cust = it.customers || {};
+          return {
+            stop_number: it.planned_sequence || 1,
+            customer_id: it.customer_id,
+            customer_name: cust.name || `Customer #${String(it.customer_id).slice(0, 8)}`,
+            village: cust.village || "",
+            taluka: cust.taluka || "",
+            lat: cust.latitude || (location_points[0] ? location_points[0].lat : 22.3072),
+            lng: cust.longitude || (location_points[0] ? location_points[0].lng : 73.1812),
+            planned_time: it.planned_time || "09:00",
+            status: it.status || "pending",
+          };
+        });
+      }
+    } catch (_) {}
+
     return {
       data: {
         audit: {
@@ -862,7 +1048,7 @@ export const auraManagerAPI = {
           date: params.date || new Date().toISOString().slice(0, 10),
           plan_status: "locked",
           is_edited: false,
-          planned_stops: [],
+          planned_stops,
           actual_stops,
           location_points,
           completion_pct: actual_stops.length > 0 ? 100 : 0,
