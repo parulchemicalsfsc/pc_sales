@@ -332,7 +332,7 @@ def list_vouchers(
 
         desc_order = False if order and order.strip().lower() == "asc" else True
         offset = (page - 1) * page_size
-        query  = query.order("date", desc=desc_order).order("created_at", desc=desc_order).range(offset, offset + page_size - 1)
+        query  = query.order("date", desc=desc_order).order("id", desc=desc_order).range(offset, offset + page_size - 1)
 
         result = query.execute()
         total  = result.count if result.count is not None else len(result.data)
