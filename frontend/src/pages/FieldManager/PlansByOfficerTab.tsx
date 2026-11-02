@@ -26,6 +26,7 @@ import {
   TableCell,
   TableHead,
 } from "@mui/material";
+import { Paper } from "@mui/material";
 import { apiClient } from "../../services/api";
 import { format } from "date-fns";
 
