@@ -45,7 +45,7 @@ def get_plans_by_customer(
         if user_email:
             query = query.eq("daily_route_plans.user_email", user_email)
 
-        query = query.order("planned_sequence", asc=True)
+        query = query.order("planned_sequence", desc=False)
 
         response = query.execute()
 

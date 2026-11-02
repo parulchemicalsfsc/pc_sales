@@ -160,7 +160,9 @@ class SupabaseTable:
         self._filters.append(f"or=({filters})")
         return self
 
-    def order(self, column: str, desc: bool = False, nulls: str = None):
+    def order(self, column: str, desc: bool = False, nulls: str = None, **kwargs):
+        if "asc" in kwargs:
+            desc = not kwargs["asc"]
         """Order results.
 
         Args:
