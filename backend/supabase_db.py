@@ -759,6 +759,29 @@ def init_supabase_db():
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_import_history_batch ON import_history(import_batch_id);
     CREATE INDEX IF NOT EXISTS idx_import_history_created ON import_history(created_at DESC);
+
+    -- ===================================
+    -- Route Plan Items Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS route_plan_items (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        plan_id UUID NOT NULL REFERENCES daily_route_plans(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES customers(customer_id) ON DELETE CASCADE,
+        planned_sequence INTEGER NOT NULL,
+        planned_time TIME NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        task_type TEXT NOT NULL DEFAULT 'order',
+        actual_visit JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
+    -- Indexes for Performance
+    -- ===================================
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_plan_id ON route_plan_items(plan_id);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_customer_id ON route_plan_items(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_status ON route_plan_items(status);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_sequence ON route_plan_items(planned_sequence);
     """
 
     print("=" * 60)
