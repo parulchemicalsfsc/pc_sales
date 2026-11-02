@@ -761,6 +761,17 @@ def init_supabase_db():
     CREATE INDEX IF NOT EXISTS idx_import_history_created ON import_history(created_at DESC);
 
     -- ===================================
+    -- Daily Route Plans Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS daily_route_plans (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        plan_date DATE NOT NULL,
+        user_email TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
     -- Route Plan Items Table
     -- ===================================
     CREATE TABLE IF NOT EXISTS route_plan_items (
@@ -782,6 +793,8 @@ def init_supabase_db():
     CREATE INDEX IF NOT EXISTS idx_route_plan_items_customer_id ON route_plan_items(customer_id);
     CREATE INDEX IF NOT EXISTS idx_route_plan_items_status ON route_plan_items(status);
     CREATE INDEX IF NOT EXISTS idx_route_plan_items_sequence ON route_plan_items(planned_sequence);
+    CREATE INDEX IF NOT EXISTS idx_daily_route_plans_date ON daily_route_plans(plan_date);
+    CREATE INDEX IF NOT EXISTS idx_daily_route_plans_user_email ON daily_route_plans(user_email);
     """
 
     print("=" * 60)
