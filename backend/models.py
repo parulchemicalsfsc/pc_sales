@@ -21,6 +21,32 @@ class Customer(BaseModel):
 
 
 # ======================
+# Route Plans
+# ======================
+
+class PlanStop(BaseModel):
+    item_id: str
+    plan_id: str
+    assigned_officer_email: str
+    assigned_officer_name: Optional[str] = None
+    sequence_order: int
+    planned_time: str
+    task_type: str = "order"
+    status: str = "pending"
+    actual_visit: Optional[dict] = None
+
+
+class CustomerPlannedRoute(BaseModel):
+    customer_id: str
+    customer_name: str
+    village: Optional[str] = None
+    taluka: Optional[str] = None
+    district: Optional[str] = None
+    contact_no: Optional[str] = None
+    planned_stops: List[PlanStop]
+
+
+# ======================
 # Products
 # ======================
 

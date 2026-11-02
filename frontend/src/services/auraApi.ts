@@ -326,7 +326,7 @@ function mapAdminOfficerToItem(o: any): FieldOfficerItem {
   };
 }
 
-function mapAdminOfficerToFieldOfficer(o: any): FieldOfficer {
+function mapAdminOfficerToFieldOfficer(o: any, monthDistance?: number): FieldOfficer {
   const email = o.email || o.user_id || "";
   const name = o.name || email;
   return {
@@ -343,7 +343,7 @@ function mapAdminOfficerToFieldOfficer(o: any): FieldOfficer {
     achieved_sales_amount: 0,
     achieved_liters: 0,
     target_shortfall: 300000,
-    kms_this_month: Number(o.total_distance_km) || 0,
+    kms_this_month: monthDistance !== undefined ? monthDistance : (Number(o.total_distance_km) || 0),
     total_duration_hours: 0,
     discounts_given: 0,
     today_distance_km: Number(o.today_distance_km) || 0,
@@ -710,7 +710,34 @@ export const auraManagerAPI = {
       const res = await auraClient.get<any[]>("/admin/officers");
       if (Array.isArray(res.data) && res.data.length > 0) {
         cachedOfficersList = res.data;
-        const officers = res.data.map(mapAdminOfficerToFieldOfficer);
+        const targetMonth = params?.month || new Date().toISOString().slice(0, 7);
+
+        // Fetch monthly sessions in parallel for each valid UUID officer to calculate true monthly kms
+        const officers = await Promise.all(
+          res.data.map(async (o: any) => {
+            let monthDistance = 0;
+            if (o.user_id && isUUID(o.user_id)) {
+              try {
+                const sessRes = await auraClient.get<OfficerSession[]>(
+                  `/admin/officers/${encodeURIComponent(o.user_id)}/sessions`
+                );
+                const sessions = sessRes.data || [];
+                const monthSessions = sessions.filter((s) => {
+                  const sDate = s.started_at ? s.started_at.slice(0, 7) : "";
+                  return sDate === targetMonth;
+                });
+                monthDistance = monthSessions.reduce(
+                  (sum, s) => sum + (Number(s.total_distance_km) || 0),
+                  0
+                );
+              } catch (err) {
+                console.warn(`[AURA] Could not fetch sessions for officer ${o.user_id}:`, err);
+              }
+            }
+            return mapAdminOfficerToFieldOfficer(o, Math.round(monthDistance * 100) / 100);
+          })
+        );
+
         return { data: { officers } };
       }
     } catch (e) {

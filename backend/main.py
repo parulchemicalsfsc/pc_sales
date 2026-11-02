@@ -37,6 +37,7 @@ from routers import (
     demos,
     distributors,
     imports,
+    manager_plans,
     notes,
     notifications,
     payments,
@@ -190,3 +191,4 @@ app.include_router(call_logger, prefix="/api/call-logger")
 app.include_router(recruitment, prefix="/api/recruitment")
 
 app.include_router(tally_data.router, prefix="/api/tally")
+app.include_router(manager_plans.router, prefix="/api/v1/plans")

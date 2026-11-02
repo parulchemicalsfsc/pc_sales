@@ -716,6 +716,19 @@ export const notesAPI = {
   },
 };
 
+// Plans API
+export const plansAPI = {
+  getByCustomer: async (params: {
+    plan_date?: string;
+    customer_id?: string;
+    status?: string;
+    user_email?: string;
+  }) => {
+    const response = await apiClient.get("/api/v1/plans/by-customer", { params });
+    return response.data;
+  },
+};
+
 // Demo API
 export const demoAPI = {
   getAll: async (params?: any) => {
