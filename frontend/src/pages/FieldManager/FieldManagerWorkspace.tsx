@@ -24,6 +24,7 @@ import {
 } from "@mui/material";
 import {
   Notifications as BellIcon,
+  People as TeamIcon,
   Map as RouteIcon,
   VerifiedUser as VerifyIcon,
   Discount as DiscountIcon,
@@ -31,7 +32,6 @@ import {
   Inventory as StockIcon,
   Refresh as RefreshIcon,
 } from "@mui/icons-material";
-import { People } from "@mui/icons-material";
 import { format } from "date-fns";
 
 import TeamTargetsTab from "./TeamTargetsTab";
@@ -247,7 +247,7 @@ export default function FieldManagerWorkspace() {
           <Tab icon={<DiscountIcon />} iconPosition="start" label="Discount Ledger" />
           <Tab icon={<AuditIcon />} iconPosition="start" label="Edit Audit Log" />
           <Tab icon={<StockIcon />} iconPosition="start" label="Stock Approvals" />
-          <Tab icon={<People />} iconPosition="start" label="Plans by Officer" />
+          <Tab icon={<TeamIcon />} iconPosition="start" label="Plans by Officer" />
         </Tabs>
       </Box>
 
