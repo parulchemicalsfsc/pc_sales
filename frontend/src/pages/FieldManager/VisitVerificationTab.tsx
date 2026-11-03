@@ -55,6 +55,11 @@ import {
   CalendarMonth as CalendarIcon,
   FilterList as FilterIcon,
   Close as CloseIcon,
+  Celebration as CelebrationIcon,
+  Star as StarIcon,
+  MedicalServices as MedicalServicesIcon,
+  Block as BlockIcon,
+  WarningAmber as WarningIcon,
 } from "@mui/icons-material";
 import VoiceTextField from "../../components/VoiceTextField";
 import { auraManagerAPI, type VerifyVisitPayload } from "../../services/auraApi";
@@ -232,12 +237,18 @@ export default function VisitVerificationTab({ selectedFoEmail, selectedDate }: 
                         }
                         secondary={
                           <Box mt={0.5}>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              📍 {v.village}, {v.taluka}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              ⏰ {v.checkin_time ? new Date(v.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {v.duration_minutes ?? 0}m
-                            </Typography>
+                            <Box display="flex" alignItems="center" gap={0.4}>
+                              <LocationIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {v.village}, {v.taluka}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" alignItems="center" gap={0.4} mt={0.2}>
+                              <TimeIcon sx={{ fontSize: 13, color: "text.secondary" }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {v.checkin_time ? new Date(v.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"} · {v.duration_minutes ?? 0}m
+                              </Typography>
+                            </Box>
                           </Box>
                         }
                       />
@@ -434,17 +445,32 @@ export default function VisitVerificationTab({ selectedFoEmail, selectedDate }: 
                         <FormControlLabel
                           value="verified"
                           control={<Radio color="success" size="small" />}
-                          label="✅ Verified Visit"
+                          label={
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <VerifiedIcon sx={{ fontSize: 16, color: "success.main" }} />
+                              <span>Verified Visit</span>
+                            </Box>
+                          }
                         />
                         <FormControlLabel
                           value="disputed"
                           control={<Radio color="error" size="small" />}
-                          label="❌ Disputed / Did Not Visit"
+                          label={
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <DisputedIcon sx={{ fontSize: 16, color: "error.main" }} />
+                              <span>Disputed / Did Not Visit</span>
+                            </Box>
+                          }
                         />
                         <FormControlLabel
                           value="unreachable"
                           control={<Radio color="warning" size="small" />}
-                          label="⚠️ Customer Unreachable"
+                          label={
+                            <Box display="flex" alignItems="center" gap={0.5}>
+                              <WarningIcon sx={{ fontSize: 16, color: "warning.main" }} />
+                              <span>Customer Unreachable</span>
+                            </Box>
+                          }
                         />
                       </RadioGroup>
                     </FormControl>
@@ -458,10 +484,30 @@ export default function VisitVerificationTab({ selectedFoEmail, selectedDate }: 
                       fullWidth
                       size="small"
                     >
-                      <MenuItem value="booked_second_order">🎉 Booked Second Order (F.S. Calcival)</MenuItem>
-                      <MenuItem value="high_conversion">⭐ High Conversion Probability (Follow-Up Soon)</MenuItem>
-                      <MenuItem value="needs_senior_vet">🩺 Needs Senior Vet Escalation</MenuItem>
-                      <MenuItem value="not_interested">❌ Customer Not Interested / Switched Brand</MenuItem>
+                      <MenuItem value="booked_second_order">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <CelebrationIcon sx={{ fontSize: 18, color: "primary.main" }} />
+                          <span>Booked Second Order (F.S. Calcival)</span>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="high_conversion">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <StarIcon sx={{ fontSize: 18, color: "warning.main" }} />
+                          <span>High Conversion Probability (Follow-Up Soon)</span>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="needs_senior_vet">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <MedicalServicesIcon sx={{ fontSize: 18, color: "info.main" }} />
+                          <span>Needs Senior Vet Escalation</span>
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="not_interested">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <BlockIcon sx={{ fontSize: 18, color: "error.main" }} />
+                          <span>Customer Not Interested / Switched Brand</span>
+                        </Box>
+                      </MenuItem>
                     </TextField>
 
                     {/* Voice-Enabled Call Notes using existing VoiceTextField */}

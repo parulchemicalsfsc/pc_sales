@@ -7,9 +7,9 @@
  * - Plan Status & Revision Badges
  * - Amber Alert Box if plan was edited (with reason & timestamp)
  * - Side-by-Side Comparison Stepper / List:
- *   - Sequence matches (✅ On Sequence)
- *   - Out-of-sequence / skipped visits (⚠️ Out of Sequence)
- *   - Missed planned stops (❌ Missed)
+ *   - Sequence matches (On Sequence)
+ *   - Out-of-sequence / skipped visits (Out of Sequence)
+ *   - Missed planned stops (Missed)
  *   - Unplanned visits (Purple Ad-Hoc badge)
  * - "+ Inject Mandatory Visit / Follow-Up" modal dialog
  *
@@ -50,6 +50,11 @@ import {
   Cancel as MissedIcon,
   Shuffle as SequenceWarningIcon,
   FiberManualRecord as DotIcon,
+  AccessTime as PendingIcon,
+  Place as PlaceIcon,
+  PlayCircleFilledWhite as StartPointIcon,
+  Flag as EndPointIcon,
+  GpsFixed as GpsTrackedIcon,
 } from "@mui/icons-material";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -522,29 +527,35 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             <Typography variant="body2" fontWeight={700}>
                               Stop #{planned.stop_number}: {planned.customer_name}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              📍 {planned.village ? `${planned.village}, ` : ""}{planned.taluka || ""} · Planned: {planned.planned_time}
-                            </Typography>
+                            <Box display="flex" alignItems="center" gap={0.5} mt={0.3}>
+                              <PlaceIcon sx={{ fontSize: 13, color: "error.main" }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {planned.village ? `${planned.village}, ` : ""}{planned.taluka || ""} · Planned: {planned.planned_time}
+                              </Typography>
+                            </Box>
                           </Box>
 
                           {/* Status Badge */}
                           {isDone ? (
                             <Chip
-                              label="✅ Checked In"
+                              icon={<SuccessIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Checked In"
                               color="success"
                               size="small"
                               variant="outlined"
                             />
                           ) : isPastDate ? (
                             <Chip
-                              label="❌ Missed"
+                              icon={<MissedIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Missed"
                               color="error"
                               size="small"
                               variant="outlined"
                             />
                           ) : (
                             <Chip
-                              label="🕒 Pending"
+                              icon={<PendingIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Pending"
                               color="info"
                               size="small"
                               variant="outlined"
@@ -591,9 +602,10 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             </Typography>
                           </Box>
                           <Chip
-                            label="🟣 Ad-Hoc Visit"
+                            icon={<InjectIcon sx={{ fontSize: "15px !important", color: "white !important" }} />}
+                            label="Ad-Hoc Visit"
                             size="small"
-                            sx={{ bgcolor: "#9c27b0", color: "white" }}
+                            sx={{ bgcolor: "#9c27b0", color: "white", "& .MuiChip-icon": { color: "white" } }}
                           />
                         </Box>
                       </Paper>
@@ -622,9 +634,10 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             </Typography>
                           </Box>
                           <Chip
-                            label="🟢 Live Tracked"
+                            icon={<GpsTrackedIcon sx={{ fontSize: "15px !important", color: "white !important" }} />}
+                            label="Live Tracked"
                             size="small"
-                            sx={{ bgcolor: "#2e7d32", color: "white" }}
+                            sx={{ bgcolor: "#2e7d32", color: "white", "& .MuiChip-icon": { color: "white" } }}
                           />
                         </Box>
                       </Paper>
@@ -743,7 +756,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             {isDrift && (
                               <Alert severity="error" sx={{ mt: 1, py: 0.2, px: 1 }}>
                                 <Typography variant="caption" fontWeight={700}>
-                                  ⚠️ Geofence Drift: {(driftMeters).toFixed(0)}m &gt; 500m
+                                  Geofence Drift: {(driftMeters).toFixed(0)}m &gt; 500m
                                 </Typography>
                               </Alert>
                             )}
@@ -782,9 +795,12 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       icon={createCheckinIcon()}
                     >
                       <Popup>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          🟢 Route Start Location
-                        </Typography>
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          <StartPointIcon sx={{ fontSize: 16, color: "success.main" }} />
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            Route Start Location
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" display="block">
                           Time: {new Date(audit.location_points[0].timestamp).toLocaleTimeString()}
                         </Typography>
@@ -805,9 +821,12 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       icon={createCheckoutIcon(false)}
                     >
                       <Popup>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          🏁 Latest / End Location
-                        </Typography>
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          <EndPointIcon sx={{ fontSize: 16, color: "primary.main" }} />
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            Latest / End Location
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" display="block">
                           Time: {new Date(audit.location_points[audit.location_points.length - 1].timestamp).toLocaleTimeString()}
                         </Typography>
