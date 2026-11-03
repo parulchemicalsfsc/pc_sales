@@ -111,6 +111,8 @@ const AURA_BASE_URL =
 const AURA_SUPABASE_URL = "https://erggjpdfkfaxpnxpieho.supabase.co";
 const AURA_SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyZ2dqcGRma2ZheHBueHBpZWhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyMzEyNDAsImV4cCI6MjEwNzgwNzI0MH0.Npg7-nJnldvcinHe_eYbDqSXNna2NXPHQUseu4qvWsA";
+const AURA_SUPABASE_SERVICE_ROLE_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyZ2dqcGRma2ZheHBueHBpZWhvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjIzMTI0MCwiZXhwIjoyMTA3ODA3MjQwfQ._PriEoZIeAIJXt70mhROz15LsRcz4ih2NRZyYZL04J0";
 
 const AURA_API_KEY =
   (import.meta.env.VITE_AURA_BRIDGE_KEY as string | undefined) ||
@@ -671,6 +673,21 @@ export const auraManagerAPI = {
 
       const grouped: Record<string, AuraCustomerPlannedRoute> = {};
 
+      // Fetch actual visits on targetDate to cross-reference completed stops
+      let visitsOnDate: any[] = [];
+      try {
+        const vRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(targetDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(targetDate)}T23:59:59Z&select=*`,
+          {
+            headers: {
+              apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+            },
+          }
+        );
+        visitsOnDate = vRes.data || [];
+      } catch (_) {}
+
       for (const p of plans) {
         const planId = p.id;
         const foEmail = p.user_email || "";
@@ -686,6 +703,8 @@ export const auraManagerAPI = {
           const cid = String(it.customer_id || "");
           const cust = it.customers || {};
           const cname = cust.name || `Customer #${cid.slice(0, 8)}`;
+          const matchedVisit = visitsOnDate.find((v: any) => v.customer_id === cid);
+          const isCompleted = it.status === "completed" || Boolean(matchedVisit);
 
           if (!grouped[cid]) {
             grouped[cid] = {
@@ -707,8 +726,16 @@ export const auraManagerAPI = {
             sequence_order: it.planned_sequence || 1,
             planned_time: it.planned_time || "09:00",
             task_type: it.task_type || "order",
-            status: it.status || "pending",
-            actual_visit: null,
+            status: isCompleted ? "completed" : (it.status || "pending"),
+            actual_visit: matchedVisit
+              ? {
+                  visit_id: matchedVisit.id,
+                  checked_in_at: matchedVisit.checked_in_at,
+                  checked_out_at: matchedVisit.checked_out_at || null,
+                  duration_minutes: matchedVisit.duration_minutes || null,
+                  notes: matchedVisit.notes || null,
+                }
+              : null,
           });
         }
       }
@@ -1146,6 +1173,39 @@ export const auraManagerAPI = {
       console.warn("[AURA] Route audit fetch note:", err);
     }
 
+    // Fetch actual customer visits from Supabase customer_visits
+    try {
+      const auditDate = params.date || new Date().toISOString().slice(0, 10);
+      const auraServiceHeaders = {
+        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+      };
+      const visitsRes = await axios.get<any[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`,
+        { headers: auraServiceHeaders }
+      );
+      for (const v of (visitsRes.data || [])) {
+        const cust = v.customers || {};
+        actual_stops.push({
+          visit_id: v.id,
+          customer_id: v.customer_id,
+          customer_name: cust.name || `Customer #${String(v.customer_id).slice(0, 8)}`,
+          village: cust.village || "",
+          checkin_time: v.checked_in_at,
+          checkout_time: v.checked_out_at,
+          duration_minutes: v.duration_minutes || 0,
+          checkin_lat: v.checkin_lat || (location_points[0] ? location_points[0].lat : 22.3072),
+          checkin_lng: v.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
+          checkout_lat: v.checkout_lat,
+          checkout_lng: v.checkout_lng,
+          status: "on_sequence",
+          notes: v.notes,
+        });
+      }
+    } catch (err) {
+      console.warn("[AURA] Route audit customer_visits note:", err);
+    }
+
     let planned_stops: RoutePlanItem[] = [];
     try {
       const email = params.user_email || (params.fo_user_id?.includes("@") ? params.fo_user_id : undefined);
@@ -1167,20 +1227,27 @@ export const auraManagerAPI = {
         );
         planned_stops = (itRes.data || []).map((it: any) => {
           const cust = it.customers || {};
+          const matchedActual = actual_stops.find((a) => a.customer_id === it.customer_id);
+          const isDone = it.status === "completed" || Boolean(matchedActual);
           return {
             stop_number: it.planned_sequence || 1,
             customer_id: it.customer_id,
             customer_name: cust.name || `Customer #${String(it.customer_id).slice(0, 8)}`,
-            village: cust.village || "",
+            village: cust.village || (matchedActual ? matchedActual.village : ""),
             taluka: cust.taluka || "",
-            lat: cust.latitude || (location_points[0] ? location_points[0].lat : 22.3072),
-            lng: cust.longitude || (location_points[0] ? location_points[0].lng : 73.1812),
+            lat: cust.latitude || matchedActual?.checkin_lat || (location_points[0] ? location_points[0].lat : 22.3072),
+            lng: cust.longitude || matchedActual?.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
             planned_time: it.planned_time || "09:00",
-            status: it.status || "pending",
+            status: isDone ? "completed" : "pending",
           };
         });
       }
     } catch (_) {}
+
+    const completedPlannedCount = planned_stops.filter((p) => p.status === "completed").length;
+    const completionPct = planned_stops.length > 0
+      ? Math.round((completedPlannedCount / planned_stops.length) * 100)
+      : (actual_stops.length > 0 ? 100 : 0);
 
     return {
       data: {
@@ -1192,7 +1259,7 @@ export const auraManagerAPI = {
           planned_stops,
           actual_stops,
           location_points,
-          completion_pct: actual_stops.length > 0 ? 100 : 0,
+          completion_pct: completionPct,
           sequence_adherence_pct: 100,
         } as RouteAudit,
       },

@@ -51,7 +51,7 @@ import {
   Shuffle as SequenceWarningIcon,
   FiberManualRecord as DotIcon,
 } from "@mui/icons-material";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -119,6 +119,14 @@ function getSessionDateStr(started_at?: string): string {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+function RecenterMap({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, map.getZoom());
+  }, [center, map]);
+  return null;
+}
 
 export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers: propOfficers }: Props) {
   const [audit, setAudit] = useState<RouteAudit | null>(null);
@@ -492,6 +500,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                     const actualMatch = audit?.actual_stops?.find(
                       (a) => a.customer_id === planned.customer_id
                     );
+                    const isDone = planned.status === "completed" || Boolean(actualMatch);
+                    const isPastDate = selectedDate < new Date().toISOString().slice(0, 10);
 
                     return (
                       <Paper
@@ -500,11 +510,11 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         sx={{
                           p: 1.5,
                           borderLeft: "4px solid",
-                          borderLeftColor: !actualMatch
-                            ? "error.main"
-                            : actualMatch.status === "on_sequence"
+                          borderLeftColor: isDone
                             ? "success.main"
-                            : "warning.main",
+                            : isPastDate
+                            ? "error.main"
+                            : "info.main",
                         }}
                       >
                         <Box display="flex" justifyContent="space-between" alignItems="flex-start">
@@ -513,31 +523,29 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                               Stop #{planned.stop_number}: {planned.customer_name}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              📍 {planned.village}, {planned.taluka} · Planned: {planned.planned_time}
+                              📍 {planned.village ? `${planned.village}, ` : ""}{planned.taluka || ""} · Planned: {planned.planned_time}
                             </Typography>
                           </Box>
 
                           {/* Status Badge */}
-                          {actualMatch ? (
-                            actualMatch.status === "on_sequence" ? (
-                              <Chip
-                                label="✅ On Sequence"
-                                color="success"
-                                size="small"
-                                variant="outlined"
-                              />
-                            ) : (
-                              <Chip
-                                label="⚠️ Out of Sequence"
-                                color="warning"
-                                size="small"
-                                variant="outlined"
-                              />
-                            )
-                          ) : (
+                          {isDone ? (
+                            <Chip
+                              label="✅ Checked In"
+                              color="success"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : isPastDate ? (
                             <Chip
                               label="❌ Missed"
                               color="error"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip
+                              label="🕒 Pending"
+                              color="info"
                               size="small"
                               variant="outlined"
                             />
@@ -548,10 +556,11 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         {actualMatch && (
                           <Box mt={1} pt={1} borderTop="1px dashed" borderColor="divider">
                             <Typography variant="caption" color="text.secondary">
-                              Checked In: {new Date(actualMatch.checkin_time).toLocaleTimeString()}
+                              Checked In: {new Date(actualMatch.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                               {actualMatch.checkout_time
-                                ? ` - ${new Date(actualMatch.checkout_time).toLocaleTimeString()} (${actualMatch.duration_minutes ?? 0}m)`
+                                ? ` - ${new Date(actualMatch.checkout_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (${actualMatch.duration_minutes ?? 0}m)`
                                 : " (In Progress)"}
+                              {actualMatch.notes ? ` · Note: "${actualMatch.notes}"` : ""}
                             </Typography>
                           </Box>
                         )}
@@ -660,6 +669,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                   zoom={12}
                   style={{ height: "100%", minHeight: "460px", width: "100%" }}
                 >
+                  <RecenterMap center={mapCenter} />
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
