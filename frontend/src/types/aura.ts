@@ -642,6 +642,7 @@ export interface ActualVisitStop {
   checkout_lng?: number;
   geofence_drift_meters?: number;
   is_unplanned?: boolean;
+  notes?: string | null;
   status: "verified" | "disputed" | "pending" | "unreachable" | "on_sequence" | "out_of_sequence" | "adhoc" | string;
 }
 
