@@ -94,34 +94,19 @@ def _get_present_sales_managers(db: SupabaseClient) -> list:
         return []
 
 def _get_telecaller_emails(db: SupabaseClient) -> list:
-    """Get telecaller users from app_users table, filtered by today's attendance."""
+    """Get active telecaller users from app_users table."""
     try:
-        res = db.table("app_users").select("email, name, role").execute()
+        res = db.table("app_users").select("email, name, role, is_active").execute()
         users = res.data or []
         
         telecaller_roles = {"telecaller", "staff", "telecaller1", "telecaller2"}
         all_telecallers = [
             u for u in users
-            if u.get("role", "").lower().replace(" ", "_") in telecaller_roles
-               or "telecaller" in u.get("role", "").lower()
+            if u.get("is_active", True) is not False
+            and (u.get("role", "").lower().replace(" ", "_") in telecaller_roles
+               or "telecaller" in u.get("role", "").lower())
         ]
-        
-        # Filter by today's attendance (IST)
-        today_str = get_today_ist()
-        att_res = db.table("telecaller_attendance") \
-            .select("user_email, is_present") \
-            .eq("attendance_date", today_str) \
-            .eq("is_present", True) \
-            .execute()
-            
-        present_emails = {row["user_email"] for row in (att_res.data or [])}
-        
-        telecallers = [t for t in all_telecallers if t["email"] in present_emails]
-        
-        if not telecallers:
-            telecallers = all_telecallers
-            
-        return telecallers
+        return all_telecallers
     except Exception as e:
         logger.error(f"[DIST] Error fetching telecallers: {e}", exc_info=True)
         return []
