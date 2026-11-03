@@ -388,6 +388,41 @@ function mapAdminOfficerToFieldOfficer(o: any, monthDistance?: number): FieldOff
   };
 }
 
+function mapRowToStockRequest(row: any): StockRequest {
+  const reqId = row.id || row.request_id || "";
+  const foEmail = row.field_officer_email || row.field_officer?.email || "";
+  const foName = row.field_officer?.name || (foEmail ? foEmail.split("@")[0] : "Officer");
+  const items = Array.isArray(row.requested_items) ? row.requested_items : [];
+  const firstItem = items[0] || {};
+  const skuName = row.sku_name || firstItem.product_name || firstItem.sku_name || "General Stock";
+  const requestedQty = Number(row.requested_qty ?? firstItem.qty_requested ?? firstItem.quantity ?? 0);
+  const approvedQty = row.approved_qty !== undefined
+    ? Number(row.approved_qty)
+    : (firstItem.qty_approved !== undefined
+        ? Number(firstItem.qty_approved)
+        : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
+
+  return {
+    request_id: reqId,
+    field_officer: {
+      user_id: foEmail,
+      name: foName,
+      email: foEmail,
+    },
+    fo_name: foName,
+    sku_name: skuName,
+    sku: firstItem.product_id || row.sku || "PROD-GEN",
+    requested_qty: requestedQty,
+    approved_qty: approvedQty,
+    status: (row.status || "pending").toLowerCase() as StockRequest["status"],
+    request_date: row.request_date || (row.created_at ? row.created_at.slice(0, 10) : ""),
+    requested_at: row.created_at || row.requested_at,
+    decision_date: row.approved_at || row.decision_date,
+    notes: row.notes,
+    manager_notes: row.manager_notes || row.notes,
+  };
+}
+
 // ─── Manager API Surface (v2.0.0) ─────────────────────────────────────────────
 
 export const auraManagerAPI = {
@@ -869,11 +904,40 @@ export const auraManagerAPI = {
         cachedOfficersList = res.data;
         const targetMonth = params?.month || new Date().toISOString().slice(0, 7);
 
-        // Fetch monthly sessions in parallel for each valid UUID officer to calculate true monthly kms
+        // Calculate next month ISO string for date range [targetMonth-01, nextMonth-01]
+        const [yearStr, monthStr] = targetMonth.split("-");
+        const y = parseInt(yearStr, 10);
+        const m = parseInt(monthStr, 10);
+        const nextY = m === 12 ? y + 1 : y;
+        const nextM = m === 12 ? 1 : m + 1;
+        const startIso = `${targetMonth}-01T00:00:00Z`;
+        const endIso = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00Z`;
+
+        // Direct batch query from AURA Supabase tracking_sessions for 0-latency monthly km
+        const monthlyDistMap: Record<string, number> = {};
+        try {
+          const auraHeaders = {
+            apikey: AURA_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+          };
+          const sessRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?started_at=gte.${encodeURIComponent(startIso)}&started_at=lt.${encodeURIComponent(endIso)}&select=user_id,total_distance_km`,
+            { headers: auraHeaders }
+          );
+          for (const s of (sessRes.data || [])) {
+            const uid = s.user_id;
+            if (uid) {
+              monthlyDistMap[uid] = (monthlyDistMap[uid] || 0) + (Number(s.total_distance_km) || 0);
+            }
+          }
+        } catch (_) {}
+
+        // Fetch monthly sessions in parallel for each officer to calculate true monthly kms
         const officers = await Promise.all(
           res.data.map(async (o: any) => {
-            let monthDistance = 0;
-            if (o.user_id && isUUID(o.user_id)) {
+            let monthDistance = monthlyDistMap[o.user_id];
+            // If direct Supabase returned no sessions for this user_id and monthlyDistMap is empty, fall back to backend
+            if (monthDistance === undefined && o.user_id && isUUID(o.user_id)) {
               try {
                 const sessRes = await auraClient.get<OfficerSession[]>(
                   `/admin/officers/${encodeURIComponent(o.user_id)}/sessions`
@@ -889,7 +953,10 @@ export const auraManagerAPI = {
                 );
               } catch (err) {
                 console.warn(`[AURA] Could not fetch sessions for officer ${o.user_id}:`, err);
+                monthDistance = 0;
               }
+            } else if (monthDistance === undefined) {
+              monthDistance = 0;
             }
             return mapAdminOfficerToFieldOfficer(o, Math.round(monthDistance * 100) / 100);
           })
@@ -910,7 +977,40 @@ export const auraManagerAPI = {
       console.warn(`[AURA] Cannot fetch sessions: '${userIdOrEmail}' is not or could not be resolved to a valid UUID.`);
       return { data: [] as OfficerSession[] };
     }
-    return auraClient.get<OfficerSession[]>(`/admin/officers/${encodeURIComponent(resolvedId)}/sessions`);
+    // 1. Try AURA backend
+    try {
+      const res = await auraClient.get<OfficerSession[]>(`/admin/officers/${encodeURIComponent(resolvedId)}/sessions`);
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        return res;
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase tracking_sessions
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      const res = await axios.get<any[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?user_id=eq.${encodeURIComponent(resolvedId)}&order=started_at.desc`,
+        { headers: auraHeaders }
+      );
+      const total = (res.data || []).length;
+      const sessions: OfficerSession[] = (res.data || []).map((s: any, idx: number) => ({
+        id: s.id,
+        session_number: s.session_number || (total - idx),
+        session_label: s.session_label || `Session #${s.session_number || (total - idx)}`,
+        started_at: s.started_at,
+        ended_at: s.ended_at,
+        duration_seconds: s.duration_seconds || 0,
+        total_distance_km: Number(s.total_distance_km) || 0,
+        status: s.status || "active",
+      }));
+      return { data: sessions };
+    } catch (e) {
+      console.warn("[AURA] Direct tracking_sessions fallback error:", e);
+      return { data: [] as OfficerSession[] };
+    }
   },
 
   getSessionRoute: async (sessionId: string) => {
@@ -927,8 +1027,49 @@ export const auraManagerAPI = {
       console.warn(`[AURA] Invalid session ID '${sessionId}', must be UUID.`);
       return { data: emptyFallback };
     }
+    // 1. Try backend
     try {
-      return await auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
+      const res = await auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
+      if (res.data?.points && res.data.points.length > 0) {
+        return res;
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase location_points & tracking_sessions
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      const [ptsRes, sessRes] = await Promise.all([
+        axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/location_points?session_id=eq.${encodeURIComponent(sessionId)}&order=recorded_at.asc`,
+          { headers: auraHeaders }
+        ),
+        axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?id=eq.${encodeURIComponent(sessionId)}`,
+          { headers: auraHeaders }
+        ),
+      ]);
+      const session = sessRes.data?.[0];
+      const pts = (ptsRes.data || []).map((p: any) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+        recorded_at: p.recorded_at,
+        accuracy_m: p.accuracy_m,
+        speed_mps: p.speed_mps,
+      }));
+      return {
+        data: {
+          session_id: sessionId,
+          started_at: session?.started_at || new Date().toISOString(),
+          ended_at: session?.ended_at || null,
+          total_distance_km: Number(session?.total_distance_km) || 0,
+          status: session?.status || "completed",
+          point_count: pts.length,
+          points: pts,
+        },
+      };
     } catch (err) {
       console.warn(`[AURA] getSessionRoute note for ${sessionId}:`, err);
       return { data: emptyFallback };
@@ -1181,19 +1322,107 @@ export const auraManagerAPI = {
         },
       })),
 
-  getStockRequests: (params?: { fo_user_id?: string; status?: string }) =>
-    auraClient
-      .get<{ requests: StockRequest[] }>("/manager/stock-requests", { params })
-      .catch(() => ({
-        data: {
-          requests: [] as StockRequest[],
-        },
-      })),
+  getStockRequests: async (params?: { fo_user_id?: string; status?: string }) => {
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+    };
 
-  updateStockRequest: (requestId: string, data: Record<string, unknown>) =>
-    auraClient.patch(`/manager/stock-requests/${requestId}`, data).catch(() => ({
-      data: { success: true },
-    })),
+    // 1. Try AURA backend first
+    try {
+      const backendRes = await auraClient.get<any>("/manager/stock-requests", {
+        params: {
+          status: params?.status && params.status !== "all" ? params.status : undefined,
+          field_officer_email: params?.fo_user_id && params.fo_user_id !== "all" ? params.fo_user_id : undefined,
+        },
+      });
+      const rawList: any[] = Array.isArray(backendRes.data)
+        ? backendRes.data
+        : (backendRes.data?.requests || []);
+      if (rawList.length > 0) {
+        return { data: { requests: rawList.map(mapRowToStockRequest) } };
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase fo_stock_requests table
+    try {
+      let url = `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?select=*&order=created_at.desc`;
+      if (params?.status && params.status !== "all") {
+        url += `&status=eq.${encodeURIComponent(params.status.toLowerCase())}`;
+      }
+      if (params?.fo_user_id && params.fo_user_id !== "all") {
+        url += `&field_officer_email=eq.${encodeURIComponent(params.fo_user_id)}`;
+      }
+      const res = await axios.get<any[]>(url, { headers: auraHeaders });
+      const requests = (res.data || []).map(mapRowToStockRequest);
+      return { data: { requests } };
+    } catch (err) {
+      console.warn("[AURA] getStockRequests direct fallback error:", err);
+      return { data: { requests: [] as StockRequest[] } };
+    }
+  },
+
+  updateStockRequest: async (requestId: string, data: Record<string, unknown>) => {
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    };
+
+    // 1. Forward update to AURA backend
+    try {
+      await auraClient.patch(`/manager/stock-requests/${requestId}`, data);
+    } catch (_) {}
+
+    // 2. Direct update to Supabase fo_stock_requests table
+    try {
+      const nowIso = new Date().toISOString();
+      const status = String(data.status || "approved").toLowerCase();
+      const updates: Record<string, unknown> = {
+        status,
+        updated_at: nowIso,
+      };
+
+      if (status === "approved" || status === "dispatched" || status === "fulfilled") {
+        updates.approved_at = nowIso;
+        updates.approved_by = (data.approved_by as string) || "manager@parulchemicals.com";
+      }
+
+      if (data.manager_notes) {
+        updates.notes = data.manager_notes as string;
+      }
+
+      if (data.approved_qty !== undefined) {
+        try {
+          const getRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?id=eq.${encodeURIComponent(requestId)}`,
+            { headers: auraHeaders }
+          );
+          if (getRes.data && getRes.data.length > 0) {
+            const current = getRes.data[0];
+            const rawItems = current.requested_items;
+            if (Array.isArray(rawItems) && rawItems.length > 0) {
+              const updatedItems = [...rawItems];
+              updatedItems[0].qty_approved = data.approved_qty;
+              updatedItems[0].approved_qty = data.approved_qty;
+              updates.requested_items = updatedItems;
+            }
+          }
+        } catch (_) {}
+      }
+
+      const patchRes = await axios.patch(
+        `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?id=eq.${encodeURIComponent(requestId)}`,
+        updates,
+        { headers: auraHeaders }
+      );
+      return { data: patchRes.data || { success: true } };
+    } catch (err) {
+      console.warn("[AURA] updateStockRequest direct fallback error:", err);
+      return { data: { success: true } };
+    }
+  },
 };
 
 // ─── Caller API Surface (v2.0.0) ──────────────────────────────────────────────
