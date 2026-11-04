@@ -621,6 +621,7 @@ export interface RoutePlanItem {
   customer_id: string;
   customer_name: string;
   village: string;
+  village_name?: string; // Village-based planning
   taluka: string;
   lat?: number;
   lng?: number;
@@ -633,6 +634,7 @@ export interface ActualVisitStop {
   customer_id: string;
   customer_name: string;
   village: string;
+  visit_village?: string;
   checkin_time: string;
   checkout_time?: string;
   duration_minutes?: number;
@@ -642,6 +644,9 @@ export interface ActualVisitStop {
   checkout_lng?: number;
   geofence_drift_meters?: number;
   is_unplanned?: boolean;
+  is_unknown_customer?: boolean;
+  village_match?: boolean; // Matched planned village
+  sequence_match?: boolean; // Visited in planned order
   notes?: string | null;
   status: "verified" | "disputed" | "pending" | "unreachable" | "on_sequence" | "out_of_sequence" | "adhoc" | string;
 }

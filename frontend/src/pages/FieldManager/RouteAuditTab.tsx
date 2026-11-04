@@ -56,7 +56,7 @@ import {
   Flag as EndPointIcon,
   GpsFixed as GpsTrackedIcon,
 } from "@mui/icons-material";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip as LeafletTooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -535,7 +535,45 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             </Box>
                           </Box>
 
-                          {/* Status Badge */}
+  {/* Village & Sequence Verification Badges */}
+  <Box display="flex" gap={0.5} mt={0.5} flexWrap="wrap">
+    {actualMatch && actualMatch.village_match && (
+      <Chip
+        size="small"
+        label={`✓ Village Match: ${actualMatch.village}`}
+        color="success"
+        variant="outlined"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && !actualMatch.village_match && actualMatch.village && (
+      <Chip
+        size="small"
+        label={`⚠ Village Mismatch: Visit was in ${actualMatch.village}`}
+        color="warning"
+        variant="outlined"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && actualMatch.sequence_match && (
+      <Chip
+        size="small"
+        label="On Sequence"
+        color="success"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && actualMatch.status === "out_of_sequence" && (
+      <Chip
+        size="small"
+        label="Out of Sequence"
+        color="warning"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+  </Box>
+
+  {/* Status Badge */}
                           {isDone ? (
                             <Chip
                               icon={<SuccessIcon sx={{ fontSize: "16px !important" }} />}
@@ -699,15 +737,19 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                     />
                   )}
 
-                  {/* Planned Pins */}
+                  {/* Planned Pins with Hover Tooltip */}
                   {(audit?.planned_stops ?? []).map((planned) => {
                     if (!planned.lat || !planned.lng) return null;
-                    return (
+return (
                       <Marker
                         key={`planned-${planned.customer_id}`}
                         position={[planned.lat, planned.lng]}
                         icon={createPlannedIcon(planned.stop_number)}
                       >
+                        <LeafletTooltip direction="top" offset={[0, -14]} opacity={0.95}>
+                          <div style={{ fontWeight: 700, fontSize: "12px" }}>Stop #{planned.stop_number}: {planned.village}</div>
+                          <div style={{ fontSize: "11px", color: "#444" }}>Planned Time: {planned.planned_time}</div>
+                        </LeafletTooltip>
                         <Popup>
                           <Typography variant="subtitle2" fontWeight={700}>
                             Stop #{planned.stop_number}: {planned.customer_name}
@@ -718,7 +760,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         </Popup>
                       </Marker>
                     );
-                  })}
+})}
 
                   {/* Actual Check-In and Check-Out Pins */}
                   {(audit?.actual_stops ?? []).map((actual) => {
@@ -739,29 +781,36 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       }
                     }
 
-                    return (
-                      <React.Fragment key={`actual-${actual.customer_id}`}>
-                        {/* Check-In Pin */}
-                        <Marker
-                          position={[actual.checkin_lat, actual.checkin_lng]}
-                          icon={createCheckinIcon()}
-                        >
-                          <Popup>
-                            <Typography variant="subtitle2" fontWeight={700}>
-                              Checked In: {actual.customer_name}
-                            </Typography>
-                            <Typography variant="caption" display="block">
-                              Time: {new Date(actual.checkin_time).toLocaleTimeString()}
-                            </Typography>
-                            {isDrift && (
-                              <Alert severity="error" sx={{ mt: 1, py: 0.2, px: 1 }}>
-                                <Typography variant="caption" fontWeight={700}>
-                                  Geofence Drift: {(driftMeters).toFixed(0)}m &gt; 500m
-                                </Typography>
-                              </Alert>
-                            )}
-                          </Popup>
-                        </Marker>
+return (
+                        <React.Fragment key={`actual-${actual.customer_id}`}>
+                          {/* Check-In Pin */}
+                          <Marker
+                            position={[actual.checkin_lat, actual.checkin_lng]}
+                            icon={createCheckinIcon()}
+                          >
+                            <LeafletTooltip direction="top" offset={[0, -12]} opacity={0.95}>
+                              <div style={{ fontWeight: 700, color: "#2e7d32", fontSize: "12px" }}>
+                                ✓ Checked In: {actual.village ? `${actual.village} · ` : ""}{actual.customer_name}
+                              </div>
+                              <div style={{ fontSize: "11px", color: "#333" }}>
+                                Time: {new Date(actual.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                              </div>
+                              <div style={{ fontSize: "10px", color: "#666" }}>
+                                GPS: {actual.checkin_lat.toFixed(5)}, {actual.checkin_lng.toFixed(5)}
+                              </div>
+                            </LeafletTooltip>
+                            <Popup>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                Checked In: {actual.customer_name}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Village: {actual.village || "Unknown"}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Time: {new Date(actual.checkin_time).toLocaleTimeString()}
+                              </Typography>
+                            </Popup>
+                          </Marker>
 
                         {/* Check-Out Pin if available */}
                         {actual.checkout_lat && actual.checkout_lng && (
@@ -769,20 +818,31 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             position={[actual.checkout_lat, actual.checkout_lng]}
                             icon={createCheckoutIcon(isDrift)}
                           >
-                            <Popup>
-                              <Typography variant="subtitle2">
-                                Checked Out: {actual.customer_name}
-                              </Typography>
-                              <Typography variant="caption" display="block">
-                                Time: {actual.checkout_time ? new Date(actual.checkout_time).toLocaleTimeString() : ""}
-                              </Typography>
-                              {isDrift && (
-                                <Typography variant="caption" color="error" fontWeight={700}>
-                                  Distance from Check-in: {(driftMeters).toFixed(0)}m (Drift Alert)
-                                </Typography>
-                              )}
-                            </Popup>
-                          </Marker>
+                          <LeafletTooltip direction="top" offset={[0, -10]} opacity={0.95}>
+                            <div style={{ fontWeight: 700, color: isDrift ? "#d32f2f" : "#ed6c02", fontSize: "12px" }}>
+                              ⏹ Checked Out: {actual.village ? `${actual.village} · ` : ""}{actual.customer_name}
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#333" }}>
+                              Time: {new Date(actual.checkout_time!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} ({actual.duration_minutes ?? 0}m)
+                            </div>
+                            <div style={{ fontSize: "10px", color: "#666" }}>
+                              GPS: {actual.checkout_lat.toFixed(5)}, {actual.checkout_lng.toFixed(5)}
+                            </div>
+                            {isDrift && (
+                              <div style={{ fontSize: "10px", color: "#d32f2f", fontWeight: 700 }}>
+                                ⚠ Drift: {driftMeters.toFixed(0)}m from check-in
+                              </div>
+                            )}
+                          </LeafletTooltip>
+                          <Popup>
+                            <Typography variant="subtitle2">
+                              Checked Out: {actual.customer_name}
+                            </Typography>
+                            <Typography variant="caption" display="block">
+                              Time: {new Date(actual.checkout_time!).toLocaleTimeString()}
+                            </Typography>
+                          </Popup>
+                        </Marker>
                         )}
                       </React.Fragment>
                     );

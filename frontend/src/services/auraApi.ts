@@ -1212,11 +1212,15 @@ export const auraManagerAPI = {
       );
       for (const v of (visitsRes.data || [])) {
         const cust = v.customers || {};
+        const village = v.visit_village || cust.village || "";
+        const customerName = v.customer_name || cust.name || `Customer #${String(v.customer_id || "").slice(0, 8)}`;
+        
         actual_stops.push({
           visit_id: v.id,
-          customer_id: v.customer_id,
-          customer_name: cust.name || `Customer #${String(v.customer_id).slice(0, 8)}`,
-          village: cust.village || "",
+          customer_id: v.customer_id || v.id,
+          customer_name: customerName,
+          village: village,
+          visit_village: village,
           checkin_time: v.checked_in_at,
           checkout_time: v.checked_out_at,
           duration_minutes: v.duration_minutes || 0,
@@ -1224,7 +1228,8 @@ export const auraManagerAPI = {
           checkin_lng: v.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
           checkout_lat: v.checkout_lat,
           checkout_lng: v.checkout_lng,
-          status: "on_sequence",
+          is_unknown_customer: Boolean(v.is_unknown_customer),
+          status: "pending",
           notes: v.notes,
         });
       }
@@ -1253,27 +1258,58 @@ export const auraManagerAPI = {
         );
         planned_stops = (itRes.data || []).map((it: any) => {
           const cust = it.customers || {};
-          const matchedActual = actual_stops.find((a) => a.customer_id === it.customer_id);
-          const isDone = it.status === "completed" || Boolean(matchedActual);
+          const vName = it.village_name || cust.village || cust.name || "";
           return {
             stop_number: it.planned_sequence || 1,
-            customer_id: it.customer_id,
-            customer_name: cust.name || `Customer #${String(it.customer_id).slice(0, 8)}`,
-            village: cust.village || (matchedActual ? matchedActual.village : ""),
+            customer_id: it.customer_id || it.id,
+            customer_name: it.village_name ? `Village: ${it.village_name}` : (cust.name || "Stop"),
+            village: vName,
+            village_name: it.village_name,
             taluka: cust.taluka || "",
-            lat: cust.latitude || matchedActual?.checkin_lat || (location_points[0] ? location_points[0].lat : 22.3072),
-            lng: cust.longitude || matchedActual?.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
+            lat: cust.latitude || (location_points[0] ? location_points[0].lat : 22.3072),
+            lng: cust.longitude || (location_points[0] ? location_points[0].lng : 73.1812),
             planned_time: it.planned_time || "09:00",
-            status: isDone ? "completed" : "pending",
+            status: "pending",
           };
         });
       }
     } catch (_) {}
 
-    const completedPlannedCount = planned_stops.filter((p) => p.status === "completed").length;
+    // Evaluate Village Matching and Sequence Adherence
+    const plannedVillages = planned_stops.map((p) => (p.village || "").toLowerCase().trim()).filter(Boolean);
+    let correctSequenceCount = 0;
+    actual_stops.forEach((actual, idx) => {
+      const actVillage = (actual.village || "").toLowerCase().trim();
+      const expectedPlannedVillage = plannedVillages[idx];
+      if (actVillage && expectedPlannedVillage && actVillage === expectedPlannedVillage) {
+        actual.village_match = true;
+        actual.sequence_match = true;
+        actual.status = "on_sequence";
+        correctSequenceCount++;
+      } else if (actVillage && plannedVillages.includes(actVillage)) {
+        actual.village_match = true;
+        actual.sequence_match = false;
+        actual.status = "out_of_sequence";
+      } else {
+        actual.village_match = false;
+        actual.sequence_match = false;
+        actual.status = "adhoc";
+      }
+    });
+    // Mark matching planned stops as completed
+    planned_stops.forEach((p, idx) => {
+      const pVillage = (p.village || "").toLowerCase().trim();
+      const matched = actual_stops.find((a) => (a.village || "").toLowerCase().trim() === pVillage);
+      if (matched) {
+        p.status = "completed";
+      }
+    });
     const completionPct = planned_stops.length > 0
-      ? Math.round((completedPlannedCount / planned_stops.length) * 100)
+      ? Math.round((planned_stops.filter((p) => p.status === "completed").length / planned_stops.length) * 100)
       : (actual_stops.length > 0 ? 100 : 0);
+    const sequenceAdherencePct = actual_stops.length > 0
+      ? Math.round((correctSequenceCount / actual_stops.length) * 100)
+      : 100;
 
     return {
       data: {
