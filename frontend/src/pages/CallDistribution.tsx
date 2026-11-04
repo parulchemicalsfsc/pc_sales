@@ -34,6 +34,8 @@ import {
   DialogActions,
   Divider,
   Tooltip,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -143,6 +145,7 @@ export default function CallDistribution() {
   const [selVillage, setSelVillage] = useState("");
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
   const [sabhsadDistributing, setSabhsadDistributing] = useState(false);
+  const [reassignExisting, setReassignExisting] = useState(false);
 
   const handleOpenProfile = async (email: string) => {
     setProfileDialogEmail(email);
@@ -243,7 +246,10 @@ export default function CallDistribution() {
       setToast({ msg: "Please select at least one telecaller", sev: "error" });
       return;
     }
-    if (!window.confirm("Distribute Sabhsads for the selected location to these telecallers?")) return;
+    const confirmMsg = reassignExisting
+      ? "Re-distribute ALL sabhsads in this location (including previously called contacts) equally across selected telecallers?"
+      : "Distribute Sabhsads for the selected location to these telecallers?";
+    if (!window.confirm(confirmMsg)) return;
     try {
       setSabhsadDistributing(true);
       const payload = {
@@ -252,6 +258,7 @@ export default function CallDistribution() {
         district: selDistrict,
         taluka: selTaluka,
         village: selVillage,
+        reassign_existing: reassignExisting,
       };
       const res = await automationAPI.adminDistributeSabhsads(payload);
       const count = res.assigned ?? 0;
@@ -763,6 +770,24 @@ export default function CallDistribution() {
                     {selState && selDistrict && selTaluka && locations[selState][selDistrict][selTaluka] && locations[selState][selDistrict][selTaluka].map((v: string) => <MenuItem key={v} value={v}>{v}</MenuItem>)}
                   </Select>
                 </FormControl>
+              </Grid>
+
+              <Grid item xs={12} sx={{ pt: "4px !important" }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      color="success"
+                      checked={reassignExisting}
+                      onChange={(e) => setReassignExisting(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" sx={{ fontSize: "0.82rem", color: "text.secondary", fontWeight: 500 }}>
+                      Re-distribute all contacts in this village (include previously called / historical records)
+                    </Typography>
+                  }
+                />
               </Grid>
               
               <Grid item xs={12}>

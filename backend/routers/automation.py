@@ -2061,6 +2061,7 @@ class SabhsadDistributePayload(BaseModel):
     district: str
     taluka: str
     village: str
+    reassign_existing: bool = False
 
 @router.post("/admin/distribute-sabhsads")
 def distribute_sabhsads(
@@ -2103,24 +2104,38 @@ def distribute_sabhsads(
         if not all_cust_ids:
             return {"message": "No sabhsads found in this location", "assigned": 0}
 
-        # Find which of these are already assigned (paginate in chunks of 100 for IN query)
-        assigned_ids = set()
-        for i in range(0, len(all_cust_ids), 100):
-            chunk = all_cust_ids[i:i+100]
-            assigned_res = db.table("calling_assignments") \
-                .select("customer_id") \
-                .eq("entity_type", "customer") \
-                .in_("customer_id", chunk) \
-                .execute()
-            for a in (assigned_res.data or []):
-                assigned_ids.add(a["customer_id"])
-            
-        unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
+        if payload.reassign_existing:
+            # Delete any existing 'Pending' assignments for these customers to avoid duplicate pending calls
+            for i in range(0, len(all_cust_ids), 100):
+                chunk = all_cust_ids[i:i+100]
+                db.table("calling_assignments") \
+                    .eq("status", "Pending") \
+                    .in_("customer_id", chunk) \
+                    .delete() \
+                    .execute()
+            ids_to_assign = all_cust_ids
+        else:
+            # Find which of these are already assigned (paginate in chunks of 100 for IN query)
+            assigned_ids = set()
+            for i in range(0, len(all_cust_ids), 100):
+                chunk = all_cust_ids[i:i+100]
+                assigned_res = db.table("calling_assignments") \
+                    .select("customer_id") \
+                    .eq("entity_type", "customer") \
+                    .in_("customer_id", chunk) \
+                    .execute()
+                for a in (assigned_res.data or []):
+                    assigned_ids.add(a["customer_id"])
+                
+            unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
 
-        if not unassigned_ids:
-            return {"message": "All sabhsads in this location are already assigned", "assigned": 0}
+            if not unassigned_ids:
+                return {
+                    "message": f"All {len(all_cust_ids)} sabhsads in this location were previously assigned. Check 'Re-distribute all' to assign them again.",
+                    "assigned": 0
+                }
 
-        ids_to_assign = unassigned_ids
+            ids_to_assign = unassigned_ids
         
         today_str = get_today_ist()
         assignments = []
@@ -2168,7 +2183,7 @@ def distribute_sabhsads(
         return {
             "message": "Distribution successful",
             "assigned": len(assignments),
-            "unassigned_remaining": len(unassigned_ids) - len(assignments),
+            "unassigned_remaining": max(0, len(ids_to_assign) - len(assignments)),
             "distribution": notifications_map
         }
     except Exception as e:

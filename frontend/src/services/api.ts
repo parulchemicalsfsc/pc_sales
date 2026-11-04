@@ -887,6 +887,7 @@ export const automationAPI = {
     district: string;
     taluka: string;
     village: string;
+    reassign_existing?: boolean;
   }) => {
     const response = await apiClient.post("/api/automation/admin/distribute-sabhsads", payload);
     return response.data;
