@@ -37,15 +37,31 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config) => {
     // 1. Authoritative: Get current access token from Supabase client session.
-    // getSession() automatically handles token refresh if expired or near expiry.
     let token: string | null = null;
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
-      if (!error && session?.access_token) {
-        token = session.access_token;
-        try {
-          localStorage.setItem("supabase_token", token);
-        } catch (_) {}
+      if (!error && session) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        // If session is expired or within 120s of expiry, refresh proactively
+        if (session.expires_at && session.expires_at - nowSec < 120) {
+          try {
+            const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+            if (!refreshErr && refreshed.session?.access_token) {
+              token = refreshed.session.access_token;
+              try {
+                localStorage.setItem("supabase_token", token);
+              } catch (_) {}
+            }
+          } catch (rErr) {
+            console.warn("[API] Proactive token refresh error:", rErr);
+          }
+        }
+        if (!token && session.access_token) {
+          token = session.access_token;
+          try {
+            localStorage.setItem("supabase_token", token);
+          } catch (_) {}
+        }
       }
     } catch (err) {
       console.warn("[API] Failed to get session from Supabase:", err);
@@ -74,7 +90,12 @@ apiClient.interceptors.request.use(
 
     // 4. Attach Bearer token to Authorization header if present
     if (token) {
-      config.headers["Authorization"] = `Bearer ${token}`;
+      if (config.headers && typeof (config.headers as any).set === "function") {
+        (config.headers as any).set("Authorization", `Bearer ${token}`);
+      } else {
+        config.headers = config.headers || {};
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
     }
 
     // 5. Retain legacy headers for backward compatibility with un-migrated endpoints
@@ -96,9 +117,34 @@ apiClient.interceptors.request.use(
 // Add response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    // If backend reports 401 Unauthorized, remove stale token from localStorage
-    if (error.response?.status === 401) {
+  async (error: AxiosError) => {
+    const originalRequest = error.config as any;
+
+    // If backend reports 401 Unauthorized, attempt a silent token refresh and retry once
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true;
+      try {
+        const { data, error: refreshErr } = await supabase.auth.refreshSession();
+        if (!refreshErr && data.session?.access_token) {
+          const newToken = data.session.access_token;
+          try {
+            localStorage.setItem("supabase_token", newToken);
+          } catch (_) {}
+
+          if (originalRequest.headers) {
+            if (typeof originalRequest.headers.set === "function") {
+              originalRequest.headers.set("Authorization", `Bearer ${newToken}`);
+            } else {
+              originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+            }
+          }
+          return apiClient(originalRequest);
+        }
+      } catch (refreshException) {
+        console.warn("[API] Silent session refresh on 401 failed:", refreshException);
+      }
+
+      // If refresh failed, remove stale token from storage
       try {
         localStorage.removeItem("supabase_token");
       } catch (_) {}

@@ -120,7 +120,7 @@ const AURA_API_KEY =
 
 export const auraClient = axios.create({
   baseURL: AURA_BASE_URL,
-  timeout: 30000,
+  timeout: 45000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -252,19 +252,39 @@ auraClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-// ─── Response Interceptor: 401 Re-Auth ────────────────────────────────────────
+// ─── Response Interceptor: 401 Re-Auth & Spin-Up Retry ──────────────────────────
 
 auraClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean; _timeoutRetry?: boolean };
+
+    // Retry once on timeout for idempotent GET requests when Render free tier is spinning up
+    if (
+      (error.code === "ECONNABORTED" || error.message?.includes("timeout")) &&
+      originalRequest &&
+      !originalRequest._timeoutRetry &&
+      (!originalRequest.method || originalRequest.method.toLowerCase() === "get")
+    ) {
+      originalRequest._timeoutRetry = true;
+      console.info("[AURA] Cold-start timeout detected, retrying GET:", originalRequest.url);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return auraClient(originalRequest);
+    }
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         localStorage.removeItem("aura_token");
-        const newToken = await getValidAuraToken();
+        localStorage.removeItem("aura_token_expires");
+        const authRes = await authenticateManager();
+        const newToken = authRes.token;
         if (newToken && originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          if (typeof (originalRequest.headers as any).set === "function") {
+            (originalRequest.headers as any).set("Authorization", `Bearer ${newToken}`);
+          } else {
+            originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+          }
           return auraClient(originalRequest);
         }
       } catch (authErr) {
@@ -902,6 +922,12 @@ export const auraManagerAPI = {
         return res;
       }
     } catch (_) {}
+
+    // Graceful fallback to cached officers if present
+    if (cachedOfficersList && cachedOfficersList.length > 0) {
+      const field_officers = cachedOfficersList.map(mapAdminOfficerToItem);
+      return { data: { field_officers, count: field_officers.length } };
+    }
 
     return { data: { field_officers: [] as FieldOfficerItem[], count: 0 } };
   },

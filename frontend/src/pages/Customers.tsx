@@ -489,9 +489,9 @@ export default function Customers() {
         </Card>
 
         {/* Data Grid */}
-        <Card>
-          <CardContent>
-            <Box sx={{ height: 600, width: "100%" }}>
+        <Card sx={{ width: "100%", overflow: "hidden" }}>
+          <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+            <Box sx={{ height: 600, width: "100%", minWidth: "100%", display: "flex", flexDirection: "column" }}>
               {loading ? (
                 <TableSkeleton rows={10} columns={5} />
               ) : (
@@ -506,6 +506,7 @@ export default function Customers() {
                   rowCount={rowCountState}
                   disableRowSelectionOnClick
                   sx={{
+                    width: "100%",
                     "& .MuiDataGrid-cell:focus": {
                       outline: "none",
                     },
