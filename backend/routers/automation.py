@@ -2083,10 +2083,14 @@ def distribute_sabhsads(
         offset = 0
         while True:
             query = db.table("customers").select("customer_id")
-            if payload.state: query = query.eq("state", payload.state)
-            if payload.district: query = query.eq("district", payload.district)
-            if payload.taluka: query = query.eq("taluka", payload.taluka)
-            if payload.village: query = query.eq("village", payload.village)
+            if payload.state and payload.state.strip():
+                query = query.ilike("state", payload.state.strip())
+            if payload.district and payload.district.strip():
+                query = query.ilike("district", payload.district.strip())
+            if payload.taluka and payload.taluka.strip():
+                query = query.ilike("taluka", payload.taluka.strip())
+            if payload.village and payload.village.strip():
+                query = query.ilike("village", payload.village.strip())
             query = query.range(offset, offset + batch - 1)
             cust_res = query.execute()
             if not cust_res.data:
@@ -2188,7 +2192,7 @@ def undo_village_assignment(
 
     try:
         # First, find all customers in this village
-        cust_res = db.table("customers").select("customer_id").eq("village", payload.village).execute()
+        cust_res = db.table("customers").select("customer_id").ilike("village", payload.village.strip()).execute()
         if not cust_res.data:
             return {"message": f"No customers found in village {payload.village}", "deleted": 0}
             

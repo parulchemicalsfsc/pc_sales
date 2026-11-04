@@ -110,7 +110,7 @@ export default function CallDistribution() {
   const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
   const [adminData, setAdminData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "warning" | "info" } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // [BULK ASSIGN REMOVED FROM UI — backend retained]
@@ -254,7 +254,11 @@ export default function CallDistribution() {
         village: selVillage,
       };
       const res = await automationAPI.adminDistributeSabhsads(payload);
-      setToast({ msg: res.message || "Distributed successfully", sev: "success" });
+      const count = res.assigned ?? 0;
+      setToast({
+        msg: res.message || (count > 0 ? `Successfully assigned ${count} sabhsad(s)` : "No sabhsads assigned"),
+        sev: count > 0 ? "success" : "warning",
+      });
       loadData();
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Distribution failed", sev: "error" });
