@@ -138,7 +138,7 @@ export default function Dashboard() {
     const theme = useTheme();
     const navigate = useNavigate();
     const { t } = useTranslation();
-    const { hasPermission } = useAuth();
+    const { user, role, hasPermission } = useAuth();
 
     const getLocalISODate = (d: Date) => {
         const offset = d.getTimezoneOffset() * 60000;
