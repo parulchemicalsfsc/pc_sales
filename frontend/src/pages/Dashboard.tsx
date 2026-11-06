@@ -303,7 +303,7 @@ export default function Dashboard() {
                         Telecaller Performance Dashboard
                     </Typography>
                     <Typography variant="body1" color="text.secondary" sx={{ fontSize: "1.05rem" }}>
-                        Welcome back, {user?.name || user?.email}! Here is your working hours, target progress, and calling performance.
+                        Welcome back, {(user?.user_metadata as any)?.name || user?.email}! Here is your working hours, target progress, and calling performance.
                     </Typography>
                 </Box>
 
