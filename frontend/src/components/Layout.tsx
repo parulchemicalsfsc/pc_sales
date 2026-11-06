@@ -393,7 +393,8 @@ export default function Layout({
   const [passwordExpired, setPasswordExpired] = useState(false);
 
   useEffect(() => {
-    if (!user?.email) return;
+    // Password expiry policy is enforced ONLY for telecaller users
+    if (role !== "telecaller" || !user?.email) return;
     const emailKey = user.email.toLowerCase();
 
     // Check if prompt was snoozed within the last 24 hours
@@ -417,7 +418,7 @@ export default function Layout({
       setPasswordExpired(true);
       setPasswordDialogOpen(true);
     }
-  }, [user?.email]);
+  }, [user?.email, role]);
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);

@@ -128,20 +128,23 @@ export default function UserManagement() {
     const [savingRole, setSavingRole] = useState(false);
     const [savingPassword, setSavingPassword] = useState(false);
 
-    // — Password Security & Policy Helper (60/90 Days) —
-    const getPasswordStatus = (createdAt?: string) => {
-        if (!createdAt) return { label: "Active", color: "success" as const, isExpired: false };
+    // — Password Security & Policy Helper (Telecaller 60/90 Days) —
+    const getPasswordStatus = (userRole?: string, createdAt?: string) => {
+        if (userRole !== "telecaller") {
+            return { label: "Standard", color: "default" as const, isExpired: false, isTelecaller: false };
+        }
+        if (!createdAt) return { label: "Active", color: "success" as const, isExpired: false, isTelecaller: true };
         const createdDate = new Date(createdAt);
         const now = new Date();
         const diffDays = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
         const daysLeft = Math.max(0, 90 - (diffDays % 90));
         const isExpired = diffDays >= 90;
         if (isExpired) {
-            return { label: `Expired (>90d)`, color: "error" as const, isExpired: true };
+            return { label: `Expired (>90d)`, color: "error" as const, isExpired: true, isTelecaller: true };
         } else if (daysLeft <= 15) {
-            return { label: `${daysLeft}d left`, color: "warning" as const, isExpired: false };
+            return { label: `${daysLeft}d left`, color: "warning" as const, isExpired: false, isTelecaller: true };
         }
-        return { label: `Active (${daysLeft}d left)`, color: "success" as const, isExpired: false };
+        return { label: `Active (${daysLeft}d left)`, color: "success" as const, isExpired: false, isTelecaller: true };
     };
 
     const generateTempPassword = () => {
@@ -538,12 +541,12 @@ export default function UserManagement() {
                                                 />
                                             </TableCell>
 
-                                            {/* Password Status (60/90 Days Expiry) */}
+                                            {/* Password Status (Telecaller 60/90 Days Expiry) */}
                                             <TableCell>
                                                 {(() => {
-                                                    const ps = getPasswordStatus(u.created_at);
+                                                    const ps = getPasswordStatus(u.role, u.created_at);
                                                     return (
-                                                        <Tooltip title={`Policy: Must change every 60-90 days. User joined: ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}`}>
+                                                        <Tooltip title={ps.isTelecaller ? `Telecaller Policy: Must change every 60-90 days. User joined: ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}` : "Standard User: Password does not expire"}>
                                                             <Chip
                                                                 label={ps.label}
                                                                 size="small"

@@ -130,7 +130,7 @@ export default function ChangePasswordDialog({
         <DialogContent dividers>
           {isMandatory && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              For security compliance, passwords should be updated every 60–90 days.
+              For security compliance, telecaller accounts must update passwords every 60–90 days.
               You can set a new password now or remind me later.
             </Alert>
           )}
