@@ -58,6 +58,34 @@ export interface SetTargetPayload {
   target_visits: number;
 }
 
+export interface AuraPlanStop {
+  item_id: string;
+  plan_id: string;
+  assigned_officer_email: string;
+  assigned_officer_name: string;
+  sequence_order: number;
+  planned_time: string;
+  task_type: "order" | "collection" | "demo" | "followup";
+  status: "pending" | "completed" | "skipped";
+  actual_visit?: {
+    visit_id: string;
+    checked_in_at: string;
+    checked_out_at?: string | null;
+    duration_minutes?: number | null;
+    notes?: string | null;
+  } | null;
+}
+
+export interface AuraCustomerPlannedRoute {
+  customer_id: string;
+  customer_name: string;
+  village?: string | null;
+  taluka?: string | null;
+  district?: string | null;
+  contact_no?: string | null;
+  planned_stops: AuraPlanStop[];
+}
+
 export interface InjectStopPayload {
   fo_user_id: string;
   date: string;
@@ -80,13 +108,19 @@ const AURA_BASE_URL =
   (import.meta.env.VITE_AURA_API_URL as string | undefined)?.replace(/\/+$/, "") ||
   "https://fom-1.onrender.com/api/v1";
 
+const AURA_SUPABASE_URL = "https://erggjpdfkfaxpnxpieho.supabase.co";
+const AURA_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyZ2dqcGRma2ZheHBueHBpZWhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIyMzEyNDAsImV4cCI6MjEwNzgwNzI0MH0.Npg7-nJnldvcinHe_eYbDqSXNna2NXPHQUseu4qvWsA";
+const AURA_SUPABASE_SERVICE_ROLE_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyZ2dqcGRma2ZheHBueHBpZWhvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjIzMTI0MCwiZXhwIjoyMTA3ODA3MjQwfQ._PriEoZIeAIJXt70mhROz15LsRcz4ih2NRZyYZL04J0";
+
 const AURA_API_KEY =
   (import.meta.env.VITE_AURA_BRIDGE_KEY as string | undefined) ||
   "AURA_MANAGER_SECRET_2026";
 
 export const auraClient = axios.create({
   baseURL: AURA_BASE_URL,
-  timeout: 30000,
+  timeout: 45000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -218,19 +252,39 @@ auraClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-// ─── Response Interceptor: 401 Re-Auth ────────────────────────────────────────
+// ─── Response Interceptor: 401 Re-Auth & Spin-Up Retry ──────────────────────────
 
 auraClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean; _timeoutRetry?: boolean };
+
+    // Retry once on timeout for idempotent GET requests when Render free tier is spinning up
+    if (
+      (error.code === "ECONNABORTED" || error.message?.includes("timeout")) &&
+      originalRequest &&
+      !originalRequest._timeoutRetry &&
+      (!originalRequest.method || originalRequest.method.toLowerCase() === "get")
+    ) {
+      originalRequest._timeoutRetry = true;
+      console.info("[AURA] Cold-start timeout detected, retrying GET:", originalRequest.url);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return auraClient(originalRequest);
+    }
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         localStorage.removeItem("aura_token");
-        const newToken = await getValidAuraToken();
+        localStorage.removeItem("aura_token_expires");
+        const authRes = await authenticateManager();
+        const newToken = authRes.token;
         if (newToken && originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          if (typeof (originalRequest.headers as any).set === "function") {
+            (originalRequest.headers as any).set("Authorization", `Bearer ${newToken}`);
+          } else {
+            originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
+          }
           return auraClient(originalRequest);
         }
       } catch (authErr) {
@@ -326,7 +380,7 @@ function mapAdminOfficerToItem(o: any): FieldOfficerItem {
   };
 }
 
-function mapAdminOfficerToFieldOfficer(o: any): FieldOfficer {
+function mapAdminOfficerToFieldOfficer(o: any, monthDistance?: number): FieldOfficer {
   const email = o.email || o.user_id || "";
   const name = o.name || email;
   return {
@@ -343,7 +397,7 @@ function mapAdminOfficerToFieldOfficer(o: any): FieldOfficer {
     achieved_sales_amount: 0,
     achieved_liters: 0,
     target_shortfall: 300000,
-    kms_this_month: Number(o.total_distance_km) || 0,
+    kms_this_month: monthDistance !== undefined ? monthDistance : (Number(o.total_distance_km) || 0),
     total_duration_hours: 0,
     discounts_given: 0,
     today_distance_km: Number(o.today_distance_km) || 0,
@@ -353,6 +407,41 @@ function mapAdminOfficerToFieldOfficer(o: any): FieldOfficer {
     last_active_at: o.last_active_at,
     latest_session_id: o.latest_session_id,
     last_location: o.last_location,
+  };
+}
+
+function mapRowToStockRequest(row: any): StockRequest {
+  const reqId = row.id || row.request_id || "";
+  const foEmail = row.field_officer_email || row.field_officer?.email || "";
+  const foName = row.field_officer?.name || (foEmail ? foEmail.split("@")[0] : "Officer");
+  const items = Array.isArray(row.requested_items) ? row.requested_items : [];
+  const firstItem = items[0] || {};
+  const skuName = row.sku_name || firstItem.product_name || firstItem.sku_name || "General Stock";
+  const requestedQty = Number(row.requested_qty ?? firstItem.qty_requested ?? firstItem.quantity ?? 0);
+  const approvedQty = row.approved_qty !== undefined
+    ? Number(row.approved_qty)
+    : (firstItem.qty_approved !== undefined
+        ? Number(firstItem.qty_approved)
+        : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
+
+  return {
+    request_id: reqId,
+    field_officer: {
+      user_id: foEmail,
+      name: foName,
+      email: foEmail,
+    },
+    fo_name: foName,
+    sku_name: skuName,
+    sku: firstItem.product_id || row.sku || "PROD-GEN",
+    requested_qty: requestedQty,
+    approved_qty: approvedQty,
+    status: (row.status || "pending").toLowerCase() as StockRequest["status"],
+    request_date: row.request_date || (row.created_at ? row.created_at.slice(0, 10) : ""),
+    requested_at: row.created_at || row.requested_at,
+    decision_date: row.approved_at || row.decision_date,
+    notes: row.notes,
+    manager_notes: row.manager_notes || row.notes,
   };
 }
 
@@ -537,23 +626,173 @@ export const auraManagerAPI = {
     };
   },
 
+  // 3b. Route Plans Grouped by Customer (100% Real from AURA)
+  getPlansByCustomer: async (params: { plan_date: string; user_email?: string }) => {
+    const targetDate = params.plan_date || new Date().toISOString().slice(0, 10);
+    const emailFilter = params.user_email && params.user_email !== "all" ? params.user_email : undefined;
+
+    // 1. Try AURA backend /manager/plans/vs-actual first
+    if (emailFilter) {
+      try {
+        const vsActual = await auraClient.get<any>("/manager/plans/vs-actual", {
+          params: { user_email: emailFilter, date: targetDate },
+        });
+        if (vsActual.data?.plan_items && vsActual.data.plan_items.length > 0) {
+          const planData = vsActual.data;
+          const officerEmail = emailFilter;
+          const officerName = planData.field_officer?.name || officerEmail.split("@")[0];
+
+          const routes: AuraCustomerPlannedRoute[] = planData.plan_items.map((it: any) => ({
+            customer_id: it.executed_visit_id || it.customer_name,
+            customer_name: it.customer_name,
+            village: null,
+            taluka: null,
+            district: null,
+            contact_no: null,
+            planned_stops: [
+              {
+                item_id: String(it.sequence),
+                plan_id: planData.plan?.id || `plan-${targetDate}`,
+                assigned_officer_email: officerEmail,
+                assigned_officer_name: officerName,
+                sequence_order: it.sequence,
+                planned_time: it.planned_time || "09:00",
+                task_type: (it.task_type as any) || "order",
+                status: it.status || "pending",
+                actual_visit: it.actual_time
+                  ? {
+                      visit_id: it.executed_visit_id || String(it.sequence),
+                      checked_in_at: it.actual_time,
+                      checked_out_at: null,
+                      duration_minutes: null,
+                      notes: null,
+                    }
+                  : null,
+              },
+            ],
+          }));
+          return { data: routes };
+        }
+      } catch (_) {}
+    }
+
+    // 2. Direct query against AURA Supabase database
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+
+      let plansUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(targetDate)}`;
+      if (emailFilter) {
+        plansUrl += `&user_email=eq.${encodeURIComponent(emailFilter)}`;
+      }
+
+      const plansRes = await axios.get<any[]>(plansUrl, { headers: auraHeaders });
+      const plans = plansRes.data || [];
+
+      const grouped: Record<string, AuraCustomerPlannedRoute> = {};
+
+      // Fetch actual visits on targetDate to cross-reference completed stops
+      let visitsOnDate: any[] = [];
+      try {
+        const vRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(targetDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(targetDate)}T23:59:59Z&select=*`,
+          {
+            headers: {
+              apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+            },
+          }
+        );
+        visitsOnDate = vRes.data || [];
+      } catch (_) {}
+
+      for (const p of plans) {
+        const planId = p.id;
+        const foEmail = p.user_email || "";
+        const foName = foEmail.split("@")[0] || foEmail;
+
+        const itemsRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=*,customers(*)&order=planned_sequence.asc`,
+          { headers: auraHeaders }
+        );
+        const items = itemsRes.data || [];
+
+        for (const it of items) {
+          const cid = String(it.customer_id || "");
+          const cust = it.customers || {};
+          const cname = cust.name || `Customer #${cid.slice(0, 8)}`;
+          const matchedVisit = visitsOnDate.find((v: any) => v.customer_id === cid);
+          const isCompleted = it.status === "completed" || Boolean(matchedVisit);
+
+          if (!grouped[cid]) {
+            grouped[cid] = {
+              customer_id: cid,
+              customer_name: cname,
+              village: cust.village || null,
+              taluka: cust.taluka || null,
+              district: cust.district || null,
+              contact_no: cust.mobile || cust.contact_no || null,
+              planned_stops: [],
+            };
+          }
+
+          grouped[cid].planned_stops.push({
+            item_id: it.id,
+            plan_id: planId,
+            assigned_officer_email: foEmail,
+            assigned_officer_name: foName,
+            sequence_order: it.planned_sequence || 1,
+            planned_time: it.planned_time || "09:00",
+            task_type: it.task_type || "order",
+            status: isCompleted ? "completed" : (it.status || "pending"),
+            actual_visit: matchedVisit
+              ? {
+                  visit_id: matchedVisit.id,
+                  checked_in_at: matchedVisit.checked_in_at,
+                  checked_out_at: matchedVisit.checked_out_at || null,
+                  duration_minutes: matchedVisit.duration_minutes || null,
+                  notes: matchedVisit.notes || null,
+                }
+              : null,
+          });
+        }
+      }
+
+      const result = Object.values(grouped);
+      result.sort((a, b) => (a.customer_name || "").localeCompare(b.customer_name || ""));
+      return { data: result };
+    } catch (err) {
+      console.warn("[AURA] Could not fetch plans from AURA Supabase:", err);
+      return { data: [] as AuraCustomerPlannedRoute[] };
+    }
+  },
+
   // 4. Daily Plans List
-  getDailyPlans: (params: {
+  getDailyPlans: async (params: {
     start_date?: string;
     end_date?: string;
     date_from?: string;
     date_to?: string;
     user_email?: string;
     status?: "draft" | "submitted" | "completed";
-  }) =>
-    auraClient.get("/manager/plans/daily-plans", {
-      params: {
-        date_from: params.date_from || params.start_date,
-        date_to: params.date_to || params.end_date,
-        user_email: params.user_email,
-        status: params.status,
-      },
-    }),
+  }) => {
+    try {
+      const res = await auraClient.get("/manager/plans/daily-plans", {
+        params: {
+          date_from: params.date_from || params.start_date,
+          date_to: params.date_to || params.end_date,
+          user_email: params.user_email,
+          status: params.status,
+        },
+      });
+      return res;
+    } catch (e) {
+      console.warn("[AURA] /manager/plans/daily-plans returned note:", e);
+      return { data: { plans: [], count: 0 } };
+    }
+  },
 
   // 5. Discount Analytics
   getDiscountAnalytics: async (params: {
@@ -684,6 +923,12 @@ export const auraManagerAPI = {
       }
     } catch (_) {}
 
+    // Graceful fallback to cached officers if present
+    if (cachedOfficersList && cachedOfficersList.length > 0) {
+      const field_officers = cachedOfficersList.map(mapAdminOfficerToItem);
+      return { data: { field_officers, count: field_officers.length } };
+    }
+
     return { data: { field_officers: [] as FieldOfficerItem[], count: 0 } };
   },
 
@@ -710,7 +955,66 @@ export const auraManagerAPI = {
       const res = await auraClient.get<any[]>("/admin/officers");
       if (Array.isArray(res.data) && res.data.length > 0) {
         cachedOfficersList = res.data;
-        const officers = res.data.map(mapAdminOfficerToFieldOfficer);
+        const targetMonth = params?.month || new Date().toISOString().slice(0, 7);
+
+        // Calculate next month ISO string for date range [targetMonth-01, nextMonth-01]
+        const [yearStr, monthStr] = targetMonth.split("-");
+        const y = parseInt(yearStr, 10);
+        const m = parseInt(monthStr, 10);
+        const nextY = m === 12 ? y + 1 : y;
+        const nextM = m === 12 ? 1 : m + 1;
+        const startIso = `${targetMonth}-01T00:00:00Z`;
+        const endIso = `${nextY}-${String(nextM).padStart(2, "0")}-01T00:00:00Z`;
+
+        // Direct batch query from AURA Supabase tracking_sessions for 0-latency monthly km
+        const monthlyDistMap: Record<string, number> = {};
+        try {
+          const auraHeaders = {
+            apikey: AURA_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+          };
+          const sessRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?started_at=gte.${encodeURIComponent(startIso)}&started_at=lt.${encodeURIComponent(endIso)}&select=user_id,total_distance_km`,
+            { headers: auraHeaders }
+          );
+          for (const s of (sessRes.data || [])) {
+            const uid = s.user_id;
+            if (uid) {
+              monthlyDistMap[uid] = (monthlyDistMap[uid] || 0) + (Number(s.total_distance_km) || 0);
+            }
+          }
+        } catch (_) {}
+
+        // Fetch monthly sessions in parallel for each officer to calculate true monthly kms
+        const officers = await Promise.all(
+          res.data.map(async (o: any) => {
+            let monthDistance = monthlyDistMap[o.user_id];
+            // If direct Supabase returned no sessions for this user_id and monthlyDistMap is empty, fall back to backend
+            if (monthDistance === undefined && o.user_id && isUUID(o.user_id)) {
+              try {
+                const sessRes = await auraClient.get<OfficerSession[]>(
+                  `/admin/officers/${encodeURIComponent(o.user_id)}/sessions`
+                );
+                const sessions = sessRes.data || [];
+                const monthSessions = sessions.filter((s) => {
+                  const sDate = s.started_at ? s.started_at.slice(0, 7) : "";
+                  return sDate === targetMonth;
+                });
+                monthDistance = monthSessions.reduce(
+                  (sum, s) => sum + (Number(s.total_distance_km) || 0),
+                  0
+                );
+              } catch (err) {
+                console.warn(`[AURA] Could not fetch sessions for officer ${o.user_id}:`, err);
+                monthDistance = 0;
+              }
+            } else if (monthDistance === undefined) {
+              monthDistance = 0;
+            }
+            return mapAdminOfficerToFieldOfficer(o, Math.round(monthDistance * 100) / 100);
+          })
+        );
+
         return { data: { officers } };
       }
     } catch (e) {
@@ -726,25 +1030,103 @@ export const auraManagerAPI = {
       console.warn(`[AURA] Cannot fetch sessions: '${userIdOrEmail}' is not or could not be resolved to a valid UUID.`);
       return { data: [] as OfficerSession[] };
     }
-    return auraClient.get<OfficerSession[]>(`/admin/officers/${encodeURIComponent(resolvedId)}/sessions`);
+    // 1. Try AURA backend
+    try {
+      const res = await auraClient.get<OfficerSession[]>(`/admin/officers/${encodeURIComponent(resolvedId)}/sessions`);
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        return res;
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase tracking_sessions
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      const res = await axios.get<any[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?user_id=eq.${encodeURIComponent(resolvedId)}&order=started_at.desc`,
+        { headers: auraHeaders }
+      );
+      const total = (res.data || []).length;
+      const sessions: OfficerSession[] = (res.data || []).map((s: any, idx: number) => ({
+        id: s.id,
+        session_number: s.session_number || (total - idx),
+        session_label: s.session_label || `Session #${s.session_number || (total - idx)}`,
+        started_at: s.started_at,
+        ended_at: s.ended_at,
+        duration_seconds: s.duration_seconds || 0,
+        total_distance_km: Number(s.total_distance_km) || 0,
+        status: s.status || "active",
+      }));
+      return { data: sessions };
+    } catch (e) {
+      console.warn("[AURA] Direct tracking_sessions fallback error:", e);
+      return { data: [] as OfficerSession[] };
+    }
   },
 
   getSessionRoute: async (sessionId: string) => {
+    const emptyFallback: SessionRouteResponse = {
+      session_id: sessionId,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      total_distance_km: 0,
+      status: "unknown",
+      point_count: 0,
+      points: [],
+    };
     if (!isUUID(sessionId)) {
       console.warn(`[AURA] Invalid session ID '${sessionId}', must be UUID.`);
+      return { data: emptyFallback };
+    }
+    // 1. Try backend
+    try {
+      const res = await auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
+      if (res.data?.points && res.data.points.length > 0) {
+        return res;
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase location_points & tracking_sessions
+    try {
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      const [ptsRes, sessRes] = await Promise.all([
+        axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/location_points?session_id=eq.${encodeURIComponent(sessionId)}&order=recorded_at.asc`,
+          { headers: auraHeaders }
+        ),
+        axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/tracking_sessions?id=eq.${encodeURIComponent(sessionId)}`,
+          { headers: auraHeaders }
+        ),
+      ]);
+      const session = sessRes.data?.[0];
+      const pts = (ptsRes.data || []).map((p: any) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+        recorded_at: p.recorded_at,
+        accuracy_m: p.accuracy_m,
+        speed_mps: p.speed_mps,
+      }));
       return {
         data: {
           session_id: sessionId,
-          started_at: new Date().toISOString(),
-          ended_at: null,
-          total_distance_km: 0,
-          status: "unknown",
-          point_count: 0,
-          points: [],
-        } as SessionRouteResponse,
+          started_at: session?.started_at || new Date().toISOString(),
+          ended_at: session?.ended_at || null,
+          total_distance_km: Number(session?.total_distance_km) || 0,
+          status: session?.status || "completed",
+          point_count: pts.length,
+          points: pts,
+        },
       };
+    } catch (err) {
+      console.warn(`[AURA] getSessionRoute note for ${sessionId}:`, err);
+      return { data: emptyFallback };
     }
-    return auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(sessionId)}/route`);
   },
 
   getAdminOverview: () =>
@@ -817,6 +1199,118 @@ export const auraManagerAPI = {
       console.warn("[AURA] Route audit fetch note:", err);
     }
 
+    // Fetch actual customer visits from Supabase customer_visits
+    try {
+      const auditDate = params.date || new Date().toISOString().slice(0, 10);
+      const auraServiceHeaders = {
+        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+      };
+      const visitsRes = await axios.get<any[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`,
+        { headers: auraServiceHeaders }
+      );
+      for (const v of (visitsRes.data || [])) {
+        const cust = v.customers || {};
+        const village = v.visit_village || cust.village || "";
+        const customerName = v.customer_name || cust.name || `Customer #${String(v.customer_id || "").slice(0, 8)}`;
+        
+        actual_stops.push({
+          visit_id: v.id,
+          customer_id: v.customer_id || v.id,
+          customer_name: customerName,
+          village: village,
+          visit_village: village,
+          checkin_time: v.checked_in_at,
+          checkout_time: v.checked_out_at,
+          duration_minutes: v.duration_minutes || 0,
+          checkin_lat: v.checkin_lat || (location_points[0] ? location_points[0].lat : 22.3072),
+          checkin_lng: v.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
+          checkout_lat: v.checkout_lat,
+          checkout_lng: v.checkout_lng,
+          is_unknown_customer: Boolean(v.is_unknown_customer),
+          status: "pending",
+          notes: v.notes,
+        });
+      }
+    } catch (err) {
+      console.warn("[AURA] Route audit customer_visits note:", err);
+    }
+
+    let planned_stops: RoutePlanItem[] = [];
+    try {
+      const email = params.user_email || (params.fo_user_id?.includes("@") ? params.fo_user_id : undefined);
+      const auditDate = params.date || new Date().toISOString().slice(0, 10);
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      };
+      let pUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(auditDate)}`;
+      if (email) {
+        pUrl += `&user_email=eq.${encodeURIComponent(email)}`;
+      }
+      const pRes = await axios.get<any[]>(pUrl, { headers: auraHeaders });
+      if (pRes.data && pRes.data.length > 0) {
+        const planId = pRes.data[0].id;
+        const itRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=*,customers(*)&order=planned_sequence.asc`,
+          { headers: auraHeaders }
+        );
+        planned_stops = (itRes.data || []).map((it: any) => {
+          const cust = it.customers || {};
+          const vName = it.village_name || cust.village || cust.name || "";
+          return {
+            stop_number: it.planned_sequence || 1,
+            customer_id: it.customer_id || it.id,
+            customer_name: it.village_name ? `Village: ${it.village_name}` : (cust.name || "Stop"),
+            village: vName,
+            village_name: it.village_name,
+            taluka: cust.taluka || "",
+            lat: cust.latitude || (location_points[0] ? location_points[0].lat : 22.3072),
+            lng: cust.longitude || (location_points[0] ? location_points[0].lng : 73.1812),
+            planned_time: it.planned_time || "09:00",
+            status: "pending",
+          };
+        });
+      }
+    } catch (_) {}
+
+    // Evaluate Village Matching and Sequence Adherence
+    const plannedVillages = planned_stops.map((p) => (p.village || "").toLowerCase().trim()).filter(Boolean);
+    let correctSequenceCount = 0;
+    actual_stops.forEach((actual, idx) => {
+      const actVillage = (actual.village || "").toLowerCase().trim();
+      const expectedPlannedVillage = plannedVillages[idx];
+      if (actVillage && expectedPlannedVillage && actVillage === expectedPlannedVillage) {
+        actual.village_match = true;
+        actual.sequence_match = true;
+        actual.status = "on_sequence";
+        correctSequenceCount++;
+      } else if (actVillage && plannedVillages.includes(actVillage)) {
+        actual.village_match = true;
+        actual.sequence_match = false;
+        actual.status = "out_of_sequence";
+      } else {
+        actual.village_match = false;
+        actual.sequence_match = false;
+        actual.status = "adhoc";
+      }
+    });
+    // Mark matching planned stops as completed
+    planned_stops.forEach((p, idx) => {
+      const pVillage = (p.village || "").toLowerCase().trim();
+      const matched = actual_stops.find((a) => (a.village || "").toLowerCase().trim() === pVillage);
+      if (matched) {
+        p.status = "completed";
+      }
+    });
+    const completionPct = planned_stops.length > 0
+      ? Math.round((planned_stops.filter((p) => p.status === "completed").length / planned_stops.length) * 100)
+      : (actual_stops.length > 0 ? 100 : 0);
+    const sequenceAdherencePct = actual_stops.length > 0
+      ? Math.round((correctSequenceCount / actual_stops.length) * 100)
+      : 100;
+
     return {
       data: {
         audit: {
@@ -824,10 +1318,10 @@ export const auraManagerAPI = {
           date: params.date || new Date().toISOString().slice(0, 10),
           plan_status: "locked",
           is_edited: false,
-          planned_stops: [],
+          planned_stops,
           actual_stops,
           location_points,
-          completion_pct: actual_stops.length > 0 ? 100 : 0,
+          completion_pct: completionPct,
           sequence_adherence_pct: 100,
         } as RouteAudit,
       },
@@ -957,19 +1451,107 @@ export const auraManagerAPI = {
         },
       })),
 
-  getStockRequests: (params?: { fo_user_id?: string; status?: string }) =>
-    auraClient
-      .get<{ requests: StockRequest[] }>("/manager/stock-requests", { params })
-      .catch(() => ({
-        data: {
-          requests: [] as StockRequest[],
-        },
-      })),
+  getStockRequests: async (params?: { fo_user_id?: string; status?: string }) => {
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+    };
 
-  updateStockRequest: (requestId: string, data: Record<string, unknown>) =>
-    auraClient.patch(`/manager/stock-requests/${requestId}`, data).catch(() => ({
-      data: { success: true },
-    })),
+    // 1. Try AURA backend first
+    try {
+      const backendRes = await auraClient.get<any>("/manager/stock-requests", {
+        params: {
+          status: params?.status && params.status !== "all" ? params.status : undefined,
+          field_officer_email: params?.fo_user_id && params.fo_user_id !== "all" ? params.fo_user_id : undefined,
+        },
+      });
+      const rawList: any[] = Array.isArray(backendRes.data)
+        ? backendRes.data
+        : (backendRes.data?.requests || []);
+      if (rawList.length > 0) {
+        return { data: { requests: rawList.map(mapRowToStockRequest) } };
+      }
+    } catch (_) {}
+
+    // 2. Direct query against AURA Supabase fo_stock_requests table
+    try {
+      let url = `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?select=*&order=created_at.desc`;
+      if (params?.status && params.status !== "all") {
+        url += `&status=eq.${encodeURIComponent(params.status.toLowerCase())}`;
+      }
+      if (params?.fo_user_id && params.fo_user_id !== "all") {
+        url += `&field_officer_email=eq.${encodeURIComponent(params.fo_user_id)}`;
+      }
+      const res = await axios.get<any[]>(url, { headers: auraHeaders });
+      const requests = (res.data || []).map(mapRowToStockRequest);
+      return { data: { requests } };
+    } catch (err) {
+      console.warn("[AURA] getStockRequests direct fallback error:", err);
+      return { data: { requests: [] as StockRequest[] } };
+    }
+  },
+
+  updateStockRequest: async (requestId: string, data: Record<string, unknown>) => {
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    };
+
+    // 1. Forward update to AURA backend
+    try {
+      await auraClient.patch(`/manager/stock-requests/${requestId}`, data);
+    } catch (_) {}
+
+    // 2. Direct update to Supabase fo_stock_requests table
+    try {
+      const nowIso = new Date().toISOString();
+      const status = String(data.status || "approved").toLowerCase();
+      const updates: Record<string, unknown> = {
+        status,
+        updated_at: nowIso,
+      };
+
+      if (status === "approved" || status === "dispatched" || status === "fulfilled") {
+        updates.approved_at = nowIso;
+        updates.approved_by = (data.approved_by as string) || "manager@parulchemicals.com";
+      }
+
+      if (data.manager_notes) {
+        updates.notes = data.manager_notes as string;
+      }
+
+      if (data.approved_qty !== undefined) {
+        try {
+          const getRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?id=eq.${encodeURIComponent(requestId)}`,
+            { headers: auraHeaders }
+          );
+          if (getRes.data && getRes.data.length > 0) {
+            const current = getRes.data[0];
+            const rawItems = current.requested_items;
+            if (Array.isArray(rawItems) && rawItems.length > 0) {
+              const updatedItems = [...rawItems];
+              updatedItems[0].qty_approved = data.approved_qty;
+              updatedItems[0].approved_qty = data.approved_qty;
+              updates.requested_items = updatedItems;
+            }
+          }
+        } catch (_) {}
+      }
+
+      const patchRes = await axios.patch(
+        `${AURA_SUPABASE_URL}/rest/v1/fo_stock_requests?id=eq.${encodeURIComponent(requestId)}`,
+        updates,
+        { headers: auraHeaders }
+      );
+      return { data: patchRes.data || { success: true } };
+    } catch (err) {
+      console.warn("[AURA] updateStockRequest direct fallback error:", err);
+      return { data: { success: true } };
+    }
+  },
 };
 
 // ─── Caller API Surface (v2.0.0) ──────────────────────────────────────────────

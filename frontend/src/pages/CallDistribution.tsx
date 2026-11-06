@@ -34,6 +34,8 @@ import {
   DialogActions,
   Divider,
   Tooltip,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -53,7 +55,7 @@ import {
 } from "@mui/icons-material";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
-import { automationAPI } from "../services/api";
+import { automationAPI, attendanceAPI } from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "../hooks/useTranslation";
 
@@ -110,7 +112,7 @@ export default function CallDistribution() {
   const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
   const [adminData, setAdminData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "warning" | "info" } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
   // [BULK ASSIGN REMOVED FROM UI — backend retained]
@@ -143,6 +145,7 @@ export default function CallDistribution() {
   const [selVillage, setSelVillage] = useState("");
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
   const [sabhsadDistributing, setSabhsadDistributing] = useState(false);
+  const [reassignExisting, setReassignExisting] = useState(false);
 
   const handleOpenProfile = async (email: string) => {
     setProfileDialogEmail(email);
@@ -168,14 +171,36 @@ export default function CallDistribution() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [status, tcRes, adminRes, locRes] = await Promise.all([
+      const [status, tcRes, adminRes, locRes, attRes] = await Promise.all([
         automationAPI.getDistributionStatus().catch(() => null),
         automationAPI.getTelecallers().catch(() => ({ telecallers: [] })),
         automationAPI.getAdminAssignments({ page: 1, limit: 500 }).catch(() => null),
         automationAPI.getLocations().catch(() => ({})),
+        attendanceAPI.getAllTelecallers().catch(() => null),
       ]);
       setDistStatus(status);
-      setTelecallers(tcRes.telecallers || []);
+
+      const rawTelecallers: Telecaller[] = [...(tcRes?.telecallers || [])];
+      const existingEmails = new Set(rawTelecallers.map(t => t.email.toLowerCase()));
+
+      if (attRes?.data) {
+        const attUsers = [
+          ...(attRes.data.telecallers || []),
+          ...(attRes.data.sales_managers || []),
+        ];
+        for (const u of attUsers) {
+          if (u.email && !existingEmails.has(u.email.toLowerCase())) {
+            rawTelecallers.push({
+              email: u.email,
+              name: u.name || u.email.split("@")[0],
+              role: u.role || "telecaller",
+            });
+            existingEmails.add(u.email.toLowerCase());
+          }
+        }
+      }
+
+      setTelecallers(rawTelecallers);
       setAdminData(adminRes);
       setLocations(locRes || {});
     } catch (e) {
@@ -221,7 +246,10 @@ export default function CallDistribution() {
       setToast({ msg: "Please select at least one telecaller", sev: "error" });
       return;
     }
-    if (!window.confirm("Distribute Sabhsads for the selected location to these telecallers?")) return;
+    const confirmMsg = reassignExisting
+      ? "Re-distribute ALL sabhsads in this location (including previously called contacts) equally across selected telecallers?"
+      : "Distribute Sabhsads for the selected location to these telecallers?";
+    if (!window.confirm(confirmMsg)) return;
     try {
       setSabhsadDistributing(true);
       const payload = {
@@ -230,9 +258,14 @@ export default function CallDistribution() {
         district: selDistrict,
         taluka: selTaluka,
         village: selVillage,
+        reassign_existing: reassignExisting,
       };
       const res = await automationAPI.adminDistributeSabhsads(payload);
-      setToast({ msg: res.message || "Distributed successfully", sev: "success" });
+      const count = res.assigned ?? 0;
+      setToast({
+        msg: res.message || (count > 0 ? `Successfully assigned ${count} sabhsad(s)` : "No sabhsads assigned"),
+        sev: count > 0 ? "success" : "warning",
+      });
       loadData();
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Distribution failed", sev: "error" });
@@ -308,9 +341,37 @@ export default function CallDistribution() {
   const smSummary = allSummary.filter(([_, stats]) => stats.role === "sales_manager");
   const tcSummary = allSummary.filter(([_, stats]) => stats.role !== "sales_manager" && stats.role !== "admin");
 
+  // Comprehensive telecaller list combining API, attendance, and adminData.telecaller_summary
+  const combinedTelecallers = useMemo(() => {
+    const map = new Map<string, Telecaller>();
+
+    for (const t of telecallers) {
+      if (t.email) map.set(t.email.toLowerCase(), t);
+    }
+
+    // Include any telecaller found in adminData.telecaller_summary (guarantees all 8 telecallers from stats)
+    for (const [email, stats] of allSummary) {
+      const lower = email.toLowerCase();
+      if (!map.has(lower)) {
+        map.set(lower, {
+          email,
+          name: stats.name || email.split("@")[0],
+          role: stats.role || "telecaller",
+        });
+      } else {
+        const existing = map.get(lower)!;
+        if (!existing.name || existing.name === existing.email) {
+          existing.name = stats.name || existing.name;
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  }, [telecallers, allSummary]);
+
   // Role-split telecaller lists for filtered dropdowns
-  const smTelecallers = telecallers.filter(t => t.role === "sales_manager");
-  const tcTelecallers = telecallers.filter(t => t.role !== "sales_manager" && t.role !== "admin");
+  const smTelecallers = combinedTelecallers.filter(t => t.role === "sales_manager");
+  const tcTelecallers = combinedTelecallers.filter(t => t.role !== "sales_manager" && t.role !== "admin");
   const smEmails = new Set(smTelecallers.map(t => t.email));
 
   const filteredAssignments = useMemo(() => {
@@ -710,16 +771,45 @@ export default function CallDistribution() {
                   </Select>
                 </FormControl>
               </Grid>
+
+              <Grid item xs={12} sx={{ pt: "4px !important" }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      color="success"
+                      checked={reassignExisting}
+                      onChange={(e) => setReassignExisting(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Typography variant="body2" sx={{ fontSize: "0.82rem", color: "text.secondary", fontWeight: 500 }}>
+                      Re-distribute all contacts in this village (include previously called / historical records)
+                    </Typography>
+                  }
+                />
+              </Grid>
               
               <Grid item xs={12}>
                 <Stack direction="row" spacing={2}>
                   <FormControl size="small" fullWidth>
-                    <InputLabel>Assign To Telecallers</InputLabel>
+                    <InputLabel>Assign To Telecallers ({tcTelecallers.length})</InputLabel>
                     <Select
-                      label="Assign To Telecallers"
+                      label={`Assign To Telecallers (${tcTelecallers.length})`}
                       multiple
                       value={selectedTelecallers}
-                      onChange={(e) => setSelectedTelecallers(typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (Array.isArray(val) && val.includes("__all__")) {
+                          if (selectedTelecallers.length === tcTelecallers.length) {
+                            setSelectedTelecallers([]);
+                          } else {
+                            setSelectedTelecallers(tcTelecallers.map(t => t.email));
+                          }
+                          return;
+                        }
+                        setSelectedTelecallers(typeof val === 'string' ? val.split(',') : val);
+                      }}
                       sx={{ borderRadius: 2 }}
                       renderValue={(selected) => (
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -729,6 +819,18 @@ export default function CallDistribution() {
                         </Box>
                       )}
                     >
+                      <MenuItem 
+                        value="__all__" 
+                        sx={{ 
+                          fontWeight: 700, 
+                          color: "primary.main", 
+                          borderBottom: "1px solid", 
+                          borderColor: "divider",
+                          bgcolor: alpha(theme.palette.primary.main, 0.05),
+                        }}
+                      >
+                        {selectedTelecallers.length === tcTelecallers.length ? "✕ Deselect All Telecallers" : `✓ Select All (${tcTelecallers.length}) Telecallers`}
+                      </MenuItem>
                       {tcTelecallers.map((t) => (
                         <MenuItem key={t.email} value={t.email}>
                           {t.name || t.email.split("@")[0]}

@@ -94,34 +94,19 @@ def _get_present_sales_managers(db: SupabaseClient) -> list:
         return []
 
 def _get_telecaller_emails(db: SupabaseClient) -> list:
-    """Get telecaller users from app_users table, filtered by today's attendance."""
+    """Get active telecaller users from app_users table."""
     try:
-        res = db.table("app_users").select("email, name, role").execute()
+        res = db.table("app_users").select("email, name, role, is_active").execute()
         users = res.data or []
         
         telecaller_roles = {"telecaller", "staff", "telecaller1", "telecaller2"}
         all_telecallers = [
             u for u in users
-            if u.get("role", "").lower().replace(" ", "_") in telecaller_roles
-               or "telecaller" in u.get("role", "").lower()
+            if u.get("is_active", True) is not False
+            and (u.get("role", "").lower().replace(" ", "_") in telecaller_roles
+               or "telecaller" in u.get("role", "").lower())
         ]
-        
-        # Filter by today's attendance (IST)
-        today_str = get_today_ist()
-        att_res = db.table("telecaller_attendance") \
-            .select("user_email, is_present") \
-            .eq("attendance_date", today_str) \
-            .eq("is_present", True) \
-            .execute()
-            
-        present_emails = {row["user_email"] for row in (att_res.data or [])}
-        
-        telecallers = [t for t in all_telecallers if t["email"] in present_emails]
-        
-        if not telecallers:
-            telecallers = all_telecallers
-            
-        return telecallers
+        return all_telecallers
     except Exception as e:
         logger.error(f"[DIST] Error fetching telecallers: {e}", exc_info=True)
         return []
@@ -2076,6 +2061,7 @@ class SabhsadDistributePayload(BaseModel):
     district: str
     taluka: str
     village: str
+    reassign_existing: bool = False
 
 @router.post("/admin/distribute-sabhsads")
 def distribute_sabhsads(
@@ -2098,10 +2084,14 @@ def distribute_sabhsads(
         offset = 0
         while True:
             query = db.table("customers").select("customer_id")
-            if payload.state: query = query.eq("state", payload.state)
-            if payload.district: query = query.eq("district", payload.district)
-            if payload.taluka: query = query.eq("taluka", payload.taluka)
-            if payload.village: query = query.eq("village", payload.village)
+            if payload.state and payload.state.strip():
+                query = query.ilike("state", payload.state.strip())
+            if payload.district and payload.district.strip():
+                query = query.ilike("district", payload.district.strip())
+            if payload.taluka and payload.taluka.strip():
+                query = query.ilike("taluka", payload.taluka.strip())
+            if payload.village and payload.village.strip():
+                query = query.ilike("village", payload.village.strip())
             query = query.range(offset, offset + batch - 1)
             cust_res = query.execute()
             if not cust_res.data:
@@ -2114,24 +2104,38 @@ def distribute_sabhsads(
         if not all_cust_ids:
             return {"message": "No sabhsads found in this location", "assigned": 0}
 
-        # Find which of these are already assigned (paginate in chunks of 100 for IN query)
-        assigned_ids = set()
-        for i in range(0, len(all_cust_ids), 100):
-            chunk = all_cust_ids[i:i+100]
-            assigned_res = db.table("calling_assignments") \
-                .select("customer_id") \
-                .eq("entity_type", "customer") \
-                .in_("customer_id", chunk) \
-                .execute()
-            for a in (assigned_res.data or []):
-                assigned_ids.add(a["customer_id"])
-            
-        unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
+        if payload.reassign_existing:
+            # Delete any existing 'Pending' assignments for these customers to avoid duplicate pending calls
+            for i in range(0, len(all_cust_ids), 100):
+                chunk = all_cust_ids[i:i+100]
+                db.table("calling_assignments") \
+                    .eq("status", "Pending") \
+                    .in_("customer_id", chunk) \
+                    .delete() \
+                    .execute()
+            ids_to_assign = all_cust_ids
+        else:
+            # Find which of these are already assigned (paginate in chunks of 100 for IN query)
+            assigned_ids = set()
+            for i in range(0, len(all_cust_ids), 100):
+                chunk = all_cust_ids[i:i+100]
+                assigned_res = db.table("calling_assignments") \
+                    .select("customer_id") \
+                    .eq("entity_type", "customer") \
+                    .in_("customer_id", chunk) \
+                    .execute()
+                for a in (assigned_res.data or []):
+                    assigned_ids.add(a["customer_id"])
+                
+            unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
 
-        if not unassigned_ids:
-            return {"message": "All sabhsads in this location are already assigned", "assigned": 0}
+            if not unassigned_ids:
+                return {
+                    "message": f"All {len(all_cust_ids)} sabhsads in this location were previously assigned. Check 'Re-distribute all' to assign them again.",
+                    "assigned": 0
+                }
 
-        ids_to_assign = unassigned_ids
+            ids_to_assign = unassigned_ids
         
         today_str = get_today_ist()
         assignments = []
@@ -2179,7 +2183,7 @@ def distribute_sabhsads(
         return {
             "message": "Distribution successful",
             "assigned": len(assignments),
-            "unassigned_remaining": len(unassigned_ids) - len(assignments),
+            "unassigned_remaining": max(0, len(ids_to_assign) - len(assignments)),
             "distribution": notifications_map
         }
     except Exception as e:
@@ -2203,7 +2207,7 @@ def undo_village_assignment(
 
     try:
         # First, find all customers in this village
-        cust_res = db.table("customers").select("customer_id").eq("village", payload.village).execute()
+        cust_res = db.table("customers").select("customer_id").ilike("village", payload.village.strip()).execute()
         if not cust_res.data:
             return {"message": f"No customers found in village {payload.village}", "deleted": 0}
             

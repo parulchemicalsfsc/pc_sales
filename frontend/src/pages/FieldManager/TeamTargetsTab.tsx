@@ -358,9 +358,11 @@ export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewR
       field: "kms_this_month",
       headerName: "KMs",
       width: 90,
-      renderCell: (p: GridRenderCellParams<FieldOfficer>) => (
-        <Typography variant="body2">{(p.row.kms_this_month ?? 0).toFixed(1)} km</Typography>
-      ),
+      renderCell: (p: GridRenderCellParams<FieldOfficer>) => {
+        const km = p.row.kms_this_month ?? 0;
+        const displayKm = km > 0 && km < 0.1 ? km.toFixed(2) : km.toFixed(1);
+        return <Typography variant="body2">{displayKm} km</Typography>;
+      },
     },
     {
       field: "discounts_given",

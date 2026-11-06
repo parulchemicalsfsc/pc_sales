@@ -7,9 +7,9 @@
  * - Plan Status & Revision Badges
  * - Amber Alert Box if plan was edited (with reason & timestamp)
  * - Side-by-Side Comparison Stepper / List:
- *   - Sequence matches (✅ On Sequence)
- *   - Out-of-sequence / skipped visits (⚠️ Out of Sequence)
- *   - Missed planned stops (❌ Missed)
+ *   - Sequence matches (On Sequence)
+ *   - Out-of-sequence / skipped visits (Out of Sequence)
+ *   - Missed planned stops (Missed)
  *   - Unplanned visits (Purple Ad-Hoc badge)
  * - "+ Inject Mandatory Visit / Follow-Up" modal dialog
  *
@@ -50,8 +50,13 @@ import {
   Cancel as MissedIcon,
   Shuffle as SequenceWarningIcon,
   FiberManualRecord as DotIcon,
+  AccessTime as PendingIcon,
+  Place as PlaceIcon,
+  PlayCircleFilledWhite as StartPointIcon,
+  Flag as EndPointIcon,
+  GpsFixed as GpsTrackedIcon,
 } from "@mui/icons-material";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip as LeafletTooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -119,6 +124,14 @@ function getSessionDateStr(started_at?: string): string {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+function RecenterMap({ center }: { center: [number, number] }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, map.getZoom());
+  }, [center, map]);
+  return null;
+}
 
 export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers: propOfficers }: Props) {
   const [audit, setAudit] = useState<RouteAudit | null>(null);
@@ -492,6 +505,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                     const actualMatch = audit?.actual_stops?.find(
                       (a) => a.customer_id === planned.customer_id
                     );
+                    const isDone = planned.status === "completed" || Boolean(actualMatch);
+                    const isPastDate = selectedDate < new Date().toISOString().slice(0, 10);
 
                     return (
                       <Paper
@@ -500,11 +515,11 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         sx={{
                           p: 1.5,
                           borderLeft: "4px solid",
-                          borderLeftColor: !actualMatch
-                            ? "error.main"
-                            : actualMatch.status === "on_sequence"
+                          borderLeftColor: isDone
                             ? "success.main"
-                            : "warning.main",
+                            : isPastDate
+                            ? "error.main"
+                            : "info.main",
                         }}
                       >
                         <Box display="flex" justifyContent="space-between" alignItems="flex-start">
@@ -512,32 +527,74 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             <Typography variant="body2" fontWeight={700}>
                               Stop #{planned.stop_number}: {planned.customer_name}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              📍 {planned.village}, {planned.taluka} · Planned: {planned.planned_time}
-                            </Typography>
+                            <Box display="flex" alignItems="center" gap={0.5} mt={0.3}>
+                              <PlaceIcon sx={{ fontSize: 13, color: "error.main" }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {planned.village ? `${planned.village}, ` : ""}{planned.taluka || ""} · Planned: {planned.planned_time}
+                              </Typography>
+                            </Box>
                           </Box>
 
-                          {/* Status Badge */}
-                          {actualMatch ? (
-                            actualMatch.status === "on_sequence" ? (
-                              <Chip
-                                label="✅ On Sequence"
-                                color="success"
-                                size="small"
-                                variant="outlined"
-                              />
-                            ) : (
-                              <Chip
-                                label="⚠️ Out of Sequence"
-                                color="warning"
-                                size="small"
-                                variant="outlined"
-                              />
-                            )
+  {/* Village & Sequence Verification Badges */}
+  <Box display="flex" gap={0.5} mt={0.5} flexWrap="wrap">
+    {actualMatch && actualMatch.village_match && (
+      <Chip
+        size="small"
+        label={`✓ Village Match: ${actualMatch.village}`}
+        color="success"
+        variant="outlined"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && !actualMatch.village_match && actualMatch.village && (
+      <Chip
+        size="small"
+        label={`⚠ Village Mismatch: Visit was in ${actualMatch.village}`}
+        color="warning"
+        variant="outlined"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && actualMatch.sequence_match && (
+      <Chip
+        size="small"
+        label="On Sequence"
+        color="success"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+    {actualMatch && actualMatch.status === "out_of_sequence" && (
+      <Chip
+        size="small"
+        label="Out of Sequence"
+        color="warning"
+        sx={{ height: 20, fontSize: "10px" }}
+      />
+    )}
+  </Box>
+
+  {/* Status Badge */}
+                          {isDone ? (
+                            <Chip
+                              icon={<SuccessIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Checked In"
+                              color="success"
+                              size="small"
+                              variant="outlined"
+                            />
+                          ) : isPastDate ? (
+                            <Chip
+                              icon={<MissedIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Missed"
+                              color="error"
+                              size="small"
+                              variant="outlined"
+                            />
                           ) : (
                             <Chip
-                              label="❌ Missed"
-                              color="error"
+                              icon={<PendingIcon sx={{ fontSize: "16px !important" }} />}
+                              label="Pending"
+                              color="info"
                               size="small"
                               variant="outlined"
                             />
@@ -548,10 +605,11 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         {actualMatch && (
                           <Box mt={1} pt={1} borderTop="1px dashed" borderColor="divider">
                             <Typography variant="caption" color="text.secondary">
-                              Checked In: {new Date(actualMatch.checkin_time).toLocaleTimeString()}
+                              Checked In: {new Date(actualMatch.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                               {actualMatch.checkout_time
-                                ? ` - ${new Date(actualMatch.checkout_time).toLocaleTimeString()} (${actualMatch.duration_minutes ?? 0}m)`
+                                ? ` - ${new Date(actualMatch.checkout_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (${actualMatch.duration_minutes ?? 0}m)`
                                 : " (In Progress)"}
+                              {actualMatch.notes ? ` · Note: "${actualMatch.notes}"` : ""}
                             </Typography>
                           </Box>
                         )}
@@ -582,9 +640,10 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             </Typography>
                           </Box>
                           <Chip
-                            label="🟣 Ad-Hoc Visit"
+                            icon={<InjectIcon sx={{ fontSize: "15px !important", color: "white !important" }} />}
+                            label="Ad-Hoc Visit"
                             size="small"
-                            sx={{ bgcolor: "#9c27b0", color: "white" }}
+                            sx={{ bgcolor: "#9c27b0", color: "white", "& .MuiChip-icon": { color: "white" } }}
                           />
                         </Box>
                       </Paper>
@@ -613,9 +672,10 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             </Typography>
                           </Box>
                           <Chip
-                            label="🟢 Live Tracked"
+                            icon={<GpsTrackedIcon sx={{ fontSize: "15px !important", color: "white !important" }} />}
+                            label="Live Tracked"
                             size="small"
-                            sx={{ bgcolor: "#2e7d32", color: "white" }}
+                            sx={{ bgcolor: "#2e7d32", color: "white", "& .MuiChip-icon": { color: "white" } }}
                           />
                         </Box>
                       </Paper>
@@ -660,6 +720,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                   zoom={12}
                   style={{ height: "100%", minHeight: "460px", width: "100%" }}
                 >
+                  <RecenterMap center={mapCenter} />
                   <TileLayer
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -676,15 +737,19 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                     />
                   )}
 
-                  {/* Planned Pins */}
+                  {/* Planned Pins with Hover Tooltip */}
                   {(audit?.planned_stops ?? []).map((planned) => {
                     if (!planned.lat || !planned.lng) return null;
-                    return (
+return (
                       <Marker
                         key={`planned-${planned.customer_id}`}
                         position={[planned.lat, planned.lng]}
                         icon={createPlannedIcon(planned.stop_number)}
                       >
+                        <LeafletTooltip direction="top" offset={[0, -14]} opacity={0.95}>
+                          <div style={{ fontWeight: 700, fontSize: "12px" }}>Stop #{planned.stop_number}: {planned.village}</div>
+                          <div style={{ fontSize: "11px", color: "#444" }}>Planned Time: {planned.planned_time}</div>
+                        </LeafletTooltip>
                         <Popup>
                           <Typography variant="subtitle2" fontWeight={700}>
                             Stop #{planned.stop_number}: {planned.customer_name}
@@ -695,7 +760,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                         </Popup>
                       </Marker>
                     );
-                  })}
+})}
 
                   {/* Actual Check-In and Check-Out Pins */}
                   {(audit?.actual_stops ?? []).map((actual) => {
@@ -716,29 +781,36 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       }
                     }
 
-                    return (
-                      <React.Fragment key={`actual-${actual.customer_id}`}>
-                        {/* Check-In Pin */}
-                        <Marker
-                          position={[actual.checkin_lat, actual.checkin_lng]}
-                          icon={createCheckinIcon()}
-                        >
-                          <Popup>
-                            <Typography variant="subtitle2" fontWeight={700}>
-                              Checked In: {actual.customer_name}
-                            </Typography>
-                            <Typography variant="caption" display="block">
-                              Time: {new Date(actual.checkin_time).toLocaleTimeString()}
-                            </Typography>
-                            {isDrift && (
-                              <Alert severity="error" sx={{ mt: 1, py: 0.2, px: 1 }}>
-                                <Typography variant="caption" fontWeight={700}>
-                                  ⚠️ Geofence Drift: {(driftMeters).toFixed(0)}m &gt; 500m
-                                </Typography>
-                              </Alert>
-                            )}
-                          </Popup>
-                        </Marker>
+return (
+                        <React.Fragment key={`actual-${actual.customer_id}`}>
+                          {/* Check-In Pin */}
+                          <Marker
+                            position={[actual.checkin_lat, actual.checkin_lng]}
+                            icon={createCheckinIcon()}
+                          >
+                            <LeafletTooltip direction="top" offset={[0, -12]} opacity={0.95}>
+                              <div style={{ fontWeight: 700, color: "#2e7d32", fontSize: "12px" }}>
+                                ✓ Checked In: {actual.village ? `${actual.village} · ` : ""}{actual.customer_name}
+                              </div>
+                              <div style={{ fontSize: "11px", color: "#333" }}>
+                                Time: {new Date(actual.checkin_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                              </div>
+                              <div style={{ fontSize: "10px", color: "#666" }}>
+                                GPS: {actual.checkin_lat.toFixed(5)}, {actual.checkin_lng.toFixed(5)}
+                              </div>
+                            </LeafletTooltip>
+                            <Popup>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                Checked In: {actual.customer_name}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Village: {actual.village || "Unknown"}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Time: {new Date(actual.checkin_time).toLocaleTimeString()}
+                              </Typography>
+                            </Popup>
+                          </Marker>
 
                         {/* Check-Out Pin if available */}
                         {actual.checkout_lat && actual.checkout_lng && (
@@ -746,20 +818,31 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             position={[actual.checkout_lat, actual.checkout_lng]}
                             icon={createCheckoutIcon(isDrift)}
                           >
-                            <Popup>
-                              <Typography variant="subtitle2">
-                                Checked Out: {actual.customer_name}
-                              </Typography>
-                              <Typography variant="caption" display="block">
-                                Time: {actual.checkout_time ? new Date(actual.checkout_time).toLocaleTimeString() : ""}
-                              </Typography>
-                              {isDrift && (
-                                <Typography variant="caption" color="error" fontWeight={700}>
-                                  Distance from Check-in: {(driftMeters).toFixed(0)}m (Drift Alert)
-                                </Typography>
-                              )}
-                            </Popup>
-                          </Marker>
+                          <LeafletTooltip direction="top" offset={[0, -10]} opacity={0.95}>
+                            <div style={{ fontWeight: 700, color: isDrift ? "#d32f2f" : "#ed6c02", fontSize: "12px" }}>
+                              ⏹ Checked Out: {actual.village ? `${actual.village} · ` : ""}{actual.customer_name}
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#333" }}>
+                              Time: {new Date(actual.checkout_time!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} ({actual.duration_minutes ?? 0}m)
+                            </div>
+                            <div style={{ fontSize: "10px", color: "#666" }}>
+                              GPS: {actual.checkout_lat.toFixed(5)}, {actual.checkout_lng.toFixed(5)}
+                            </div>
+                            {isDrift && (
+                              <div style={{ fontSize: "10px", color: "#d32f2f", fontWeight: 700 }}>
+                                ⚠ Drift: {driftMeters.toFixed(0)}m from check-in
+                              </div>
+                            )}
+                          </LeafletTooltip>
+                          <Popup>
+                            <Typography variant="subtitle2">
+                              Checked Out: {actual.customer_name}
+                            </Typography>
+                            <Typography variant="caption" display="block">
+                              Time: {new Date(actual.checkout_time!).toLocaleTimeString()}
+                            </Typography>
+                          </Popup>
+                        </Marker>
                         )}
                       </React.Fragment>
                     );
@@ -772,9 +855,12 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       icon={createCheckinIcon()}
                     >
                       <Popup>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          🟢 Route Start Location
-                        </Typography>
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          <StartPointIcon sx={{ fontSize: 16, color: "success.main" }} />
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            Route Start Location
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" display="block">
                           Time: {new Date(audit.location_points[0].timestamp).toLocaleTimeString()}
                         </Typography>
@@ -795,9 +881,12 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       icon={createCheckoutIcon(false)}
                     >
                       <Popup>
-                        <Typography variant="subtitle2" fontWeight={700}>
-                          🏁 Latest / End Location
-                        </Typography>
+                        <Box display="flex" alignItems="center" gap={0.5}>
+                          <EndPointIcon sx={{ fontSize: 16, color: "primary.main" }} />
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            Latest / End Location
+                          </Typography>
+                        </Box>
                         <Typography variant="caption" display="block">
                           Time: {new Date(audit.location_points[audit.location_points.length - 1].timestamp).toLocaleTimeString()}
                         </Typography>

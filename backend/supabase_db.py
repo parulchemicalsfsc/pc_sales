@@ -160,7 +160,9 @@ class SupabaseTable:
         self._filters.append(f"or=({filters})")
         return self
 
-    def order(self, column: str, desc: bool = False, nulls: str = None):
+    def order(self, column: str, desc: bool = False, nulls: str = None, **kwargs):
+        if "asc" in kwargs:
+            desc = not kwargs["asc"]
         """Order results.
 
         Args:
@@ -759,6 +761,42 @@ def init_supabase_db():
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_import_history_batch ON import_history(import_batch_id);
     CREATE INDEX IF NOT EXISTS idx_import_history_created ON import_history(created_at DESC);
+
+    -- ===================================
+    -- Daily Route Plans Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS daily_route_plans (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        plan_date DATE NOT NULL,
+        user_email TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
+    -- Route Plan Items Table
+    -- ===================================
+    CREATE TABLE IF NOT EXISTS route_plan_items (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        plan_id UUID NOT NULL REFERENCES daily_route_plans(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES customers(customer_id) ON DELETE CASCADE,
+        planned_sequence INTEGER NOT NULL,
+        planned_time TIME NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        task_type TEXT NOT NULL DEFAULT 'order',
+        actual_visit JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ===================================
+    -- Indexes for Performance
+    -- ===================================
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_plan_id ON route_plan_items(plan_id);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_customer_id ON route_plan_items(customer_id);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_status ON route_plan_items(status);
+    CREATE INDEX IF NOT EXISTS idx_route_plan_items_sequence ON route_plan_items(planned_sequence);
+    CREATE INDEX IF NOT EXISTS idx_daily_route_plans_date ON daily_route_plans(plan_date);
+    CREATE INDEX IF NOT EXISTS idx_daily_route_plans_user_email ON daily_route_plans(user_email);
     """
 
     print("=" * 60)

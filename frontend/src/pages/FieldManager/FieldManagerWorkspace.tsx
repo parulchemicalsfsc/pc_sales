@@ -40,6 +40,7 @@ import VisitVerificationTab from "./VisitVerificationTab";
 import DiscountAnalyticsTab from "./DiscountAnalyticsTab";
 import EditAuditLogTab from "./EditAuditLogTab";
 import StockApprovalTab from "./StockApprovalTab";
+import PlansByOfficerTab from "./PlansByOfficerTab";
 
 import { auraManagerAPI } from "../../services/auraApi";
 import type { FieldOfficerItem, RecentActivityItem } from "../../types/aura";
@@ -232,7 +233,7 @@ export default function FieldManagerWorkspace() {
 
       {/* ── Operational Tabs ────────────────────────────────────────────── */}
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
-        <Tabs
+<Tabs
           value={tabIndex}
           onChange={(_, idx) => setTabIndex(idx)}
           variant="scrollable"
@@ -240,12 +241,13 @@ export default function FieldManagerWorkspace() {
           textColor="primary"
           indicatorColor="primary"
         >
-          <Tab icon={<TeamIcon />} iconPosition="start" label="Team &amp; Targets" />
-          <Tab icon={<RouteIcon />} iconPosition="start" label="Route Audit &amp; GPS" />
+          <Tab icon={<TeamIcon />} iconPosition="start" label="Team & Targets" />
+          <Tab icon={<RouteIcon />} iconPosition="start" label="Route Audit & GPS" />
           <Tab icon={<VerifyIcon />} iconPosition="start" label="Visit Verification" />
           <Tab icon={<DiscountIcon />} iconPosition="start" label="Discount Ledger" />
           <Tab icon={<AuditIcon />} iconPosition="start" label="Edit Audit Log" />
           <Tab icon={<StockIcon />} iconPosition="start" label="Stock Approvals" />
+          <Tab icon={<TeamIcon />} iconPosition="start" label="Plans by Officer" />
         </Tabs>
       </Box>
 
@@ -289,6 +291,13 @@ export default function FieldManagerWorkspace() {
       {tabIndex === 5 && (
         <StockApprovalTab
           selectedFoEmail={selectedFoEmail}
+        />
+      )}
+
+      {tabIndex === 6 && (
+        <PlansByOfficerTab
+          selectedFoEmail={selectedFoEmail}
+          selectedDate={selectedDate}
         />
       )}
     </Box>
