@@ -270,6 +270,20 @@ export default function TallyData() {
     })}`;
   };
 
+  // Format YYYY-MM-DD for display (e.g. 01-Apr-2024)
+  const formatDisplayDate = (d: string) => {
+    if (!d) return "";
+    const parts = d.split("-");
+    if (parts.length === 3) {
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const y = parts[0];
+      const m = months[parseInt(parts[1], 10) - 1] || parts[1];
+      const day = parts[2];
+      return `${day}-${m}-${y}`;
+    }
+    return d;
+  };
+
   // Customer Breakdown Totals & Running Balance matching Mock DB Viewer
   const customerSummary = useMemo(() => {
     // Check if any voucher contains customer metadata / opening balance
@@ -280,25 +294,27 @@ export default function TallyData() {
           v.extra_fields["Opening Balance"] !== undefined)
     );
     const rawOpBal = firstWithExtra?.extra_fields?._opening_balance ?? 0;
-    const openingBalance = Number(rawOpBal) || 0;
-    const openingBalanceType =
+    const grandOpeningBalance = Number(rawOpBal) || 0;
+    const grandOpeningBalanceType =
       firstWithExtra?.extra_fields?._opening_balance_type ||
-      (openingBalance >= 0 ? "Dr" : "Cr");
+      (grandOpeningBalance >= 0 ? "Dr" : "Cr");
     const customerGroup =
       firstWithExtra?.extra_fields?._customer_group ||
       firstWithExtra?.extra_fields?.["Customer Group"] ||
       "Sundry Debtors";
 
-    // Filter customer vouchers by any additional active filters (voucherType, search, dates)
-    let filtered = [...customerVouchers];
-
-    if (voucherType) {
-      const vt = voucherType.toLowerCase().trim();
-      filtered = filtered.filter(
-        (v) => (v.voucher_type || "").toLowerCase().trim() === vt
-      );
+    // 1. All-time Grand Totals across all vouchers for this customer
+    let grandTotalDebit = 0;
+    let grandTotalCredit = 0;
+    for (const v of customerVouchers) {
+      grandTotalDebit += Number(v.debit || 0);
+      grandTotalCredit += Number(v.credit || 0);
     }
+    const grandClosingBalance = grandOpeningBalance + grandTotalDebit - grandTotalCredit;
+    const grandClosingBalanceType = grandClosingBalance >= 0 ? "Dr" : "Cr";
 
+    // 2. Filter by search query if user typed anything in search box
+    let filtered = [...customerVouchers];
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       filtered = filtered.filter(
@@ -311,30 +327,46 @@ export default function TallyData() {
       );
     }
 
-    if (dateFrom) {
-      filtered = filtered.filter((v) => (v.date || "") >= dateFrom);
-    }
-
-    if (dateTo) {
-      filtered = filtered.filter((v) => (v.date || "") <= dateTo);
-    }
-
-    let totalDebit = 0;
-    let totalCredit = 0;
-
-    // Vouchers sorted chronologically for statement
+    // Sort chronologically for accounting roll-forward
     const sorted = filtered.sort((a, b) => {
       const d1 = a.date || "";
       const d2 = b.date || "";
       return d1.localeCompare(d2);
     });
 
-    let runningBalance = openingBalance;
-    const withRunningBalance = sorted.map((v) => {
+    const hasDateFilter = Boolean(dateFrom || dateTo);
+
+    // Calculate period opening balance (incorporate all transactions prior to dateFrom)
+    let priorDebit = 0;
+    let priorCredit = 0;
+    if (dateFrom) {
+      for (const v of sorted) {
+        if ((v.date || "") < dateFrom) {
+          priorDebit += Number(v.debit || 0);
+          priorCredit += Number(v.credit || 0);
+        }
+      }
+    }
+    const periodOpeningBalance = grandOpeningBalance + priorDebit - priorCredit;
+    const periodOpeningBalanceType = periodOpeningBalance >= 0 ? "Dr" : "Cr";
+
+    // Filter in-period vouchers
+    const inPeriodVouchers = sorted.filter((v) => {
+      const d = v.date || "";
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+
+    let periodTotalDebit = 0;
+    let periodTotalCredit = 0;
+    let runningBalance = periodOpeningBalance;
+
+    const withRunningBalance = inPeriodVouchers.map((v) => {
       const deb = Number(v.debit || 0);
       const cred = Number(v.credit || 0);
-      totalDebit += deb;
-      totalCredit += cred;
+      periodTotalDebit += deb;
+      periodTotalCredit += cred;
       runningBalance += deb - cred;
       return {
         ...v,
@@ -348,19 +380,29 @@ export default function TallyData() {
       };
     });
 
-    const closingBalance = openingBalance + totalDebit - totalCredit;
+    const periodClosingBalance = periodOpeningBalance + periodTotalDebit - periodTotalCredit;
+    const periodClosingBalanceType = periodClosingBalance >= 0 ? "Dr" : "Cr";
 
     return {
-      openingBalance,
-      openingBalanceType,
       customerGroup,
-      totalDebit,
-      totalCredit,
-      closingBalance,
-      closingBalanceType: closingBalance >= 0 ? "Dr" : "Cr",
+      // All-time Grand Totals
+      grandOpeningBalance,
+      grandOpeningBalanceType,
+      grandTotalDebit,
+      grandTotalCredit,
+      grandClosingBalance,
+      grandClosingBalanceType,
+      // Period / Filtered Stats
+      hasDateFilter,
+      periodOpeningBalance,
+      periodOpeningBalanceType,
+      periodTotalDebit,
+      periodTotalCredit,
+      periodClosingBalance,
+      periodClosingBalanceType,
       records: withRunningBalance,
     };
-  }, [customerVouchers, voucherType, search, dateFrom, dateTo]);
+  }, [customerVouchers, search, dateFrom, dateTo]);
 
   // Reset customer page when any filter changes
   useEffect(() => {
@@ -753,32 +795,34 @@ export default function TallyData() {
               </TextField>
             </Grid>
 
-            {/* Voucher Type Dropdown */}
-            <Grid item xs={12} sm={6} md={1.8}>
-              <TextField
-                select
-                fullWidth
-                size="small"
-                label="Voucher Type"
-                value={voucherType}
-                onChange={(e) => {
-                  setVoucherType(e.target.value);
-                  setPage(0);
-                }}
-              >
-                <MenuItem value="">
-                  <em>All Types</em>
-                </MenuItem>
-                {filterOptions.voucher_types.map((t) => (
-                  <MenuItem key={t} value={t}>
-                    {t}
+            {/* Voucher Type Dropdown - Hidden in Ledger Breakdown mode */}
+            {viewMode === "all" && (
+              <Grid item xs={12} sm={6} md={1.8}>
+                <TextField
+                  select
+                  fullWidth
+                  size="small"
+                  label="Voucher Type"
+                  value={voucherType}
+                  onChange={(e) => {
+                    setVoucherType(e.target.value);
+                    setPage(0);
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>All Types</em>
                   </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
+                  {filterOptions.voucher_types.map((t) => (
+                    <MenuItem key={t} value={t}>
+                      {t}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+            )}
 
             {/* Customer Dropdown */}
-            <Grid item xs={12} sm={6} md={2.2}>
+            <Grid item xs={12} sm={6} md={viewMode === "customer" ? 3 : 2.2}>
               <TextField
                 select
                 fullWidth
@@ -802,7 +846,7 @@ export default function TallyData() {
             </Grid>
 
             {/* Date From */}
-            <Grid item xs={6} sm={3} md={1.25}>
+            <Grid item xs={6} sm={3} md={viewMode === "customer" ? 1.75 : 1.25}>
               <TextField
                 fullWidth
                 size="small"
@@ -816,7 +860,7 @@ export default function TallyData() {
             </Grid>
 
             {/* Date To */}
-            <Grid item xs={6} sm={3} md={1.25}>
+            <Grid item xs={6} sm={3} md={viewMode === "customer" ? 1.75 : 1.25}>
               <TextField
                 fullWidth
                 size="small"
@@ -921,24 +965,23 @@ export default function TallyData() {
         <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
           {selectedCustomer ? (
             <>
-              {/* Customer Ledger Info & Opening Balance Header */}
+              {/* Top Bubble: Customer Ledger Info & Grand Total Overall Standing */}
               <Paper
                 elevation={0}
                 sx={{
-                  p: 2,
+                  p: 2.5,
                   bgcolor: "background.paper",
                   border: "1px solid",
                   borderColor: "divider",
                   borderRadius: 2,
                   display: "flex",
-                  flexWrap: "wrap",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  flexDirection: "column",
                   gap: 2,
                 }}
               >
+                {/* Top Row: Ledger Name & Group */}
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 700 }}>
                     Ledger: {selectedCustomer}
                   </Typography>
                   <Divider orientation="vertical" flexItem sx={{ height: 18, my: "auto" }} />
@@ -946,130 +989,254 @@ export default function TallyData() {
                     Group: {customerSummary.customerGroup}
                   </Typography>
                 </Box>
-                <Chip
-                  label={`Opening Balance: ${formatINR(Math.abs(customerSummary.openingBalance))} ${customerSummary.openingBalanceType}`}
-                  color="warning"
-                  variant="outlined"
-                  sx={{ fontWeight: 700, fontFamily: "monospace", px: 1 }}
-                />
+
+                {/* Bottom Row: 4 All-Time Grand Total Metric Cards */}
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                      }}
+                    >
+                      <WalletIcon color="warning" sx={{ fontSize: 32 }} />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                          OPENING BALANCE
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: "warning.main" }}>
+                          {formatINR(Math.abs(customerSummary.grandOpeningBalance))}{" "}
+                          {customerSummary.grandOpeningBalanceType}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                      }}
+                    >
+                      <TrendingDownIcon color="error" sx={{ fontSize: 32 }} />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                          TOTAL DEBIT
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: "error.main" }}>
+                          {formatINR(customerSummary.grandTotalDebit)}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                      }}
+                    >
+                      <TrendingUpIcon color="success" sx={{ fontSize: 32 }} />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                          TOTAL CREDIT
+                        </Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: "success.main" }}>
+                          {formatINR(customerSummary.grandTotalCredit)}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+
+                  <Grid item xs={12} sm={6} md={3}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 2,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                        bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                      }}
+                    >
+                      <WalletIcon color="primary" sx={{ fontSize: 32 }} />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                          CLOSING BALANCE
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 700,
+                            color:
+                              customerSummary.grandClosingBalance >= 0
+                                ? "error.main"
+                                : "success.main",
+                          }}
+                        >
+                          {formatINR(Math.abs(customerSummary.grandClosingBalance))}{" "}
+                          {customerSummary.grandClosingBalanceType}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                </Grid>
               </Paper>
 
-              {/* 4 Financial Metric Cards */}
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                    }}
-                  >
-                    <WalletIcon color="warning" sx={{ fontSize: 32 }} />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        OPENING BALANCE
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontWeight: 700, color: "warning.main" }}>
-                        {formatINR(Math.abs(customerSummary.openingBalance))}{" "}
-                        {customerSummary.openingBalanceType}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
+              {/* Statement Container: Period Metrics + Data Table */}
+              <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                {/* Period Section */}
+                <Box sx={{ p: 2.5, borderBottom: "1px solid", borderColor: "divider" }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600, mb: 1.5 }}>
+                    {customerSummary.hasDateFilter
+                      ? `Selected Statement Period: ${formatDisplayDate(dateFrom) || "Inception"} to ${formatDisplayDate(dateTo) || "Today"}`
+                      : "All-Time Statement Period"}
+                  </Typography>
 
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                    }}
-                  >
-                    <TrendingDownIcon color="error" sx={{ fontSize: 32 }} />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        TOTAL INVOICED (DEBIT)
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontWeight: 700, color: "error.main" }}>
-                        {formatINR(customerSummary.totalDebit)}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                    }}
-                  >
-                    <TrendingUpIcon color="success" sx={{ fontSize: 32 }} />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        TOTAL RECEIVED (CREDIT)
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontWeight: 700, color: "success.main" }}>
-                        {formatINR(customerSummary.totalCredit)}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} sm={6} md={3}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 2,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                    }}
-                  >
-                    <WalletIcon color="primary" sx={{ fontSize: 32 }} />
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">
-                        CLOSING BALANCE
-                      </Typography>
-                      <Typography
-                        variant="h6"
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper
+                        elevation={0}
                         sx={{
-                          fontWeight: 700,
-                          color:
-                            customerSummary.closingBalance >= 0
-                              ? "error.main"
-                              : "success.main",
+                          p: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
                         }}
                       >
-                        {formatINR(Math.abs(customerSummary.closingBalance))}{" "}
-                        {customerSummary.closingBalanceType}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-              </Grid>
+                        <WalletIcon color="warning" sx={{ fontSize: 28 }} />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            PERIOD OPENING BALANCE
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "warning.main" }}>
+                            {formatINR(Math.abs(customerSummary.periodOpeningBalance))}{" "}
+                            {customerSummary.periodOpeningBalanceType}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Grid>
 
-              {/* Statement Table matching Mock DB Viewer 1-to-1 */}
-              <Card elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                        }}
+                      >
+                        <TrendingDownIcon color="error" sx={{ fontSize: 28 }} />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            PERIOD TOTAL DEBIT
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "error.main" }}>
+                            {formatINR(customerSummary.periodTotalDebit)}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Grid>
+
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                        }}
+                      >
+                        <TrendingUpIcon color="success" sx={{ fontSize: 28 }} />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            PERIOD TOTAL CREDIT
+                          </Typography>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "success.main" }}>
+                            {formatINR(customerSummary.periodTotalCredit)}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Grid>
+
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          border: "1px solid",
+                          borderColor: "divider",
+                          borderRadius: 2,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          bgcolor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                        }}
+                      >
+                        <WalletIcon color="primary" sx={{ fontSize: 28 }} />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                            PERIOD CLOSING BALANCE
+                          </Typography>
+                          <Typography
+                            variant="subtitle1"
+                            sx={{
+                              fontWeight: 700,
+                              color:
+                                customerSummary.periodClosingBalance >= 0
+                                  ? "error.main"
+                                  : "success.main",
+                            }}
+                          >
+                            {formatINR(Math.abs(customerSummary.periodClosingBalance))}{" "}
+                            {customerSummary.periodClosingBalanceType}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  </Grid>
+                </Box>
+
                 <TableContainer>
                   {customerLoading ? (
                     <Box sx={{ p: 4 }}>
@@ -1217,7 +1384,7 @@ export default function TallyData() {
                   />
                 )}
 
-                {/* Footer Totals Bar matching Mock DB Viewer */}
+                {/* Footer Bar */}
                 <Box
                   sx={{
                     p: 2,
@@ -1225,38 +1392,12 @@ export default function TallyData() {
                     borderTop: "1px solid",
                     borderColor: "divider",
                     display: "flex",
-                    flexWrap: "wrap",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    gap: 2,
                   }}
                 >
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
                     {customerSummary.records.length} Voucher(s) for {selectedCustomer}
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700 }}>
-                    Current Total: Debit{" "}
-                    <span style={{ color: theme.palette.error.main }}>
-                      {formatINR(customerSummary.totalDebit)}
-                    </span>
-                    {"  │  "}
-                    Credit{" "}
-                    <span style={{ color: theme.palette.success.main }}>
-                      {formatINR(customerSummary.totalCredit)}
-                    </span>
-                    {"  │  "}
-                    Closing Balance:{" "}
-                    <span
-                      style={{
-                        color:
-                          customerSummary.closingBalance >= 0
-                            ? theme.palette.error.main
-                            : theme.palette.success.main,
-                      }}
-                    >
-                      {formatINR(Math.abs(customerSummary.closingBalance))}{" "}
-                      {customerSummary.closingBalanceType}
-                    </span>
                   </Typography>
                 </Box>
               </Card>
