@@ -19,13 +19,14 @@ import {
   Visibility,
   VisibilityOff,
   CheckCircle as SuccessIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 import { supabase } from "../lib/supabaseClient";
 
 interface ChangePasswordDialogProps {
   open: boolean;
   onClose: () => void;
-  isMandatory?: boolean; // When password expired >90 days, cannot dismiss without changing
+  isMandatory?: boolean; // When password expired >90 days, prompts user (can snooze)
 }
 
 export default function ChangePasswordDialog({
@@ -41,12 +42,24 @@ export default function ChangePasswordDialog({
   const [success, setSuccess] = useState(false);
 
   const handleClose = () => {
-    if (isMandatory && !success) return; // Prevent closing if mandatory expiry
     setNewPassword("");
     setConfirmPassword("");
     setError(null);
     setSuccess(false);
     onClose();
+  };
+
+  const handleSnooze = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) {
+        const snoozeUntil = Date.now() + 24 * 60 * 60 * 1000; // Snooze for 24 hours
+        localStorage.setItem(`pwd_prompt_snoozed_until_${user.email.toLowerCase()}`, String(snoozeUntil));
+      }
+    } catch {
+      // ignore
+    }
+    handleClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,16 +78,23 @@ export default function ChangePasswordDialog({
 
     try {
       setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword,
+        data: { last_password_change: new Date().toISOString() },
       });
 
       if (updateError) {
         throw updateError;
       }
 
-      // Record password change timestamp
-      localStorage.setItem("last_password_change", new Date().toISOString());
+      // Record password change timestamp with normalized email key
+      if (user?.email) {
+        const emailKey = user.email.toLowerCase();
+        localStorage.setItem(`last_pwd_change_${emailKey}`, new Date().toISOString());
+        localStorage.removeItem(`pwd_prompt_snoozed_until_${emailKey}`);
+      }
 
       setSuccess(true);
       setTimeout(() => {
@@ -90,24 +110,28 @@ export default function ChangePasswordDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={isMandatory ? handleSnooze : handleClose}
       maxWidth="xs"
       fullWidth
-      disableEscapeKeyDown={isMandatory && !success}
     >
       <form onSubmit={handleSubmit}>
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <LockIcon color="primary" />
-          <Typography variant="h6" fontWeight={700}>
-            {isMandatory ? "Password Update Required" : "Change Password"}
-          </Typography>
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <LockIcon color="primary" />
+            <Typography variant="h6" fontWeight={700}>
+              {isMandatory ? "Password Update Required" : "Change Password"}
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={isMandatory ? handleSnooze : handleClose} disabled={loading}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </DialogTitle>
 
         <DialogContent dividers>
           {isMandatory && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              For security compliance, your password must be updated every 60–90 days.
-              Please set a new password to continue.
+            <Alert severity="info" sx={{ mb: 2 }}>
+              For security compliance, passwords should be updated every 60–90 days.
+              You can set a new password now or remind me later.
             </Alert>
           )}
 
@@ -168,7 +192,11 @@ export default function ChangePasswordDialog({
 
         {!success && (
           <DialogActions sx={{ px: 3, py: 2 }}>
-            {!isMandatory && (
+            {isMandatory ? (
+              <Button onClick={handleSnooze} disabled={loading} color="inherit">
+                Remind Me Later
+              </Button>
+            ) : (
               <Button onClick={handleClose} disabled={loading}>
                 Cancel
               </Button>

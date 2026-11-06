@@ -29,6 +29,8 @@ import {
     Schedule,
     Refresh as RefreshIcon,
     Lock as LockIcon,
+    PhoneInTalk as PhoneInTalkIcon,
+    Chat as ChatIcon,
 } from "@mui/icons-material";
 import {
     LineChart,
@@ -288,6 +290,112 @@ export default function Dashboard() {
                         Refresh Page
                     </Button>
                 </Paper>
+            </Box>
+        );
+    }
+
+    // ── Dedicated Telecaller Dashboard ───────────────────────────────────────
+    if (role === "telecaller") {
+        return (
+            <Box>
+                <Box sx={{ mb: 3 }}>
+                    <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+                        Telecaller Performance Dashboard
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" sx={{ fontSize: "1.05rem" }}>
+                        Welcome back, {user?.name || user?.email}! Here is your working hours, target progress, and calling performance.
+                    </Typography>
+                </Box>
+
+                {/* My Performance & Reports (Hours, Target vs Attempted, Conversions) */}
+                <MyPerformanceWidget />
+
+                {/* Quick Navigation Shortcuts */}
+                <Typography variant="h6" sx={{ fontWeight: 700, mt: 4, mb: 2 }}>
+                    Quick Shortcuts
+                </Typography>
+                <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Card
+                            sx={{
+                                background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                                color: "white",
+                                cursor: "pointer",
+                                transition: "all 0.3s ease",
+                                "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+                            }}
+                            onClick={() => navigate("/calling-list")}
+                        >
+                            <CardContent>
+                                <PhoneInTalkIcon sx={{ fontSize: 36, mb: 1, opacity: 0.9 }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>My Calling List</Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                                    View assigned calls &amp; schedule follow-ups
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Card
+                            sx={{
+                                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                color: "white",
+                                cursor: "pointer",
+                                transition: "all 0.3s ease",
+                                "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+                            }}
+                            onClick={() => navigate("/customers")}
+                        >
+                            <CardContent>
+                                <People sx={{ fontSize: 36, mb: 1, opacity: 0.9 }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>Sabhasad Directory</Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                                    Browse customer accounts &amp; profile data
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Card
+                            sx={{
+                                background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+                                color: "white",
+                                cursor: "pointer",
+                                transition: "all 0.3s ease",
+                                "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+                            }}
+                            onClick={() => navigate("/chat")}
+                        >
+                            <CardContent>
+                                <ChatIcon sx={{ fontSize: 36, mb: 1, opacity: 0.9 }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>Team Chat</Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                                    Internal messaging with managers &amp; colleagues
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Card
+                            sx={{
+                                background: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+                                color: "white",
+                                cursor: "pointer",
+                                transition: "all 0.3s ease",
+                                "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+                            }}
+                            onClick={() => navigate("/user-activity")}
+                        >
+                            <CardContent>
+                                <Timeline sx={{ fontSize: 36, mb: 1, opacity: 0.9 }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>My User Activity</Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                                    Check your login sessions &amp; action history
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                </Grid>
             </Box>
         );
     }

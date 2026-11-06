@@ -393,16 +393,31 @@ export default function Layout({
   const [passwordExpired, setPasswordExpired] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-    const lastChange = localStorage.getItem(`last_pwd_change_${user.email}`) || user.created_at;
-    if (lastChange) {
-      const days = Math.floor((Date.now() - new Date(lastChange).getTime()) / (1000 * 60 * 60 * 24));
-      if (days >= 90) {
-        setPasswordExpired(true);
-        setPasswordDialogOpen(true);
-      }
+    if (!user?.email) return;
+    const emailKey = user.email.toLowerCase();
+
+    // Check if prompt was snoozed within the last 24 hours
+    const snoozedUntil = localStorage.getItem(`pwd_prompt_snoozed_until_${emailKey}`);
+    if (snoozedUntil && Date.now() < Number(snoozedUntil)) {
+      return;
     }
-  }, [user]);
+
+    const storedChange = localStorage.getItem(`last_pwd_change_${emailKey}`);
+    const metaChange = (user.user_metadata as any)?.last_password_change;
+    const lastChange = storedChange || metaChange;
+
+    if (!lastChange) {
+      // Initialize for current/existing users so their 60-90 day cycle starts from now
+      localStorage.setItem(`last_pwd_change_${emailKey}`, new Date().toISOString());
+      return;
+    }
+
+    const days = Math.floor((Date.now() - new Date(lastChange).getTime()) / (1000 * 60 * 60 * 24));
+    if (days >= 90) {
+      setPasswordExpired(true);
+      setPasswordDialogOpen(true);
+    }
+  }, [user?.email]);
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
@@ -752,6 +767,9 @@ export default function Layout({
               return accessibleChildren.length > 0;
             }
             if (item.permission) {
+              if (item.id === "dashboard") {
+                return true;
+              }
               if (item.id === "field-manager") {
                 return (
                   hasPermission(item.permission) ||

@@ -43,6 +43,9 @@ export default function ProtectedRoute({ children, requiredPermission }: Protect
     }
     // Prevent infinite loop if they are trying to access dashboard itself
     if (requiredPermission === 'view_dashboard') {
+      if (role === 'telecaller') {
+        return <>{children}</>;
+      }
       if (hasPermission('view_lead_dashboard')) return <Navigate to="/lead-dashboard" replace />;
       if (hasPermission('view_all_leads')) return <Navigate to="/leads" replace />;
       if (hasPermission('work_leads')) return <Navigate to="/lead-workspace" replace />;

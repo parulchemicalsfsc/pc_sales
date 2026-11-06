@@ -89,7 +89,7 @@ function App() {
                 <Route
                   path="/dashboard"
                   element={
-                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_DASHBOARD}>
+                    <ProtectedRoute>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <Dashboard />
                       </Layout>

@@ -37,6 +37,7 @@ import {
   Checkbox,
   FormControlLabel,
   InputAdornment,
+  Collapse,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -65,6 +66,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
 import { FEATURE_FLAGS } from "../config/featureFlags";
 import VoiceTextField from "../components/VoiceTextField";
+import MyPerformanceWidget from "../components/MyPerformanceWidget";
 import TelecallerQuestionnaire, {
   initialQuestionnaireData,
   QuestionnaireData,
@@ -218,6 +220,7 @@ export default function CallingList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
+  const [showPerformance, setShowPerformance] = useState(false);
 
   // History Dialog
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -999,6 +1002,27 @@ export default function CallingList() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
+            <Button
+              variant={showPerformance ? "contained" : "outlined"}
+              size="small"
+              onClick={() => setShowPerformance(!showPerformance)}
+              startIcon={<TrendingUpIcon />}
+              sx={{
+                borderRadius: 2,
+                fontWeight: 700,
+                textTransform: "none",
+                color: showPerformance ? "#fff" : "#16a34a",
+                bgcolor: showPerformance ? "#16a34a" : alpha("#16a34a", 0.05),
+                border: `2px solid ${alpha("#16a34a", 0.3)}`,
+                px: 2,
+                "&:hover": {
+                  bgcolor: showPerformance ? "#15803d" : alpha("#16a34a", 0.1),
+                  border: `2px solid #16a34a`,
+                },
+              }}
+            >
+              {showPerformance ? "Hide Performance" : "My Performance"}
+            </Button>
             <Tooltip title="Estimation Calculator">
               <Button
                 variant="outlined"
@@ -1034,6 +1058,11 @@ export default function CallingList() {
 
 
       </Box>
+
+      {/* ── My Performance & Working Hours Drawer ── */}
+      <Collapse in={showPerformance} unmountOnExit sx={{ mb: 2.5 }}>
+        <MyPerformanceWidget />
+      </Collapse>
 
       {/* ── Stats ── */}
       <Stack direction="row" spacing={2} sx={{ mb: 2.5 }}>
