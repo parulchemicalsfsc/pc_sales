@@ -153,7 +153,7 @@ export default function UserManagement() {
         pwd += "!9";
         setEditPassword(pwd);
         setShowEditPassword(true);
-        navigator.clipboard.writeText(pwd).catch(() => {});
+        navigator.clipboard.writeText(pwd).catch(() => { });
         showSnackbar(`Temporary password generated: ${pwd} (copied to clipboard!)`, "success");
     };
 
@@ -485,15 +485,15 @@ export default function UserManagement() {
                             <TableBody>
                                 {filteredUsers.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
-                                            <Typography color="text.secondary">
-                                                {searchTerm
-                                                    ? t("userMgmt.noResults", "No users match your search")
-                                                    : activeTab === "active"
-                                                        ? t("userMgmt.noActiveUsers", "No active users")
-                                                        : t("userMgmt.noInactiveUsers", "No inactive users")}
-                                            </Typography>
-                                        </TableCell>
+                                            <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                                                <Typography color="text.secondary">
+                                                    {searchTerm
+                                                        ? t("userMgmt.noResults", "No users match your search")
+                                                        : activeTab === "active"
+                                                            ? t("userMgmt.noActiveUsers", "No active users")
+                                                            : t("userMgmt.noInactiveUsers", "No inactive users")}
+                                                </Typography>
+                                            </TableCell>
                                     </TableRow>
                                 ) : (
                                     filteredUsers.map((u) => (

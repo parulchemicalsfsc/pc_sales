@@ -672,7 +672,7 @@ export default function Layout({
 
   const handleNotificationsClick = async () => {
     navigate("/notifications");
-    
+
     if (unreadCount > 0) {
       // Optimistically clear the unread count in the UI
       setUnreadCount(0);
@@ -830,10 +830,10 @@ export default function Layout({
                       <ListItemText
                         primary={
                           item.id === "distributors-group" ? "Distributor" :
-                          item.id === "customers" ? "Sabhasad" :
-                          item.id === "orders" ? "Order Management" :
-                          item.id === "field-manager" ? "Field Manager" :
-                          t(item.labelKey)
+                            item.id === "customers" ? "Sabhasad" :
+                              item.id === "orders" ? "Order Management" :
+                                item.id === "field-manager" ? "Field Manager" :
+                                  t(item.labelKey)
                         }
                         primaryTypographyProps={{
                           fontWeight: active ? 600 : 500,
@@ -855,42 +855,42 @@ export default function Layout({
                       {item.children
                         .filter((child) => !child.permission || hasPermission(child.permission))
                         .map((child) => (
-                        <ListItem key={child.id} disablePadding sx={{ mb: 0.5 }}>
-                          <ListItemButton
-                            onClick={() => handleNavigation(child.path)}
-                            sx={{
-                              borderRadius: 2,
-                              mx: 1,
-                              my: 0,
-                              minHeight: 40,
-                              pl: 4,
-                              backgroundColor: isActive(child.path)
-                                ? theme.palette.mode === "dark"
-                                  ? "rgba(144, 202, 249, 0.16)"
-                                  : "rgba(25, 118, 210, 0.08)"
-                                : "transparent",
-                              color: isActive(child.path) ? theme.palette.primary.main : "inherit",
-                              "&:hover": {
-                                backgroundColor:
-                                  theme.palette.mode === "dark"
-                                    ? "rgba(144, 202, 249, 0.08)"
-                                    : "rgba(25, 118, 210, 0.04)",
-                              },
-                            }}
-                          >
-                            <ListItemIcon sx={{ minWidth: 32, color: isActive(child.path) ? theme.palette.primary.main : "inherit" }}>
-                              {child.icon}
-                            </ListItemIcon>
-                            <ListItemText
-                              primary={child.id === "field-manager" ? "Field Manager" : t(child.labelKey)}
-                              primaryTypographyProps={{
-                                fontWeight: isActive(child.path) ? 600 : 500,
-                                fontSize: "0.85rem",
+                          <ListItem key={child.id} disablePadding sx={{ mb: 0.5 }}>
+                            <ListItemButton
+                              onClick={() => handleNavigation(child.path)}
+                              sx={{
+                                borderRadius: 2,
+                                mx: 1,
+                                my: 0,
+                                minHeight: 40,
+                                pl: 4,
+                                backgroundColor: isActive(child.path)
+                                  ? theme.palette.mode === "dark"
+                                    ? "rgba(144, 202, 249, 0.16)"
+                                    : "rgba(25, 118, 210, 0.08)"
+                                  : "transparent",
+                                color: isActive(child.path) ? theme.palette.primary.main : "inherit",
+                                "&:hover": {
+                                  backgroundColor:
+                                    theme.palette.mode === "dark"
+                                      ? "rgba(144, 202, 249, 0.08)"
+                                      : "rgba(25, 118, 210, 0.04)",
+                                },
                               }}
-                            />
-                          </ListItemButton>
-                        </ListItem>
-                      ))}
+                            >
+                              <ListItemIcon sx={{ minWidth: 32, color: isActive(child.path) ? theme.palette.primary.main : "inherit" }}>
+                                {child.icon}
+                              </ListItemIcon>
+                              <ListItemText
+                                primary={child.id === "field-manager" ? "Field Manager" : t(child.labelKey)}
+                                primaryTypographyProps={{
+                                  fontWeight: isActive(child.path) ? 600 : 500,
+                                  fontSize: "0.85rem",
+                                }}
+                              />
+                            </ListItemButton>
+                          </ListItem>
+                        ))}
                     </List>
                   </Collapse>
                 )}
@@ -1617,8 +1617,8 @@ export default function Layout({
             minWidth: 280,
             borderRadius: 3,
             borderLeft: `6px solid ${activityToast?.severity === "success"
-                ? theme.palette.success.main
-                : theme.palette.info.main
+              ? theme.palette.success.main
+              : theme.palette.info.main
               }`,
             bgcolor: theme.palette.background.paper,
             color: theme.palette.text.primary,
@@ -1650,7 +1650,7 @@ export default function Layout({
           </Box>
         </Paper>
       </Snackbar>
-      
+
       {/* Admin/SM Duty Sheet Popup — appears once per day before 10 AM */}
       <DutySheetPopup />
 
