@@ -65,6 +65,7 @@ import {
   ExpandMore,
   EventNote as EventNoteIcon,
   AssignmentInd as AssignmentIndIcon,
+  VpnKey as KeyIcon,
 } from "@mui/icons-material";
 
 import { useTranslation } from "../hooks/useTranslation";
@@ -76,6 +77,7 @@ import { notificationsAPI, activityAPI } from "../services/api";
 import { PERMISSIONS } from "../config/permissions";
 import useGoogleTranslate from "../hooks/useGoogleTranslate";
 import DutySheetPopup from "./DutySheetPopup";
+import ChangePasswordDialog from "./ChangePasswordDialog";
 
 const supportedLanguages = {
   en: {
@@ -387,6 +389,21 @@ export default function Layout({
 
   // Run session tracking globally from Layout so it continues across all pages
   useSessionTracker({ userEmail: user?.email });
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordExpired, setPasswordExpired] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const lastChange = localStorage.getItem(`last_pwd_change_${user.email}`) || user.created_at;
+    if (lastChange) {
+      const days = Math.floor((Date.now() - new Date(lastChange).getTime()) / (1000 * 60 * 60 * 24));
+      if (days >= 90) {
+        setPasswordExpired(true);
+        setPasswordDialogOpen(true);
+      }
+    }
+  }, [user]);
+
   const [unreadCount, setUnreadCount] = useState(0);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   // Ref so the realtime callback always sees the latest pathname without re-subscribing
@@ -1442,6 +1459,12 @@ export default function Layout({
                 </Box>
               </MenuItem>
               <Divider />
+              <MenuItem onClick={() => { handleUserMenuClose(); setPasswordDialogOpen(true); }}>
+                <ListItemIcon>
+                  <KeyIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Change Password</ListItemText>
+              </MenuItem>
               <MenuItem onClick={handleLogout}>
                 <ListItemIcon>
                   <LogoutIcon fontSize="small" />
@@ -1630,6 +1653,13 @@ export default function Layout({
       
       {/* Admin/SM Duty Sheet Popup — appears once per day before 10 AM */}
       <DutySheetPopup />
+
+      {/* Change Password Dialog (also enforces 60/90 day expiry) */}
+      <ChangePasswordDialog
+        open={passwordDialogOpen}
+        onClose={() => setPasswordDialogOpen(false)}
+        isMandatory={passwordExpired}
+      />
     </Box>
   );
 }

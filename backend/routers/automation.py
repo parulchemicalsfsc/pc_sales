@@ -2726,3 +2726,122 @@ def trigger_scoring_cron(
     except Exception as e:
         logger.error(f"[CRON] Unexpected error in trigger_scoring_cron: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Scoring cron trigger failed: {e}")
+
+@router.get("/my-performance")
+def get_my_performance(
+    x_user_email: Optional[str] = Header(None, alias="x-user-email"),
+    email: Optional[str] = Query(None, description="Optional target email (admin/manager can view others)"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Returns user performance metrics for the logged-in user (or target user for admin):
+    1. Working hours with dates (daily breakdown + total)
+    2. Calls Attempted vs Target Given (assigned, attempted, pending, completion %)
+    3. Leads Converted (orders created/approved, conversion rate %)
+    """
+    target_email = (email or x_user_email or "").strip().lower()
+    if not target_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    today_ist = get_today_ist()
+
+    # 1. Sessions: working hours
+    try:
+        sess_q = db.table("user_sessions").select("session_date,total_seconds").eq("user_email", target_email)
+        if start_date:
+            sess_q = sess_q.gte("session_date", start_date)
+        if end_date:
+            sess_q = sess_q.lte("session_date", end_date)
+        sess_res = sess_q.order("session_date", desc=True).limit(60).execute()
+        sessions = sess_res.data or []
+    except Exception as se:
+        logger.warning(f"Error fetching user sessions for {target_email}: {se}")
+        sessions = []
+
+    def _fmt_seconds(sec: int) -> str:
+        if not sec:
+            return "0s"
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
+        if h > 0:
+            return f"{h}h {m}m"
+        elif m > 0:
+            return f"{m}m {s}s"
+        return f"{s}s"
+
+    total_working_seconds = sum(s.get("total_seconds", 0) or 0 for s in sessions)
+    today_seconds = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == today_ist), 0)
+
+    daily_working_hours = [
+        {
+            "date": s.get("session_date"),
+            "seconds": s.get("total_seconds", 0) or 0,
+            "hours": round((s.get("total_seconds", 0) or 0) / 3600, 2),
+            "formatted": _fmt_seconds(s.get("total_seconds", 0) or 0)
+        }
+        for s in sessions
+    ]
+
+    # 2. Calling assignments: Target Given vs Calls Attempted
+    try:
+        assign_q = db.table("calling_assignments").select("status,assigned_date").eq("user_email", target_email)
+        if start_date:
+            assign_q = assign_q.gte("assigned_date", start_date)
+        if end_date:
+            assign_q = assign_q.lte("assigned_date", end_date)
+        assign_res = assign_q.execute()
+        assignments = assign_res.data or []
+    except Exception as ae:
+        logger.warning(f"Error fetching calling assignments for {target_email}: {ae}")
+        assignments = []
+
+    target_calls = len(assignments)
+    pending_calls = sum(1 for a in assignments if a.get("status") == "Pending")
+    calls_attempted = target_calls - pending_calls
+    completion_rate = round((calls_attempted / target_calls * 100) if target_calls > 0 else 0, 1)
+
+    # 3. Conversions & Orders
+    leads_converted = 0
+    recent_conversions = []
+    try:
+        orders_q = db.table("telecaller_orders").select("order_id,customer_name,status,created_at,products_json").eq("telecaller_email", target_email)
+        if start_date:
+            orders_q = orders_q.gte("created_at", f"{start_date}T00:00:00")
+        if end_date:
+            orders_q = orders_q.lte("created_at", f"{end_date}T23:59:59")
+        orders_res = orders_q.order("created_at", desc=True).limit(20).execute()
+        orders = orders_res.data or []
+        approved_orders = [o for o in orders if (o.get("status") or "").lower() == "approved"]
+        leads_converted = len(approved_orders) if approved_orders else len(orders)
+        recent_conversions = [
+            {
+                "order_id": o.get("order_id"),
+                "customer_name": o.get("customer_name") or "Unknown",
+                "status": o.get("status") or "pending",
+                "created_at": (o.get("created_at") or "")[:10]
+            }
+            for o in orders[:5]
+        ]
+    except Exception as oe:
+        logger.warning(f"Error fetching orders for {target_email}: {oe}")
+
+    conversion_rate = round((leads_converted / calls_attempted * 100) if calls_attempted > 0 else 0, 1)
+
+    return {
+        "user_email": target_email,
+        "total_working_seconds": total_working_seconds,
+        "total_working_formatted": _fmt_seconds(total_working_seconds),
+        "today_working_seconds": today_seconds,
+        "today_working_formatted": _fmt_seconds(today_seconds),
+        "target_calls": target_calls,
+        "calls_attempted": calls_attempted,
+        "pending_calls": pending_calls,
+        "completion_rate": completion_rate,
+        "leads_converted": leads_converted,
+        "conversion_rate": conversion_rate,
+        "daily_working_hours": daily_working_hours,
+        "recent_conversions": recent_conversions,
+    }

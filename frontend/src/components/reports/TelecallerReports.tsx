@@ -990,6 +990,7 @@ export default function TelecallerReports() {
                             <TableCell sx={{ fontWeight: 700 }}>{config.userTableColumnHeader}</TableCell>
                             <TableCell sx={{ fontWeight: 700 }} align="right">Present</TableCell>
                             <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Att %</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Working Hours</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1015,6 +1016,11 @@ export default function TelecallerReports() {
                                     color="success"
                                   />
                                 </Box>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: "primary.main" }}>
+                                  {row.total_working_time || "00:00:00"}
+                                </Typography>
                               </TableCell>
                             </TableRow>
                           ))}

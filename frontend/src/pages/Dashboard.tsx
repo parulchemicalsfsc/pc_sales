@@ -51,6 +51,7 @@ import {
     ListSkeleton,
 } from "../components/Skeletons";
 import PermissionGate from "../components/PermissionGate";
+import MyPerformanceWidget from "../components/MyPerformanceWidget";
 import { useAuth } from "../contexts/AuthContext";
 import { PERMISSIONS } from "../config/permissions";
 import type {
@@ -294,7 +295,7 @@ export default function Dashboard() {
     return (
         <Box>
             {/* Welcome Header */}
-            <Box sx={{ mb: 4 }}>
+            <Box sx={{ mb: 3 }}>
                 <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
                      {t("dashboard.welcomeBack")}
                 </Typography>
@@ -302,6 +303,9 @@ export default function Dashboard() {
                     {t("dashboard.subtitle")}
                 </Typography>
             </Box>
+
+            {/* ── My Performance & Reports (Total Hours with Dates, Target vs Attempted, Conversions) ── */}
+            <MyPerformanceWidget />
 
             {/* ── Quick Action Cards ──────────────────────────────────────────────── */}
             {/* All 4 always rendered; greyed out + click-blocked if no permission   */}

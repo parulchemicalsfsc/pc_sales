@@ -615,6 +615,8 @@ def get_telecaller_dashboard(
             "absent_days": att_info["absent_days"],
             "total_duty_days": att_info["total_duty_days"],
             "attendance_pct": att_info["attendance_pct"],
+            "total_working_time": format_call_duration_hms(total_time_sec),
+            "total_working_seconds": total_time_sec,
             "status": att_info.get("status", "Needs Improvement")
         })
         
@@ -777,7 +779,7 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
         f"attendance during the period, resulting in an overall attendance rate of {att_summary.get('overall_attendance_pct', 0.0)}%."
     )
 
-    headers = ["Rank", "Name", "Present Days", "Absent Days", "Total Days", "Attendance %", "Status"]
+    headers = ["Rank", "Name", "Present Days", "Absent Days", "Total Days", "Attendance %", "Total Working Hours", "Status"]
     rows = []
     for i, row in enumerate(attendance_list):
         rows.append([
@@ -787,6 +789,7 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
             row.get("absent_days", 0),
             row.get("total_duty_days", 0),
             f"{row.get('attendance_pct', 0)}%",
+            row.get("total_working_time", "00:00:00"),
             row.get("status", "Needs Improvement")
         ])
 
