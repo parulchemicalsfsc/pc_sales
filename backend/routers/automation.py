@@ -2055,6 +2055,110 @@ def admin_distribute(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Distribution failed: {e}")
 
+class CheckVillageStatusPayload(BaseModel):
+    state: Optional[str] = ""
+    district: Optional[str] = ""
+    taluka: Optional[str] = ""
+    village: Optional[str] = ""
+
+@router.post("/admin/check-village-status")
+def check_village_status(
+    payload: CheckVillageStatusPayload,
+    user_role: str = Header(None, alias="x-user-role"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin/Sales Manager: Check whether a village has existing assignments and get breakdown."""
+    role = (user_role or "").lower()
+    if role not in ["admin", "sales_manager"]:
+        raise HTTPException(status_code=403, detail="Only Admins or Sales Managers can check assignment status")
+
+    try:
+        query = db.table("customers").select("customer_id")
+        if payload.state and payload.state.strip():
+            query = query.ilike("state", payload.state.strip())
+        if payload.district and payload.district.strip():
+            query = query.ilike("district", payload.district.strip())
+        if payload.taluka and payload.taluka.strip():
+            query = query.ilike("taluka", payload.taluka.strip())
+        if payload.village and payload.village.strip():
+            query = query.ilike("village", payload.village.strip())
+
+        cust_res = query.limit(1000).execute()
+        cust_ids = [c["customer_id"] for c in (cust_res.data or [])]
+
+        if not cust_ids:
+            return {
+                "total_contacts": 0,
+                "is_assigned": False,
+                "pending_count": 0,
+                "called_count": 0,
+                "assigned_telecallers": [],
+                "assigned_emails": [],
+            }
+
+        assignments = []
+        for i in range(0, len(cust_ids), 100):
+            chunk = cust_ids[i:i+100]
+            res = db.table("calling_assignments") \
+                .select("customer_id, user_email, status") \
+                .eq("entity_type", "customer") \
+                .in_("customer_id", chunk) \
+                .execute()
+            if res.data:
+                assignments.extend(res.data)
+
+        if not assignments:
+            return {
+                "total_contacts": len(cust_ids),
+                "is_assigned": False,
+                "pending_count": 0,
+                "called_count": 0,
+                "assigned_telecallers": [],
+                "assigned_emails": [],
+            }
+
+        pending_cust_ids = set()
+        called_cust_ids = set()
+        telecaller_emails = set()
+
+        for a in assignments:
+            cid = a.get("customer_id")
+            st = a.get("status")
+            email = a.get("user_email")
+            if email:
+                telecaller_emails.add(email)
+            if st == "Pending":
+                pending_cust_ids.add(cid)
+            else:
+                called_cust_ids.add(cid)
+
+        # Map emails to names
+        user_names = []
+        if telecaller_emails:
+            users_res = db.table("app_users").select("email, name").in_("email", list(telecaller_emails)).execute()
+            user_names = [u.get("name") or u["email"].split("@")[0] for u in (users_res.data or [])]
+            if not user_names:
+                user_names = [e.split("@")[0] for e in telecaller_emails]
+
+        return {
+            "total_contacts": len(cust_ids),
+            "is_assigned": len(assignments) > 0,
+            "pending_count": len(pending_cust_ids),
+            "called_count": len(called_cust_ids),
+            "assigned_telecallers": user_names,
+            "assigned_emails": list(telecaller_emails),
+        }
+    except Exception as e:
+        logger.error(f"[CHECK-VILLAGE-STATUS] Error: {e}", exc_info=True)
+        return {
+            "total_contacts": 0,
+            "is_assigned": False,
+            "pending_count": 0,
+            "called_count": 0,
+            "assigned_telecallers": [],
+            "assigned_emails": [],
+        }
+
 class SabhsadDistributePayload(BaseModel):
     telecaller_emails: list[str]
     state: str
@@ -2105,6 +2209,7 @@ def distribute_sabhsads(
             return {"message": "No sabhsads found in this location", "assigned": 0}
 
         if payload.reassign_existing:
+            # Reassign ALL contacts in this village, including previously called ones
             # Delete any existing 'Pending' assignments for these customers to avoid duplicate pending calls
             for i in range(0, len(all_cust_ids), 100):
                 chunk = all_cust_ids[i:i+100]
@@ -2115,27 +2220,39 @@ def distribute_sabhsads(
                     .execute()
             ids_to_assign = all_cust_ids
         else:
-            # Find which of these are already assigned (paginate in chunks of 100 for IN query)
-            assigned_ids = set()
+            # Only fresh (remained calling / uncalled) calls!
+            # Find which of these contacts have ALREADY BEEN CALLED (status != 'Pending')
+            already_called_ids = set()
             for i in range(0, len(all_cust_ids), 100):
                 chunk = all_cust_ids[i:i+100]
-                assigned_res = db.table("calling_assignments") \
+                called_res = db.table("calling_assignments") \
                     .select("customer_id") \
                     .eq("entity_type", "customer") \
+                    .neq("status", "Pending") \
                     .in_("customer_id", chunk) \
                     .execute()
-                for a in (assigned_res.data or []):
-                    assigned_ids.add(a["customer_id"])
-                
-            unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
+                for a in (called_res.data or []):
+                    already_called_ids.add(a["customer_id"])
 
-            if not unassigned_ids:
+            fresh_ids = [cid for cid in all_cust_ids if cid not in already_called_ids]
+
+            if not fresh_ids:
                 return {
-                    "message": f"All {len(all_cust_ids)} sabhsads in this location were previously assigned. Check 'Re-distribute all' to assign them again.",
+                    "message": f"All {len(all_cust_ids)} sabhsads in this location have already been called. Choose 'All Calls (Including Called)' to re-assign them.",
                     "assigned": 0
                 }
 
-            ids_to_assign = unassigned_ids
+            # Delete any existing 'Pending' assignments for these fresh customers
+            # so they get reassigned from their old telecaller to the new telecaller(s)
+            for i in range(0, len(fresh_ids), 100):
+                chunk = fresh_ids[i:i+100]
+                db.table("calling_assignments") \
+                    .eq("status", "Pending") \
+                    .in_("customer_id", chunk) \
+                    .delete() \
+                    .execute()
+
+            ids_to_assign = fresh_ids
         
         today_str = get_today_ist()
         assignments = []
