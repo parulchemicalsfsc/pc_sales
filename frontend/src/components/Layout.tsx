@@ -116,6 +116,7 @@ const TOP_LEVEL_ROUTES = new Set([
   "/reports",
   "/import",
   "/calling-list",
+  "/my-reports",
   "/activity",
   "/orders",
   "/recruitment",
@@ -256,6 +257,13 @@ const navigationItems: NavItem[] = [
     labelKey: "nav.callingList",
     icon: <PhoneInTalkIcon />,
     path: "/calling-list",
+    permission: PERMISSIONS.VIEW_CALLING_LIST,
+  },
+  {
+    id: "my-reports",
+    labelKey: "nav.myReports",
+    icon: <AssessmentIcon />,
+    path: "/my-reports",
     permission: PERMISSIONS.VIEW_CALLING_LIST,
   },
   {

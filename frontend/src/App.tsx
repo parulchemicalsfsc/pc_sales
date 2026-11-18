@@ -27,6 +27,7 @@ import Reports from "./pages/Reports";
 import Forecasting from "./pages/Forecasting";
 import DataImport from "./pages/DataImport";
 import CallingList from "./pages/CallingList";
+import MyReports from "./pages/MyReports";
 import OrderManagement from "./pages/OrderManagement";
 import Admin from "./pages/Admin";
 import CallDistribution from "./pages/CallDistribution";
@@ -242,6 +243,16 @@ function App() {
                     <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CALLING_LIST}>
                       <Layout toggleTheme={toggleTheme} themeMode={mode}>
                         <CallingList />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/my-reports"
+                  element={
+                    <ProtectedRoute requiredPermission={PERMISSIONS.VIEW_CALLING_LIST}>
+                      <Layout toggleTheme={toggleTheme} themeMode={mode}>
+                        <MyReports />
                       </Layout>
                     </ProtectedRoute>
                   }

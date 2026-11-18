@@ -31,6 +31,7 @@ import {
     Lock as LockIcon,
     PhoneInTalk as PhoneInTalkIcon,
     Chat as ChatIcon,
+    Assessment as AssessmentIcon,
 } from "@mui/icons-material";
 import {
     LineChart,
@@ -391,6 +392,26 @@ export default function Dashboard() {
                                 <Typography variant="h6" sx={{ fontWeight: 600 }}>My User Activity</Typography>
                                 <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
                                     Check your login sessions &amp; action history
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                        <Card
+                            sx={{
+                                background: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)",
+                                color: "white",
+                                cursor: "pointer",
+                                transition: "all 0.3s ease",
+                                "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+                            }}
+                            onClick={() => navigate("/my-reports")}
+                        >
+                            <CardContent>
+                                <AssessmentIcon sx={{ fontSize: 36, mb: 1, opacity: 0.9 }} />
+                                <Typography variant="h6" sx={{ fontWeight: 600 }}>My Reports</Typography>
+                                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+                                    Download your performance, attendance &amp; order reports
                                 </Typography>
                             </CardContent>
                         </Card>
