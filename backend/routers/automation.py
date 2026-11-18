@@ -2874,7 +2874,7 @@ def get_my_performance(
             sess_q = sess_q.gte("session_date", start_date)
         if end_date:
             sess_q = sess_q.lte("session_date", end_date)
-        sess_res = sess_q.order("session_date", desc=True).limit(60).execute()
+        sess_res = sess_q.order("session_date", desc=True).limit(365).execute()
         sessions = sess_res.data or []
     except Exception as se:
         logger.warning(f"Error fetching user sessions for {target_email}: {se}")
@@ -2912,7 +2912,7 @@ def get_my_performance(
             assign_q = assign_q.gte("assigned_date", start_date)
         if end_date:
             assign_q = assign_q.lte("assigned_date", end_date)
-        assign_res = assign_q.execute()
+        assign_res = assign_q.limit(5000).execute()
         assignments = assign_res.data or []
     except Exception as ae:
         logger.warning(f"Error fetching calling assignments for {target_email}: {ae}")
@@ -2932,7 +2932,7 @@ def get_my_performance(
             orders_q = orders_q.gte("created_at", f"{start_date}T00:00:00")
         if end_date:
             orders_q = orders_q.lte("created_at", f"{end_date}T23:59:59")
-        orders_res = orders_q.order("created_at", desc=True).limit(20).execute()
+        orders_res = orders_q.order("created_at", desc=True).limit(500).execute()
         orders = orders_res.data or []
         approved_orders = [o for o in orders if (o.get("status") or "").lower() == "approved"]
         leads_converted = len(approved_orders) if approved_orders else len(orders)

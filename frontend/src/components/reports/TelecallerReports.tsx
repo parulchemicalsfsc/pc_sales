@@ -70,6 +70,18 @@ import { reportsAPI, apiClient } from "../../services/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const getToday = () => {
+  const today = new Date().toISOString().split("T")[0];
+  return { start: today, end: today };
+};
+
+const getYesterday = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const yest = d.toISOString().split("T")[0];
+  return { start: yest, end: yest };
+};
+
 const getThisMonth = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
@@ -303,6 +315,7 @@ export default function TelecallerReports() {
 
   const loadAll = useCallback(async () => {
     if (!user?.email) return;
+    if (!filters.start_date || !filters.end_date) return;
     setLoading(true);
     setError(null);
     try {
@@ -337,7 +350,13 @@ export default function TelecallerReports() {
   }, [loadAll]);
 
   const applyPreset = (preset: string) => {
-    if (preset === "this_month") {
+    if (preset === "today") {
+      const r = getToday();
+      setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
+    } else if (preset === "yesterday") {
+      const r = getYesterday();
+      setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
+    } else if (preset === "this_month") {
       const r = getThisMonth();
       setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
     } else if (preset === "last_month") {
@@ -425,9 +444,11 @@ export default function TelecallerReports() {
               size="small"
               onChange={(_, v) => { if (v) applyPreset(v); }}
             >
-              <ToggleButton value="this_month" sx={{ px: 3, fontWeight: 600 }}>This Month</ToggleButton>
-              <ToggleButton value="last_month" sx={{ px: 3, fontWeight: 600 }}>Last Month</ToggleButton>
-              <ToggleButton value="custom" sx={{ px: 3, fontWeight: 600 }}>Custom</ToggleButton>
+              <ToggleButton value="today" sx={{ px: 2, fontWeight: 600 }}>Today</ToggleButton>
+              <ToggleButton value="yesterday" sx={{ px: 2, fontWeight: 600 }}>Yesterday</ToggleButton>
+              <ToggleButton value="this_month" sx={{ px: 2, fontWeight: 600 }}>This Month</ToggleButton>
+              <ToggleButton value="last_month" sx={{ px: 2, fontWeight: 600 }}>Last Month</ToggleButton>
+              <ToggleButton value="custom" sx={{ px: 2, fontWeight: 600 }}>Custom</ToggleButton>
             </ToggleButtonGroup>
 
             {filters.preset === "custom" && (

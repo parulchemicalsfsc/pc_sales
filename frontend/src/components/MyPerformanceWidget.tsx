@@ -42,7 +42,12 @@ export default function MyPerformanceWidget() {
   const theme = useTheme();
   const { user, role } = useAuth();
   const [expanded, setExpanded] = useState(false);
-  const [dateFilter, setDateFilter] = useState<string>("month"); // "today" | "week" | "month" | "all"
+  const [dateFilter, setDateFilter] = useState<string>("month"); // "today" | "yesterday" | "week" | "month" | "custom" | "all"
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  });
+  const [customEndDate, setCustomEndDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
 
   // Compute date range
   const getDateRange = () => {
@@ -50,6 +55,11 @@ export default function MyPerformanceWidget() {
     const todayStr = now.toISOString().split("T")[0];
     if (dateFilter === "today") {
       return { start: todayStr, end: todayStr };
+    } else if (dateFilter === "yesterday") {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      const yStr = d.toISOString().split("T")[0];
+      return { start: yStr, end: yStr };
     } else if (dateFilter === "week") {
       const d = new Date();
       d.setDate(d.getDate() - 7);
@@ -57,6 +67,8 @@ export default function MyPerformanceWidget() {
     } else if (dateFilter === "month") {
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
       return { start: firstDay, end: todayStr };
+    } else if (dateFilter === "custom") {
+      return { start: customStartDate, end: customEndDate };
     }
     return { start: undefined, end: undefined };
   };
@@ -75,7 +87,7 @@ export default function MyPerformanceWidget() {
         start_date: start,
         end_date: end,
       }),
-    enabled: !!user?.email,
+    enabled: !!user?.email && (dateFilter !== "custom" || (!!customStartDate && !!customEndDate)),
     staleTime: 60 * 1000,
   });
 
@@ -119,22 +131,52 @@ export default function MyPerformanceWidget() {
             </Stack>
             <Typography variant="caption" color="text.secondary">
               Live tracking of your working hours, calling targets, and conversions
+              {start && end && (
+                <Box component="span" sx={{ ml: 1, color: "primary.main", fontWeight: 600 }}>
+                  ({start === end ? start : `${start} to ${end}`})
+                </Box>
+              )}
             </Typography>
           </Box>
 
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} flexWrap="wrap">
             <TextField
               select
               size="small"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              sx={{ minWidth: 130 }}
+              sx={{ minWidth: 140 }}
             >
               <MenuItem value="today">Today</MenuItem>
+              <MenuItem value="yesterday">Yesterday</MenuItem>
               <MenuItem value="week">Last 7 Days</MenuItem>
               <MenuItem value="month">This Month</MenuItem>
+              <MenuItem value="custom">Custom Dates</MenuItem>
               <MenuItem value="all">All Time</MenuItem>
             </TextField>
+
+            {dateFilter === "custom" && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  type="date"
+                  label="From"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 145 }}
+                />
+                <TextField
+                  size="small"
+                  type="date"
+                  label="To"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  sx={{ width: 145 }}
+                />
+              </Stack>
+            )}
 
             <Tooltip title="Refresh Performance">
               <IconButton size="small" onClick={() => refetch()} disabled={isFetching}>
