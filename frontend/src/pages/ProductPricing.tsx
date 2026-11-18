@@ -200,10 +200,13 @@ export default function ProductPricing() {
         if (!rates[selectedRegion]) rates[selectedRegion] = {};
         rates[selectedRegion][selectedCategory] = numValue;
 
+        // Also keep standard_rate in sync so it matches the custom rate
+        // This ensures the price set here is reflected everywhere in the system
         setEditingPrices({
             ...editingPrices,
             [productId]: {
                 ...currentPrices,
+                standard_rate: numValue,
                 custom_rates: rates
             },
         });
