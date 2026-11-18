@@ -571,7 +571,7 @@ def get_my_assignments(
         if all_ids:
             try:
                 dist_res = db.table("distributors") \
-                    .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
+                    .select("distributor_id, mantri_name, village, taluka, district, state, mantri_mobile, priority_score, priority_label") \
                     .in_("distributor_id", all_ids) \
                     .execute()
                 for d in (dist_res.data or []):
@@ -581,6 +581,7 @@ def get_my_assignments(
                         "village": d.get("village"),
                         "taluka": d.get("taluka"),
                         "district": d.get("district"),
+                        "state": d.get("state") or "Gujarat",
                         "priority_score": d.get("priority_score"),
                         "priority_label": d.get("priority_label")
                     }
@@ -589,7 +590,7 @@ def get_my_assignments(
                 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
+                    .select("customer_id, name, village, taluka, district, state, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -599,6 +600,7 @@ def get_my_assignments(
                         "village": c.get("village"),
                         "taluka": c.get("taluka"),
                         "district": c.get("district"),
+                        "state": c.get("state") or "Gujarat",
                         "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None"
@@ -643,6 +645,7 @@ def get_my_assignments(
                 "village": c.get("village", ""),
                 "taluka": c.get("taluka", ""),
                 "district": c.get("district", ""),
+                "state": c.get("state") or "Gujarat",
                 "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),

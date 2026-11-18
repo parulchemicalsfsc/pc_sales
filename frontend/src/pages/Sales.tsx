@@ -49,6 +49,7 @@ import AddNoteDialog from "../components/AddNoteDialog";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 import { salesAPI, customerAPI, productAPI, distributorAPI, doctorAPI, shopkeeperAPI, fieldOfficerAPI, apiClient, notesAPI, telecallerOrderAPI } from "../services/api";
 import type { Sale, Customer, Product, SaleItem, TelecallerOrder, TelecallerOrderItem } from "../types";
+import { getProductRate } from "../utils/pricing";
 
 import { useTranslation } from "../hooks/useTranslation";
 import PermissionGate from "../components/PermissionGate";
@@ -411,6 +412,29 @@ export default function Sales() {
     }
   };
 
+  const resolveEntityState = (category: string, mode: string, entityId: number, manualState?: string): string => {
+    if (mode === "new") {
+      return manualState || "Gujarat";
+    }
+    if (category === "Mantri") {
+      const d = distributors.find((item: any) => item.distributor_id === entityId);
+      if (d?.state) return d.state;
+    } else if (category === "Doctor") {
+      const doc = doctors.find((item: any) => item.doctor_id === entityId);
+      if (doc?.state) return doc.state;
+    } else if (category === "Shopkeeper") {
+      const s = shopkeepers.find((item: any) => item.shopkeeper_id === entityId);
+      if (s?.state) return s.state;
+    } else if (category === "Field Officer") {
+      const fo = fieldOfficers.find((item: any) => item.field_officer_id === entityId);
+      if (fo?.state) return fo.state;
+    } else {
+      const c = customers.find((item: any) => item.customer_id === entityId);
+      if (c?.state) return c.state;
+    }
+    return manualState || "Gujarat";
+  };
+
   const handleBulkTelecallerApprove = async () => {
     if (selectedTelecallerOrders.size === 0) return;
     
@@ -757,7 +781,21 @@ export default function Sales() {
       paid_amount: 0,
     });
     setSelectedEntity(prefilledEntity);
-    setItems(aggregatedItems);
+
+    const orderState = firstOrder.customer_state || resolveEntityState(targetCategory, "existing", prefilledId, prefilledEntity?.state);
+    const verifiedItems = aggregatedItems.map(item => {
+      if (!item.product_id) return item;
+      const product = products.find(p => p.product_id === item.product_id);
+      const adminRate = getProductRate(product, orderState, targetCategory);
+      const finalRate = adminRate > 0 ? adminRate : (item.rate || 0);
+      return {
+        ...item,
+        rate: finalRate,
+        amount: (item.quantity || 0) * finalRate,
+      };
+    });
+
+    setItems(verifiedItems);
     setMergedTelecallerOrderIds(Array.from(selectedTelecallerOrders));
     setOpenDialog(true);
     setSelectedTelecallerOrders(new Set());
@@ -1042,33 +1080,12 @@ export default function Sales() {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
 
-    // Auto-fill rate from product with region and category logic
+    // Auto-fill rate from product with region and category logic from Product Pricing admin module
     if (field === "product_id" || field === "quantity" || field === "rate") {
       const product = products.find((p) => p.product_id === newItems[index].product_id);
       if (product && field === "product_id") {
-        // Determine rate based on customer state
-        let rate = product.standard_rate || 0;
-        let customerState = "Gujarat";
-
-        if (customerMode === "existing") {
-          const selectedCustomer = customers.find(c => c.customer_id === formData.customer_id);
-          if (selectedCustomer?.state) {
-            customerState = selectedCustomer.state;
-          }
-        } else {
-          customerState = newCustomerData.state || "Gujarat";
-        }
-
-        // Apply region and category rate
-        const customRate = product.custom_rates?.[customerState]?.[customerCategory];
-        
-        const rKey = customerState === "Madhya Pradesh" ? "mp" : customerState.toLowerCase();
-        const catKey = customerCategory.toLowerCase().replace(" ", "_");
-        const priceField = `rate_${rKey}_${catKey}` as keyof Product;
-        const baseField = `rate_${rKey}` as keyof Product;
-
-        rate = customRate !== undefined ? customRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
-
+        const customerState = resolveEntityState(customerCategory, customerMode, formData.customer_id, newCustomerData.state);
+        const rate = getProductRate(product, customerState, customerCategory);
         newItems[index].rate = rate;
       }
 
@@ -1079,28 +1096,14 @@ export default function Sales() {
   };
 
   const recalculateRates = (newCategory: string, newCustomerMode: string, customerId: number, newState: string) => {
-    let customerState = "Gujarat";
-    if (newCustomerMode === "existing") {
-      const selectedCustomer = customers.find(c => c.customer_id === customerId);
-      if (selectedCustomer?.state) {
-        customerState = selectedCustomer.state;
-      }
-    } else {
-      customerState = newState || "Gujarat";
-    }
-
-    const rKey = customerState === "Madhya Pradesh" ? "mp" : customerState.toLowerCase();
-    const catKey = newCategory.toLowerCase().replace(" ", "_");
-    const priceField = `rate_${rKey}_${catKey}` as keyof Product;
-    const baseField = `rate_${rKey}` as keyof Product;
+    const customerState = resolveEntityState(newCategory, newCustomerMode, customerId, newState);
 
     const updatedItems = items.map(item => {
       if (!item.product_id) return item;
       const product = products.find(p => p.product_id === item.product_id);
       if (!product) return item;
 
-      const itemCustomRate = product.custom_rates?.[customerState]?.[newCategory];
-      const rate = itemCustomRate !== undefined ? itemCustomRate : ((product[priceField] as number) || (product[baseField] as number) || product.standard_rate || 0);
+      const rate = getProductRate(product, customerState, newCategory);
       return {
         ...item,
         rate,
