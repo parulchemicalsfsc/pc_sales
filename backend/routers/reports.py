@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from supabase_db import SupabaseClient, get_db
 from reports import ReportGenerator, REPORT_THEMES
-from rbac_utils import verify_permission
+from rbac_utils import verify_permission, verify_telecaller_reports_access
 from services.telecaller_reports import (
     get_telecaller_dashboard,
     prepare_performance_export,
@@ -1339,7 +1339,7 @@ def get_customer_analytics_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating customer Excel: {str(e)}")
 
-@router.get("/telecaller-dashboard", dependencies=[Depends(verify_permission("view_reports"))])
+@router.get("/telecaller-dashboard", dependencies=[Depends(verify_telecaller_reports_access())])
 def get_telecaller_dashboard_route(
     start_date: str,
     end_date: str,
@@ -1356,7 +1356,7 @@ def get_telecaller_dashboard_route(
         print(f"Error generating telecaller dashboard: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating telecaller dashboard: {str(e)}")
 
-@router.get("/telecaller/{report_type}/{format}", dependencies=[Depends(verify_permission("view_reports"))])
+@router.get("/telecaller/{report_type}/{format}", dependencies=[Depends(verify_telecaller_reports_access())])
 def download_telecaller_report(
     report_type: str,
     format: str,
@@ -1509,7 +1509,7 @@ def download_telecaller_report(
         print(f"Error generating telecaller export: {e}")
         raise HTTPException(status_code=500, detail=f"Error generating telecaller export: {str(e)}")
 
-@router.get("/telecaller/charts", dependencies=[Depends(verify_permission("view_reports"))])
+@router.get("/telecaller/charts", dependencies=[Depends(verify_telecaller_reports_access())])
 def get_telecaller_charts_api(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
