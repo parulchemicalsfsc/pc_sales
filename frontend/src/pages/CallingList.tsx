@@ -860,23 +860,6 @@ export default function CallingList() {
   const [orderNotes, setOrderNotes] = useState("");
   const [orderLoading, setOrderLoading] = useState(false);
   const [productsList, setProductsList] = useState<any[]>([]);
-  const [orderRegion, setOrderRegion] = useState("Gujarat");
-  const [orderCategory, setOrderCategory] = useState("Sabhasad");
-
-  const handleOrderConfigChange = (newRegion: string, newCategory: string) => {
-    setOrderRegion(newRegion);
-    setOrderCategory(newCategory);
-    setOrderItems(prev => prev.map(item => {
-      if (!item.product_id) return item;
-      const prod = productsList.find((p: any) => p.product_id === item.product_id);
-      const rate = getProductRate(prod, newRegion, newCategory);
-      return {
-        ...item,
-        rate,
-        amount: item.quantity * rate
-      };
-    }));
-  };
 
   const handleTakeOrder = async () => {
     const isQuickCall = qcQueue.length > 0 && qcDialogOpen;
@@ -927,8 +910,6 @@ export default function CallingList() {
 
       const targetRegion = targetItem?.state || "Gujarat";
       const targetCategory = role === "sales_manager" ? "Mantri" : (targetItem?.customer_type || "Sabhasad");
-      setOrderRegion(targetRegion);
-      setOrderCategory(targetCategory);
 
       setOrderItems([{ product_id: 0, product_name: "", quantity: 1, rate: 0, amount: 0 }]);
       setOrderNotes("");
@@ -2483,36 +2464,6 @@ export default function CallingList() {
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Stack spacing={2}>
-            <Grid container spacing={1.5}>
-              <Grid item xs={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Pricing Region</InputLabel>
-                  <Select
-                    value={orderRegion}
-                    label="Pricing Region"
-                    onChange={(e) => handleOrderConfigChange(e.target.value, orderCategory)}
-                  >
-                    {["Gujarat", "Maharashtra", "Madhya Pradesh", "Rajasthan", "Uttar Pradesh", "Karnataka", "Bihar"].map((r) => (
-                      <MenuItem key={r} value={r}>{r}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Pricing Category</InputLabel>
-                  <Select
-                    value={orderCategory}
-                    label="Pricing Category"
-                    onChange={(e) => handleOrderConfigChange(orderRegion, e.target.value)}
-                  >
-                    {["Sabhasad", "Mantri", "Doctor", "Shopkeeper", "Field Officer"].map((c) => (
-                      <MenuItem key={c} value={c}>{c}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
 
             {orderItems.map((item, idx) => (
               <Paper key={idx} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
@@ -2526,7 +2477,7 @@ export default function CallingList() {
                         onChange={(e) => {
                           const pid = Number(e.target.value);
                           const prod = productsList.find((p: any) => p.product_id === pid);
-                          const rate = getProductRate(prod, orderRegion, orderCategory);
+                          const rate = Number(prod?.standard_rate) || 0;
                           const newItems = [...orderItems];
                           newItems[idx] = { ...newItems[idx], product_id: pid, product_name: prod?.product_name || "", rate, amount: newItems[idx].quantity * rate };
                           setOrderItems(newItems);
