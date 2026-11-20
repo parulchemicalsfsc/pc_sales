@@ -214,9 +214,16 @@ export default function MyPerformanceWidget() {
                       <Typography variant="h5" sx={{ fontWeight: 700, color: "#1976d2", my: 0.5 }}>
                         {perf?.total_working_formatted || "0s"}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Today: <strong>{perf?.today_working_formatted || "0s"}</strong>
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Typography variant="caption" color="text.secondary">
+                          Today: <strong>{perf?.today_working_formatted || "0s"}</strong>
+                        </Typography>
+                        {perf?.total_screen_formatted && (
+                          <Typography variant="caption" sx={{ color: "#0d9488", fontWeight: 600 }}>
+                            • Screen: {perf.total_screen_formatted}
+                          </Typography>
+                        )}
+                      </Stack>
                     </Box>
                     <Box
                       sx={{
@@ -399,8 +406,9 @@ export default function MyPerformanceWidget() {
                       <TableHead>
                         <TableRow>
                           <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Working Duration</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }} align="right">Hours</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Call Duration (Working)</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Screen Time</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }} align="right">Call Hours</TableCell>
                           <TableCell sx={{ fontWeight: 700 }} align="right">Status</TableCell>
                         </TableRow>
                       </TableHead>
@@ -414,9 +422,16 @@ export default function MyPerformanceWidget() {
                             </TableCell>
                             <TableCell>
                               <Chip
-                                label={row.formatted}
+                                label={row.formatted || "0s"}
                                 size="small"
                                 sx={{ fontWeight: 600, bgcolor: "#1976d215", color: "#1976d2" }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={row.screen_formatted || "0s"}
+                                size="small"
+                                sx={{ fontWeight: 600, bgcolor: "#0d948815", color: "#0d9488" }}
                               />
                             </TableCell>
                             <TableCell align="right">
@@ -424,9 +439,9 @@ export default function MyPerformanceWidget() {
                             </TableCell>
                             <TableCell align="right">
                               <Chip
-                                label={row.hours >= 4 ? "Full Day" : row.hours > 0 ? "Half Day / Active" : "Inactive"}
+                                label={row.hours >= 2 ? "Full Day" : row.hours > 0 ? "Active" : "No Calls"}
                                 size="small"
-                                color={row.hours >= 4 ? "success" : row.hours > 0 ? "warning" : "default"}
+                                color={row.hours >= 2 ? "success" : row.hours > 0 ? "warning" : "default"}
                                 variant="outlined"
                               />
                             </TableCell>

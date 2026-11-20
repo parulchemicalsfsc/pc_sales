@@ -539,7 +539,8 @@ def get_telecaller_dashboard(
     display_users = {selected_email} if selected_email else user_emails.union(all_telecallers)
 
     total_screen_seconds = sum(tc_screen_time[email] for email in display_users)
-    total_working_seconds = total_call_seconds + total_screen_seconds
+    # Total Working Hours is strictly the collective call duration only
+    total_working_seconds = total_call_seconds
 
     summary = {
         "total_calls": total_calls,
@@ -584,7 +585,8 @@ def get_telecaller_dashboard(
         time_sum = tc_time[email]
         time_cnt = tc_time_count[email]
         screen_time_sec = tc_screen_time[email]
-        total_time_sec = time_sum + screen_time_sec
+        # Total working time is strictly call duration only
+        total_time_sec = time_sum
         
         att_info = user_attendance.get(email, {
             "present_days": 0,

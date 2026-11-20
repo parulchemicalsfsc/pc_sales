@@ -603,42 +603,32 @@ export default function TelecallerReports({ fixedEmail }: TelecallerReportsProps
         </Grid>
 
         {/* Row 2: Timing & Working Hours */}
-        <Grid item xs={12} sm={6} md={3} lg={3}>
+        <Grid item xs={12} sm={6} md={4} lg={4}>
           <KpiCard
-            label="Total Talk Time"
+            label="Total Working Hours"
             value={summary.total_call_duration || summary.total_talk_time || "0s"}
-            subLabel="Total duration across calls"
+            subLabel="Total call duration only"
             icon={<TimeIcon fontSize="medium" />}
             color="#0284c7"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3} lg={3}>
+        <Grid item xs={12} sm={6} md={4} lg={4}>
           <KpiCard
             label="Total Screen Time"
             value={summary.total_screen_duration || "0s"}
-            subLabel="Active user session time"
+            subLabel="Active screen session time only"
             icon={<TimeIcon fontSize="medium" />}
             color="#0d9488"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3} lg={3}>
-          <KpiCard
-            label="Total Working Time"
-            value={summary.total_working_duration || "0s"}
-            subLabel="Screen Time + Talk Time"
-            icon={<TimeIcon fontSize="medium" />}
-            color="#6366f1"
-            loading={loading}
-          />
-        </Grid>
         {config.showCallKpis && (
-          <Grid item xs={12} sm={6} md={3} lg={3}>
+          <Grid item xs={12} sm={6} md={4} lg={4}>
             <KpiCard
               label="Avg Call Duration"
               value={summary.avg_duration || "0s"}
-              subLabel="Average time per call"
+              subLabel="Average duration per call"
               icon={<TimeIcon fontSize="medium" />}
               color="#9c27b0"
               loading={loading}

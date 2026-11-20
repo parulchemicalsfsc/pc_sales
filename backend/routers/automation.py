@@ -7,6 +7,7 @@ and load-aware auto-distribution with APScheduler.
 import os
 import math
 import logging
+from collections import defaultdict
 from datetime import datetime, date, timedelta
 import pytz
 from typing import Optional, Dict, Any
@@ -2867,19 +2868,6 @@ def get_my_performance(
 
     today_ist = get_today_ist()
 
-    # 1. Sessions: working hours
-    try:
-        sess_q = db.table("user_sessions").select("session_date,total_seconds").eq("user_email", target_email)
-        if start_date:
-            sess_q = sess_q.gte("session_date", start_date)
-        if end_date:
-            sess_q = sess_q.lte("session_date", end_date)
-        sess_res = sess_q.order("session_date", desc=True).limit(365).execute()
-        sessions = sess_res.data or []
-    except Exception as se:
-        logger.warning(f"Error fetching user sessions for {target_email}: {se}")
-        sessions = []
-
     def _fmt_seconds(sec: int) -> str:
         if not sec:
             return "0s"
@@ -2892,18 +2880,65 @@ def get_my_performance(
             return f"{m}m {s}s"
         return f"{s}s"
 
-    total_working_seconds = sum(s.get("total_seconds", 0) or 0 for s in sessions)
-    today_seconds = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == today_ist), 0)
+    # 1. Collective Call Duration (strictly Total Working Hours)
+    total_call_seconds = 0
+    today_call_seconds = 0
+    daily_call_seconds = defaultdict(int)
+    try:
+        call_q = db.table("call_logs").select("called_at,time_taken").ilike("user_email", target_email)
+        if start_date:
+            call_q = call_q.gte("called_at", f"{start_date}T00:00:00+05:30")
+        if end_date:
+            try:
+                from services.telecaller_reports import get_next_day_str
+                next_day = get_next_day_str(end_date)
+            except Exception:
+                next_day = end_date
+            call_q = call_q.lt("called_at", f"{next_day}T00:00:00+05:30")
+        call_res = call_q.limit(10000).execute()
+        for c in (call_res.data or []):
+            sec = int(round(c.get("time_taken") or 0))
+            if sec > 0:
+                total_call_seconds += sec
+                called_at = c.get("called_at")
+                if called_at:
+                    d_str = str(called_at)[:10]
+                    daily_call_seconds[d_str] += sec
+                    if d_str == today_ist:
+                        today_call_seconds += sec
+    except Exception as ce:
+        logger.warning(f"Error fetching call logs for {target_email}: {ce}")
 
-    daily_working_hours = [
-        {
-            "date": s.get("session_date"),
-            "seconds": s.get("total_seconds", 0) or 0,
-            "hours": round((s.get("total_seconds", 0) or 0) / 3600, 2),
-            "formatted": _fmt_seconds(s.get("total_seconds", 0) or 0)
-        }
-        for s in sessions
-    ]
+    # 2. Screen Time (strictly active user sessions only)
+    try:
+        sess_q = db.table("user_sessions").select("session_date,total_seconds").ilike("user_email", target_email)
+        if start_date:
+            sess_q = sess_q.gte("session_date", start_date)
+        if end_date:
+            sess_q = sess_q.lte("session_date", end_date)
+        sess_res = sess_q.order("session_date", desc=True).limit(365).execute()
+        sessions = sess_res.data or []
+    except Exception as se:
+        logger.warning(f"Error fetching user sessions for {target_email}: {se}")
+        sessions = []
+
+    total_screen_seconds = sum(s.get("total_seconds", 0) or 0 for s in sessions)
+    today_screen_seconds = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == today_ist), 0)
+
+    # Combine dates for daily breakdown
+    all_dates = sorted(set(list(daily_call_seconds.keys()) + [s.get("session_date") for s in sessions if s.get("session_date")]), reverse=True)
+    daily_working_hours = []
+    for d in all_dates:
+        c_sec = daily_call_seconds.get(d, 0)
+        s_sec = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == d), 0)
+        daily_working_hours.append({
+            "date": d,
+            "seconds": c_sec,
+            "hours": round(c_sec / 3600, 2),
+            "formatted": _fmt_seconds(c_sec),
+            "screen_seconds": s_sec,
+            "screen_formatted": _fmt_seconds(s_sec)
+        })
 
     # 2. Calling assignments: Target Given vs Calls Attempted
     try:
@@ -2952,10 +2987,16 @@ def get_my_performance(
 
     return {
         "user_email": target_email,
-        "total_working_seconds": total_working_seconds,
-        "total_working_formatted": _fmt_seconds(total_working_seconds),
-        "today_working_seconds": today_seconds,
-        "today_working_formatted": _fmt_seconds(today_seconds),
+        # Total working hours = collective call duration only
+        "total_working_seconds": total_call_seconds,
+        "total_working_formatted": _fmt_seconds(total_call_seconds),
+        "today_working_seconds": today_call_seconds,
+        "today_working_formatted": _fmt_seconds(today_call_seconds),
+        # Screen time = screen time only
+        "total_screen_seconds": total_screen_seconds,
+        "total_screen_formatted": _fmt_seconds(total_screen_seconds),
+        "today_screen_seconds": today_screen_seconds,
+        "today_screen_formatted": _fmt_seconds(today_screen_seconds),
         "target_calls": target_calls,
         "calls_attempted": calls_attempted,
         "pending_calls": pending_calls,
