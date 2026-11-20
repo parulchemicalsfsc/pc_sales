@@ -247,10 +247,14 @@ def resolve_reporting_user_emails(
     If selected_email is provided, returns that single email.
     Otherwise, queries app_users for active reporting roles and unions with extra_emails (e.g. from call logs).
     """
+    if selected_email:
+        norm_selected = normalize_email(selected_email)
+        if allowed_emails is not None:
+            norm_allowed = {normalize_email(e) for e in allowed_emails if e}
+            return {norm_selected} if norm_selected in norm_allowed else set()
+        return {norm_selected}
     if allowed_emails is not None:
         return {normalize_email(e) for e in allowed_emails if e}
-    if selected_email:
-        return {normalize_email(selected_email)}
         
     reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
     active_emails = set()
@@ -531,8 +535,8 @@ def get_telecaller_dashboard(
     total_time_count = sum(tc_time_count.values())
     avg_duration_seconds = round((total_call_seconds / total_time_count) if total_time_count else 0, 1)
 
-    # Display users in performance table (union of active user_emails and all_telecallers)
-    display_users = user_emails.union(all_telecallers)
+    # Display users in performance table (single user if selected_email, else union of active user_emails and all_telecallers)
+    display_users = {selected_email} if selected_email else user_emails.union(all_telecallers)
 
     total_screen_seconds = sum(tc_screen_time[email] for email in display_users)
     total_working_seconds = total_call_seconds + total_screen_seconds
@@ -800,8 +804,8 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
     start_bound = f"{start_date}T00:00:00+05:30"
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", start_bound).lt("called_at", end_bound)
-    if telecaller_email:
-        query = query.eq("user_email", telecaller_email)
+    if telecaller_email and telecaller_email.lower() != "all":
+        query = query.ilike("user_email", telecaller_email.strip())
     
     call_logs = fetch_all_paginated(query)
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
@@ -863,7 +867,7 @@ def prepare_notes_export(
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", start_bound).lt("called_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
-        query = query.eq("user_email", telecaller_email)
+        query = query.ilike("user_email", telecaller_email.strip())
     
     call_logs = fetch_all_paginated(query)
     
@@ -951,7 +955,7 @@ def prepare_orders_export(
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("telecaller_orders").select("*").gte("created_at", start_bound).lt("created_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
-        query = query.eq("telecaller_email", telecaller_email)
+        query = query.ilike("telecaller_email", telecaller_email.strip())
     if order_status and order_status.lower() != "all":
         query = query.eq("status", order_status)
     

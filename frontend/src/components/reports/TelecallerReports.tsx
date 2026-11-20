@@ -207,7 +207,11 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-export default function TelecallerReports() {
+interface TelecallerReportsProps {
+  fixedEmail?: string;
+}
+
+export default function TelecallerReports({ fixedEmail }: TelecallerReportsProps = {}) {
   const { user } = useAuth();
   const theme = useTheme();
 
@@ -217,7 +221,7 @@ export default function TelecallerReports() {
     preset: "this_month",
     start_date: thisMonth.start,
     end_date: thisMonth.end,
-    telecaller_email: null as string | null,
+    telecaller_email: fixedEmail || (null as string | null),
     order_status: "all",
     district: "all",
     village: "all",
@@ -272,19 +276,26 @@ export default function TelecallerReports() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (fixedEmail && filters.telecaller_email !== fixedEmail) {
+      setFilters((f) => ({ ...f, telecaller_email: fixedEmail }));
+    }
+  }, [fixedEmail]);
+
   const handleDownload = async (reportType: string, format: "pdf" | "excel") => {
     const downloadId = `${reportType}-${format}`;
     setDownloading(downloadId);
     setDownloadError(null);
     try {
+      const targetEmail = fixedEmail || filters.telecaller_email || undefined;
       const blob = await reportsAPI.downloadTelecallerReport({
         report: reportType,
         format,
         start_date: filters.start_date,
         end_date: filters.end_date,
-        telecaller_email: filters.telecaller_email || undefined,
+        telecaller_email: targetEmail,
         order_status: filters.order_status === "all" ? undefined : filters.order_status,
-        role: filters.role === "all" ? undefined : filters.role,
+        role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         district: filters.district === "all" ? undefined : filters.district,
         village: filters.village === "all" ? undefined : filters.village,
       });
@@ -293,10 +304,7 @@ export default function TelecallerReports() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      // Note: Backend sets Content-Disposition header, but browser might require a filename fallback.
-      // Usually passing no explicit download attribute tells the browser to respect Content-Disposition
-      // But it's safer to provide a fallback name if needed, or just let it download.
-      link.setAttribute("download", `Telecaller_${reportType}_${filters.start_date}.${format === "excel" ? "xlsx" : "pdf"}`);
+      link.setAttribute("download", `${fixedEmail ? "My" : "Telecaller"}_${reportType}_${filters.start_date}.${format === "excel" ? "xlsx" : "pdf"}`);
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
@@ -319,20 +327,21 @@ export default function TelecallerReports() {
     setLoading(true);
     setError(null);
     try {
+      const targetEmail = fixedEmail || filters.telecaller_email || undefined;
       const [response, chartsRes] = await Promise.all([
         reportsAPI.getTelecallerDashboard({
           start_date: filters.start_date,
           end_date: filters.end_date,
-          telecaller_email: filters.telecaller_email || undefined,
+          telecaller_email: targetEmail,
           order_status: filters.order_status === "all" ? undefined : filters.order_status,
-          role: filters.role === "all" ? undefined : filters.role,
+          role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         }),
         reportsAPI.getTelecallerCharts({
           start_date: filters.start_date,
           end_date: filters.end_date,
-          telecaller_email: filters.telecaller_email || undefined,
+          telecaller_email: targetEmail,
           view_by: filters.view_by,
-          role: filters.role === "all" ? undefined : filters.role,
+          role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         })
       ]);
       console.log("DEBUG: Frontend chartsRes:", chartsRes);
@@ -343,7 +352,7 @@ export default function TelecallerReports() {
     } finally {
       setLoading(false);
     }
-  }, [user?.email, filters]);
+  }, [user?.email, filters, fixedEmail]);
 
   useEffect(() => {
     loadAll();
@@ -393,11 +402,16 @@ export default function TelecallerReports() {
       {/* ── Header ── */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, color: "text.primary" }}>
-          {config.title}
+          {fixedEmail ? "My Reports" : config.title}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          {config.subtitle}
+          {fixedEmail
+            ? "Your personal performance, attendance, call logs, and orders — download as PDF or Excel"
+            : config.subtitle}
         </Typography>
+        {fixedEmail && (
+          <Chip label={fixedEmail} size="small" sx={{ mt: 1, fontWeight: 600 }} color="primary" variant="outlined" />
+        )}
       </Box>
 
       {error && (
@@ -410,28 +424,32 @@ export default function TelecallerReports() {
       <Card sx={{ mb: 4, borderRadius: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
         <CardContent sx={{ pb: "16px !important" }}>
           {/* ── Role Filter ── */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
-            <TextField
-              select
-              size="small"
-              label="Role"
-              value={filters.role}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  role: e.target.value,
-                  telecaller_email: null, // Reset user filter on role change
-                }))
-              }
-              sx={{ minWidth: 200 }}
-            >
-              <MenuItem value="all">All Roles</MenuItem>
-              <MenuItem value="telecaller">Telecaller</MenuItem>
-              <MenuItem value="sales_manager">Sales Manager</MenuItem>
-            </TextField>
-          </Box>
+          {!fixedEmail && (
+            <>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+                <TextField
+                  select
+                  size="small"
+                  label="Role"
+                  value={filters.role}
+                  onChange={(e) =>
+                    setFilters((f) => ({
+                      ...f,
+                      role: e.target.value,
+                      telecaller_email: null, // Reset user filter on role change
+                    }))
+                  }
+                  sx={{ minWidth: 200 }}
+                >
+                  <MenuItem value="all">All Roles</MenuItem>
+                  <MenuItem value="telecaller">Telecaller</MenuItem>
+                  <MenuItem value="sales_manager">Sales Manager</MenuItem>
+                </TextField>
+              </Box>
 
-          <Divider sx={{ mb: 2 }} />
+              <Divider sx={{ mb: 2 }} />
+            </>
+          )}
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", mb: 2 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -472,14 +490,16 @@ export default function TelecallerReports() {
           <Divider sx={{ mb: 2.5 }} />
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
-            <Autocomplete
-              size="small"
-              options={telecallerOptions}
-              value={filters.telecaller_email}
-              onChange={(_, v) => setFilters((f) => ({ ...f, telecaller_email: v }))}
-              renderInput={(params) => <TextField {...params} label={config.userFilterLabel} placeholder={config.userFilterPlaceholder} />}
-              sx={{ minWidth: 260 }}
-            />
+            {!fixedEmail && (
+              <Autocomplete
+                size="small"
+                options={telecallerOptions}
+                value={filters.telecaller_email}
+                onChange={(_, v) => setFilters((f) => ({ ...f, telecaller_email: v }))}
+                renderInput={(params) => <TextField {...params} label={config.userFilterLabel} placeholder={config.userFilterPlaceholder} />}
+                sx={{ minWidth: 260 }}
+              />
+            )}
             <TextField
               select
               size="small"
