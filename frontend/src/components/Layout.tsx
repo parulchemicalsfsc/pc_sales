@@ -779,6 +779,9 @@ export default function Layout({
               if (item.id === "dashboard") {
                 return true;
               }
+              if (item.id === "my-reports") {
+                return role === "telecaller";
+              }
               if (item.id === "field-manager") {
                 return (
                   hasPermission(item.permission) ||

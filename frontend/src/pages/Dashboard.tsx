@@ -433,9 +433,6 @@ export default function Dashboard() {
                     </Typography>
                 </Box>
 
-                {/* ── My Performance & Reports (Total Hours with Dates, Target vs Attempted, Conversions) ── */}
-                <MyPerformanceWidget />
-
                 {/* ── Quick Action Cards ──────────────────────────────────────────────── */}
                 {/* All 4 always rendered; greyed out + click-blocked if no permission   */}
                 <Grid container spacing={2} sx={{ mb: 4 }}>
