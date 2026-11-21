@@ -338,7 +338,7 @@ export async function resolveOfficerUserId(userIdOrEmail?: string | null): Promi
       (u) => u.email?.toLowerCase() === trimmed.toLowerCase()
     );
     if (matchAuth?.id) return matchAuth.id;
-  } catch (_) {}
+  } catch (_) { }
 
   // 3. Not in auth: lookup from /admin/officers
   try {

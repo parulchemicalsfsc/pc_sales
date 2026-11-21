@@ -147,7 +147,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
           const list = res.data?.field_officers || [];
           setOfficers(list);
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [propOfficers]);
 
@@ -249,8 +249,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
     totalPlanned > 0
       ? Math.round((completedCount / totalPlanned) * 100)
       : actualStops.length > 0
-      ? 100
-      : 0;
+        ? 100
+        : 0;
 
   // Calculate default map center
   const defaultCenter: [number, number] = [22.3072, 73.1812]; // Vadodara, Gujarat center
@@ -258,8 +258,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
     locationPoints.length > 0
       ? [locationPoints[0].lat, locationPoints[0].lng]
       : actualStops.length > 0 && actualStops[0].checkin_lat
-      ? [actualStops[0].checkin_lat, actualStops[0].checkin_lng]
-      : defaultCenter;
+        ? [actualStops[0].checkin_lat, actualStops[0].checkin_lng]
+        : defaultCenter;
 
   const polylinePositions: [number, number][] =
     locationPoints.map((p) => [p.lat, p.lng]);
@@ -555,8 +555,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                             borderLeftColor: isDone
                               ? "success.main"
                               : isPastDate
-                              ? "error.main"
-                              : "primary.main",
+                                ? "error.main"
+                                : "primary.main",
                             bgcolor: isDone ? "rgba(46,125,50,0.02)" : "background.paper",
                           }}
                         >
