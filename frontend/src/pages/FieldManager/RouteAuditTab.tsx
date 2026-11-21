@@ -46,6 +46,7 @@ import {
   Person as PersonIcon,
   AltRoute as RouteIcon,
   GpsFixed as GpsTrackedIcon,
+  PictureAsPdf as PdfIcon,
 } from "@mui/icons-material";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip as LeafletTooltip, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -53,6 +54,7 @@ import "leaflet/dist/leaflet.css";
 
 import { auraManagerAPI, isUUID, type InjectStopPayload } from "../../services/auraApi";
 import type { RouteAudit, RoutePlanItem, ActualVisitStop, LocationPoint, FieldOfficerItem } from "../../types/aura";
+import OfficerReportModal from "../../components/reports/OfficerReportModal";
 
 interface Props {
   selectedFoEmail: string | "all";
@@ -132,6 +134,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
   });
   const [injectLoading, setInjectLoading] = useState(false);
   const [injectSuccess, setInjectSuccess] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
 
   // 1. Sync officers if passed as prop, otherwise fetch from AURA
   useEffect(() => {
@@ -336,6 +339,15 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                 size="small"
               />
             )}
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<PdfIcon />}
+              onClick={() => setReportModalOpen(true)}
+              sx={{ textTransform: "none", fontWeight: 600 }}
+            >
+              Download Report
+            </Button>
             <Button
               variant="contained"
               size="small"
@@ -1050,6 +1062,15 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* ── Officer Timeline Report Modal ──────────────────────── */}
+      <OfficerReportModal
+        open={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        initialFoEmail={currentOfficer?.email || effectiveEmail}
+        initialDate={selectedDate}
+        officersList={officers}
+      />
     </Box>
   );
 }

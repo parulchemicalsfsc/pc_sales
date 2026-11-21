@@ -21,6 +21,7 @@ import {
   ListItemText,
   Chip,
   Paper,
+  Button,
 } from "@mui/material";
 import {
   Notifications as BellIcon,
@@ -31,6 +32,7 @@ import {
   History as AuditIcon,
   Inventory as StockIcon,
   Refresh as RefreshIcon,
+  PictureAsPdf as PdfIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 
@@ -41,6 +43,7 @@ import DiscountAnalyticsTab from "./DiscountAnalyticsTab";
 import EditAuditLogTab from "./EditAuditLogTab";
 import StockApprovalTab from "./StockApprovalTab";
 import PlansByOfficerTab from "./PlansByOfficerTab";
+import OfficerReportModal from "../../components/reports/OfficerReportModal";
 
 import { auraManagerAPI } from "../../services/auraApi";
 import type { FieldOfficerItem, RecentActivityItem } from "../../types/aura";
@@ -55,6 +58,7 @@ export default function FieldManagerWorkspace() {
   const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([]);
   const [notifAnchor, setNotifAnchor] = useState<null | HTMLElement>(null);
   const [alertsCount, setAlertsCount] = useState<number>(0);
+  const [reportModalOpen, setReportModalOpen] = useState<boolean>(false);
 
   // Fetch real officers directly from AURA backend
   const loadOfficers = async () => {
@@ -166,6 +170,18 @@ export default function FieldManagerWorkspace() {
                 InputLabelProps={{ shrink: true }}
                 sx={{ width: 155 }}
               />
+
+              {/* Export Timeline Report Button */}
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                startIcon={<PdfIcon />}
+                onClick={() => setReportModalOpen(true)}
+                sx={{ textTransform: "none", fontWeight: 700 }}
+              >
+                Download FO Report
+              </Button>
 
               {/* Refresh Button */}
               <IconButton onClick={() => { loadOfficers(); loadOverview(); }} title="Refresh Data">
@@ -300,6 +316,15 @@ export default function FieldManagerWorkspace() {
           selectedDate={selectedDate}
         />
       )}
+
+      {/* ── Individual FO Timeline Report Modal ──────────────────────── */}
+      <OfficerReportModal
+        open={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        initialFoEmail={selectedFoEmail === "all" ? officers[0]?.email : selectedFoEmail}
+        initialDate={selectedDate}
+        officersList={officers}
+      />
     </Box>
   );
 }

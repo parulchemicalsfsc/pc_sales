@@ -49,6 +49,7 @@ import type {
   SessionRoutePoint,
   SessionRouteResponse,
 } from "../types/aura";
+import type { OfficerTimelineVisit } from "../utils/individualTimelinePdf";
 
 export interface SetTargetPayload {
   fo_user_id: string;
@@ -1454,6 +1455,159 @@ export const auraManagerAPI = {
       console.warn("[AURA] Supabase injectStop note:", e);
       return { data: { success: true } };
     }
+  },
+
+  // 19. Individual Field Officer Timeline Report (Custom Dates with Distance in KM & Speed Breakdown)
+  getOfficerTimelineReport: async (params: {
+    fo_email_or_id?: string;
+    start_date: string;
+    end_date: string;
+  }) => {
+    const emailOrId = (params.fo_email_or_id || "").trim();
+    const startDate = params.start_date;
+    const endDate = params.end_date;
+
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+    };
+
+    let targetUserId: string | null = null;
+    let targetEmail: string | null = emailOrId.includes("@") ? emailOrId.toLowerCase().trim() : null;
+    let targetName: string = emailOrId ? emailOrId.split("@")[0] : "All Officers";
+
+    // 1. Resolve officer identity
+    try {
+      if (emailOrId && emailOrId !== "all") {
+        if (isUUID(emailOrId)) {
+          targetUserId = emailOrId;
+          const uRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(emailOrId)}&select=id,email,name`,
+            { headers: auraHeaders }
+          );
+          if (uRes.data && uRes.data[0]) {
+            targetEmail = uRes.data[0].email;
+            targetName = uRes.data[0].name || targetName;
+          }
+        } else if (emailOrId.includes("@")) {
+          const uRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(emailOrId)}&select=id,email,name`,
+            { headers: auraHeaders }
+          );
+          if (uRes.data && uRes.data[0]) {
+            targetUserId = uRes.data[0].id;
+            targetName = uRes.data[0].name || targetName;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fetch customer visits in date range
+    let visits: any[] = [];
+    try {
+      let vUrl = `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(startDate)}T00:00:00Z&checked_in_at=lte.${encodeURIComponent(endDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`;
+      if (targetUserId) {
+        vUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
+      }
+      const vRes = await axios.get<any[]>(vUrl, { headers: auraHeaders });
+      visits = Array.isArray(vRes.data) ? vRes.data : [];
+    } catch (e) {
+      console.warn("[AURA] getOfficerTimelineReport visits note:", e);
+    }
+
+    // 3. Fetch GPS location points in date range for speed calculation
+    let locPoints: any[] = [];
+    try {
+      let lUrl = `${AURA_SUPABASE_URL}/rest/v1/location_points?recorded_at=gte.${encodeURIComponent(startDate)}T00:00:00Z&recorded_at=lte.${encodeURIComponent(endDate)}T23:59:59Z&order=recorded_at.asc&limit=3000`;
+      if (targetUserId) {
+        lUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
+      }
+      const lRes = await axios.get<any[]>(lUrl, { headers: auraHeaders });
+      locPoints = Array.isArray(lRes.data) ? lRes.data : [];
+    } catch (_) {}
+
+    // 4. Map visits with distance & speed breakdown
+    const mappedVisits: OfficerTimelineVisit[] = visits.map((v) => {
+      const inTime = new Date(v.checked_in_at).getTime();
+      const outTime = v.checked_out_at
+        ? new Date(v.checked_out_at).getTime()
+        : inTime + (v.duration_minutes || 0) * 60000;
+
+      // Filter location points during this visit window
+      const visitPoints = locPoints.filter((lp) => {
+        const ptTime = new Date(lp.recorded_at).getTime();
+        return ptTime >= inTime && ptTime <= outTime;
+      });
+
+      let walkingMinutes = 0;
+      let motorcycleMinutes = 0;
+
+      if (visitPoints.length > 0) {
+        const walkPoints = visitPoints.filter((p) => (p.speed_mps || 0) < 1.4).length;
+        const bikePoints = visitPoints.filter((p) => (p.speed_mps || 0) >= 1.4).length;
+        const totalPts = walkPoints + bikePoints;
+        const dur = v.duration_minutes || 0;
+        if (totalPts > 0) {
+          walkingMinutes = Math.round((walkPoints / totalPts) * dur);
+          motorcycleMinutes = dur - walkingMinutes;
+        } else {
+          walkingMinutes = dur;
+        }
+      } else {
+        walkingMinutes = v.duration_minutes || 0;
+        motorcycleMinutes = 0;
+      }
+
+      // Checkin to Checkout distance
+      let distKm = 0;
+      if (v.checkin_lat && v.checkin_lng && v.checkout_lat && v.checkout_lng) {
+        const dMeters = calculateDistanceMeters(
+          v.checkin_lat,
+          v.checkin_lng,
+          v.checkout_lat,
+          v.checkout_lng
+        );
+        distKm = parseFloat((dMeters / 1000).toFixed(2));
+      }
+
+      const cust = v.customers || {};
+
+      return {
+        id: v.id,
+        user_id: v.user_id,
+        customer_id: v.customer_id,
+        customer_name: v.customer_name || cust.name || null,
+        party_name: cust.name || v.customer_name || null,
+        checked_in_at: v.checked_in_at,
+        checked_out_at: v.checked_out_at,
+        duration_minutes: v.duration_minutes || 0,
+        walking_minutes: walkingMinutes,
+        motorcycle_minutes: motorcycleMinutes,
+        checkin_lat: v.checkin_lat,
+        checkin_lng: v.checkin_lng,
+        checkin_location: v.checkin_location,
+        checkin_village_name: v.checkin_village_name || v.visit_village,
+        checkout_lat: v.checkout_lat,
+        checkout_lng: v.checkout_lng,
+        checkout_location: v.checkout_location,
+        checkout_village_name: v.checkout_village_name,
+        distance_km: distKm,
+        notes: v.notes,
+        customers: cust,
+      };
+    });
+
+    return {
+      data: {
+        officer: {
+          name: targetName,
+          email: targetEmail || emailOrId,
+          user_id: targetUserId,
+        },
+        visits: mappedVisits,
+        count: mappedVisits.length,
+      },
+    };
   },
 
   getVisits: (params?: { fo_user_id?: string; user_email?: string; date?: string; verification_status?: string }) =>
