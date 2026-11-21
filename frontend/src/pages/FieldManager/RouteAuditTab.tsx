@@ -238,6 +238,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
   const locationPoints = audit?.location_points ?? [];
 
   const totalPlanned = plannedStops.length;
+  const hasPlan = Boolean(audit?.has_plan || totalPlanned > 0);
   const completedPlannedStops = plannedStops.filter((p) => p.status === "completed");
   const completedCount = completedPlannedStops.length;
   const pendingCount = plannedStops.filter((p) => p.status === "pending").length;
@@ -327,8 +328,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
 
           <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
             <Chip
-              label={totalPlanned > 0 ? `Plan: ${audit?.plan_status?.toUpperCase() || "SUBMITTED"}` : "No Route Plan"}
-              color={totalPlanned > 0 ? (audit?.plan_status === "locked" ? "success" : "primary") : "default"}
+              label={hasPlan ? `Plan: ${audit?.plan_status?.toUpperCase() || "SUBMITTED"}` : "No Route Plan"}
+              color={hasPlan ? (audit?.plan_status === "locked" ? "success" : "primary") : "default"}
               size="small"
               variant="outlined"
             />
@@ -481,13 +482,44 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       />
                     </Box>
                   </Box>
+                ) : hasPlan ? (
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} color="primary.main">
+                      Plan {audit?.plan_status?.toUpperCase() || "SUBMITTED"} (Awaiting Stop Sync)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+                      Officer submitted a daily route plan for {formattedDate}. Destination stops are syncing from the mobile app or can be injected below.
+                    </Typography>
+                    <Box display="flex" gap={1} flexWrap="wrap">
+                      <Chip
+                        label={`Status: ${audit?.plan_status?.toUpperCase() || "SUBMITTED"}`}
+                        color="primary"
+                        size="small"
+                        sx={{ fontWeight: 600 }}
+                      />
+                      {actualStops.length > 0 && (
+                        <Chip
+                          label={`${actualStops.length} Field Visits Tracked`}
+                          color="success"
+                          size="small"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      )}
+                      <Chip
+                        label={`${locationPoints.length} GPS Points Tracked`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontWeight: 500 }}
+                      />
+                    </Box>
+                  </Box>
                 ) : (
                   <Box>
                     <Typography variant="h6" fontWeight={700}>
                       {actualStops.length} Field Visits Recorded
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
-                      No planned route plan was submitted for this officer on {formattedDate}.
+                      No route plan was submitted for this officer on {formattedDate}.
                     </Typography>
                     <Box display="flex" gap={1} flexWrap="wrap">
                       <Chip
@@ -724,28 +756,57 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                     {/* Empty State */}
                     {plannedStops.length === 0 && actualStops.length === 0 && (
                       <Box textAlign="center" py={4}>
-                        <Typography variant="body2" color="text.secondary" mb={2}>
-                          No route plan or field visits recorded for <strong>{currentOfficer?.name || effectiveEmail}</strong> on <strong>{formattedDate}</strong>.
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<InjectIcon />}
-                          onClick={() => {
-                            setInjectForm({
-                              fo_user_id: currentOfficer?.email || effectiveEmail,
-                              date: selectedDate,
-                              customer_id: "",
-                              customer_name: "",
-                              village: "",
-                              taluka: "",
-                              notes: "",
-                            });
-                            setInjectDialogOpen(true);
-                          }}
-                        >
-                          + Assign Planned Destination
-                        </Button>
+                        {hasPlan ? (
+                          <>
+                            <Alert severity="info" sx={{ mb: 2, textAlign: "left", mx: "auto", maxWidth: 450 }}>
+                              Daily Route Plan (Status: <strong>{audit?.plan_status?.toUpperCase() || "SUBMITTED"}</strong>) was received, but destination villages/items are still syncing from the device.
+                            </Alert>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<InjectIcon />}
+                              onClick={() => {
+                                setInjectForm({
+                                  fo_user_id: currentOfficer?.email || effectiveEmail,
+                                  date: selectedDate,
+                                  customer_id: "",
+                                  customer_name: "",
+                                  village: "",
+                                  taluka: "",
+                                  notes: "",
+                                });
+                                setInjectDialogOpen(true);
+                              }}
+                            >
+                              + Add / Inject Planned Stop
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Typography variant="body2" color="text.secondary" mb={2}>
+                              No route plan or field visits recorded for <strong>{currentOfficer?.name || effectiveEmail}</strong> on <strong>{formattedDate}</strong>.
+                            </Typography>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              startIcon={<InjectIcon />}
+                              onClick={() => {
+                                setInjectForm({
+                                  fo_user_id: currentOfficer?.email || effectiveEmail,
+                                  date: selectedDate,
+                                  customer_id: "",
+                                  customer_name: "",
+                                  village: "",
+                                  taluka: "",
+                                  notes: "",
+                                });
+                                setInjectDialogOpen(true);
+                              }}
+                            >
+                              + Assign Planned Destination
+                            </Button>
+                          </>
+                        )}
                       </Box>
                     )}
                   </Stack>

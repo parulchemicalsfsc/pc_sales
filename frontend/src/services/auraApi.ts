@@ -1197,6 +1197,8 @@ export const auraManagerAPI = {
     const actual_stops: ActualVisitStop[] = [];
     let planned_stops: RoutePlanItem[] = [];
     let plan_status: "locked" | "draft" | "submitted" | "completed" = "locked";
+    let has_plan = false;
+    let plan_id: string | null = null;
     let is_edited = false;
     let edit_reason = "";
     let edit_revision_number = 1;
@@ -1267,7 +1269,7 @@ export const auraManagerAPI = {
     try {
       let pUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(auditDate)}`;
       if (targetUserEmail) {
-        pUrl += `&user_email=eq.${encodeURIComponent(targetUserEmail)}`;
+        pUrl += `&user_email=ilike.${encodeURIComponent(targetUserEmail)}`;
       }
 
       let pRes = await axios.get<any[]>(pUrl, { headers: auraAnonHeaders });
@@ -1278,6 +1280,8 @@ export const auraManagerAPI = {
 
       if (pRes.data && pRes.data.length > 0) {
         const plan = pRes.data[0];
+        has_plan = true;
+        plan_id = plan.id;
         plan_status = plan.status || "locked";
         is_edited = Boolean(plan.is_edited);
         edit_reason = plan.last_edit_reason || "";
@@ -1401,6 +1405,8 @@ export const auraManagerAPI = {
         audit: {
           fo_user_id: emailOrId,
           date: auditDate,
+          has_plan,
+          plan_id,
           plan_status,
           is_edited,
           edit_revision_number,

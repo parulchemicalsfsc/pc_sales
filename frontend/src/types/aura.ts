@@ -659,6 +659,8 @@ export interface ActualVisitStop {
 export interface RouteAudit {
   fo_user_id: string;
   date: string;
+  has_plan?: boolean;
+  plan_id?: string;
   plan_status: "locked" | "draft" | "submitted" | "completed";
   is_edited: boolean;
   edit_revision_number?: number;
