@@ -635,6 +635,11 @@ export interface ActualVisitStop {
   customer_name: string;
   village: string;
   visit_village?: string;
+  checkin_village_name?: string;
+  checkout_village_name?: string;
+  checkin_location?: string;
+  checkout_location?: string;
+  matched_planned_stop_number?: number;
   checkin_time: string;
   checkout_time?: string;
   duration_minutes?: number;
@@ -665,6 +670,9 @@ export interface RouteAudit {
   location_points: LocationPoint[];
   completion_pct: number;
   sequence_adherence_pct: number;
+  completed_destinations_count?: number;
+  total_planned_destinations?: number;
+  score_text?: string;
 }
 
 export interface CustomerVisit {
