@@ -308,6 +308,12 @@ export function isUUID(str?: string | null): boolean {
 let cachedOfficersList: any[] | null = null;
 let cachedOfficersPromise: Promise<any[]> | null = null;
 
+const KNOWN_AUTH_MAP: Record<string, string> = {
+  "yashdave182@gmail.com": "f01c52f3-87c4-4d0d-b47b-20cd8af22732",
+  "fscalcival.parulchemicals@gmail.com": "345877af-93ad-46f8-9527-b5ecef43e06b",
+  "career.parulchemicals@gmail.com": "1e2453e1-529e-4c4e-9507-c2bc37b44f75",
+};
+
 export async function resolveOfficerUserId(userIdOrEmail?: string | null): Promise<string | null> {
   if (!userIdOrEmail) return null;
   const trimmed = userIdOrEmail.trim();
@@ -315,7 +321,26 @@ export async function resolveOfficerUserId(userIdOrEmail?: string | null): Promi
     return trimmed;
   }
 
-  // Not a UUID: lookup from /admin/officers
+  // 1. Direct match from known auth map
+  if (KNOWN_AUTH_MAP[trimmed.toLowerCase()]) {
+    return KNOWN_AUTH_MAP[trimmed.toLowerCase()];
+  }
+
+  // 2. Query Supabase Auth users directly
+  try {
+    const authRes = await axios.get<{ users: any[] }>(`${AURA_SUPABASE_URL}/auth/v1/admin/users`, {
+      headers: {
+        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    const matchAuth = authRes.data?.users?.find(
+      (u) => u.email?.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (matchAuth?.id) return matchAuth.id;
+  } catch (_) {}
+
+  // 3. Not in auth: lookup from /admin/officers
   try {
     if (!cachedOfficersList) {
       if (!cachedOfficersPromise) {
@@ -422,8 +447,8 @@ function mapRowToStockRequest(row: any): StockRequest {
   const approvedQty = row.approved_qty !== undefined
     ? Number(row.approved_qty)
     : (firstItem.qty_approved !== undefined
-        ? Number(firstItem.qty_approved)
-        : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
+      ? Number(firstItem.qty_approved)
+      : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
 
   return {
     request_id: reqId,
@@ -615,7 +640,7 @@ export const auraManagerAPI = {
         params: { user_email: userEmail, date },
       });
       if (res.data?.plan) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -676,19 +701,19 @@ export const auraManagerAPI = {
                 status: it.status || "pending",
                 actual_visit: it.actual_time
                   ? {
-                      visit_id: it.executed_visit_id || String(it.sequence),
-                      checked_in_at: it.actual_time,
-                      checked_out_at: null,
-                      duration_minutes: null,
-                      notes: null,
-                    }
+                    visit_id: it.executed_visit_id || String(it.sequence),
+                    checked_in_at: it.actual_time,
+                    checked_out_at: null,
+                    duration_minutes: null,
+                    notes: null,
+                  }
                   : null,
               },
             ],
           }));
           return { data: routes };
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 2. Direct query against AURA Supabase database
@@ -721,7 +746,7 @@ export const auraManagerAPI = {
           }
         );
         visitsOnDate = vRes.data || [];
-      } catch (_) {}
+      } catch (_) { }
 
       for (const p of plans) {
         const planId = p.id;
@@ -764,12 +789,12 @@ export const auraManagerAPI = {
             status: isCompleted ? "completed" : (it.status || "pending"),
             actual_visit: matchedVisit
               ? {
-                  visit_id: matchedVisit.id,
-                  checked_in_at: matchedVisit.checked_in_at,
-                  checked_out_at: matchedVisit.checked_out_at || null,
-                  duration_minutes: matchedVisit.duration_minutes || null,
-                  notes: matchedVisit.notes || null,
-                }
+                visit_id: matchedVisit.id,
+                checked_in_at: matchedVisit.checked_in_at,
+                checked_out_at: matchedVisit.checked_out_at || null,
+                duration_minutes: matchedVisit.duration_minutes || null,
+                notes: matchedVisit.notes || null,
+              }
               : null,
           });
         }
@@ -818,7 +843,7 @@ export const auraManagerAPI = {
     try {
       const res = await auraClient.get<DiscountAnalyticsResponse>("/manager/analytics/discounts", { params });
       if (res.data?.summary) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -871,7 +896,7 @@ export const auraManagerAPI = {
         { params }
       );
       if (res.data) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -898,8 +923,8 @@ export const auraManagerAPI = {
           payload?.second_pitch_outcome === "high_conversion"
             ? "pitched_converted"
             : payload?.second_pitch_outcome === "interested"
-            ? "pitched_interested"
-            : "not_pitched",
+              ? "pitched_interested"
+              : "not_pitched",
       });
     }
     return auraClient.post<VerifyVisitResponse>("/manager/verification/verify", visitIdOrData);
@@ -936,7 +961,7 @@ export const auraManagerAPI = {
       if (res.data?.field_officers && res.data.field_officers.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Graceful fallback to cached officers if present
     if (cachedOfficersList && cachedOfficersList.length > 0) {
@@ -998,7 +1023,7 @@ export const auraManagerAPI = {
               monthlyDistMap[uid] = (monthlyDistMap[uid] || 0) + (Number(s.total_distance_km) || 0);
             }
           }
-        } catch (_) {}
+        } catch (_) { }
 
         // Fetch monthly sessions in parallel for each officer to calculate true monthly kms
         const officers = await Promise.all(
@@ -1051,7 +1076,7 @@ export const auraManagerAPI = {
       if (Array.isArray(res.data) && res.data.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase tracking_sessions
     try {
@@ -1101,7 +1126,7 @@ export const auraManagerAPI = {
       if (res.data?.points && res.data.points.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase location_points & tracking_sessions
     try {
@@ -1195,7 +1220,7 @@ export const auraManagerAPI = {
         const found = cachedOfficersList.find((o: any) => o.user_id === targetUserId);
         if (found?.email) targetUserEmail = found.email.toLowerCase().trim();
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 1. Fetch actual customer visits for the given DATE (Date-Wise)
     try {
@@ -1300,7 +1325,7 @@ export const auraManagerAPI = {
           speed_kmh: Math.round((p.speed_mps || 0) * 3.6),
         }));
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Fallback GPS points from actual visits if no breadcrumbs exist
     if (location_points.length === 0 && actual_stops.length > 0) {
@@ -1397,7 +1422,7 @@ export const auraManagerAPI = {
   injectStop: async (data: InjectStopPayload) => {
     try {
       await auraClient.post("/manager/plans/inject-stop", data);
-    } catch (_) {}
+    } catch (_) { }
 
     try {
       const email = data.fo_user_id.includes("@") ? data.fo_user_id.toLowerCase().trim() : "";
@@ -1479,28 +1504,18 @@ export const auraManagerAPI = {
     // 1. Resolve officer identity
     try {
       if (emailOrId && emailOrId !== "all") {
-        if (isUUID(emailOrId)) {
-          targetUserId = emailOrId;
-          const uRes = await axios.get<any[]>(
-            `${AURA_SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(emailOrId)}&select=id,email,name`,
-            { headers: auraHeaders }
+        targetUserId = await resolveOfficerUserId(emailOrId);
+        if (targetUserId && cachedOfficersList) {
+          const match = cachedOfficersList.find(
+            (o: any) => o.user_id === targetUserId || o.email?.toLowerCase() === emailOrId.toLowerCase()
           );
-          if (uRes.data && uRes.data[0]) {
-            targetEmail = uRes.data[0].email;
-            targetName = uRes.data[0].name || targetName;
-          }
-        } else if (emailOrId.includes("@")) {
-          const uRes = await axios.get<any[]>(
-            `${AURA_SUPABASE_URL}/rest/v1/users?email=eq.${encodeURIComponent(emailOrId)}&select=id,email,name`,
-            { headers: auraHeaders }
-          );
-          if (uRes.data && uRes.data[0]) {
-            targetUserId = uRes.data[0].id;
-            targetName = uRes.data[0].name || targetName;
+          if (match) {
+            targetName = match.name || targetName;
+            targetEmail = match.email || targetEmail;
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Fetch customer visits in date range
     let visits: any[] = [];
@@ -1524,7 +1539,7 @@ export const auraManagerAPI = {
       }
       const lRes = await axios.get<any[]>(lUrl, { headers: auraHeaders });
       locPoints = Array.isArray(lRes.data) ? lRes.data : [];
-    } catch (_) {}
+    } catch (_) { }
 
     // 4. Map visits with distance & speed breakdown
     const mappedVisits: OfficerTimelineVisit[] = visits.map((v) => {
@@ -1632,16 +1647,16 @@ export const auraManagerAPI = {
           photos: [],
           orders: pv.order_created
             ? [
-                {
-                  order_id: `ord-${pv.visit_id}`,
-                  order_number: `ORD-${pv.visit_id.slice(0, 6)}`,
-                  date: pv.date,
-                  customer: pv.customer.name,
-                  discount_amount: 0,
-                  discount_percent: 0,
-                  order_total: pv.order_amount || 0,
-                },
-              ]
+              {
+                order_id: `ord-${pv.visit_id}`,
+                order_number: `ORD-${pv.visit_id.slice(0, 6)}`,
+                date: pv.date,
+                customer: pv.customer.name,
+                discount_amount: 0,
+                discount_percent: 0,
+                order_total: pv.order_amount || 0,
+              },
+            ]
             : [],
           verification_status: "pending" as const,
         }));
@@ -1750,7 +1765,7 @@ export const auraManagerAPI = {
       if (rawList.length > 0) {
         return { data: { requests: rawList.map(mapRowToStockRequest) } };
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase fo_stock_requests table
     try {
@@ -1781,7 +1796,7 @@ export const auraManagerAPI = {
     // 1. Forward update to AURA backend
     try {
       await auraClient.patch(`/manager/stock-requests/${requestId}`, data);
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct update to Supabase fo_stock_requests table
     try {
@@ -1817,7 +1832,7 @@ export const auraManagerAPI = {
               updates.requested_items = updatedItems;
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       const patchRes = await axios.patch(
