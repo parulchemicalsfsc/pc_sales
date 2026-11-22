@@ -656,6 +656,31 @@ export interface ActualVisitStop {
   status: "verified" | "disputed" | "pending" | "unreachable" | "on_sequence" | "out_of_sequence" | "adhoc" | string;
 }
 
+export interface AssignedVillage {
+  id?: string;
+  officer_email: string;
+  officer_name?: string;
+  village_name: string;
+  taluka?: string;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
+  is_active?: boolean;
+}
+
+export interface VillageApprovalRequest {
+  id?: string;
+  officer_email: string;
+  officer_name?: string;
+  village_name: string;
+  taluka?: string;
+  reason?: string;
+  status: "pending" | "approved" | "rejected";
+  created_at?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+}
+
 export interface RouteAudit {
   fo_user_id: string;
   date: string;

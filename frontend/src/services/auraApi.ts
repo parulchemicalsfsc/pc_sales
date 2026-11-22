@@ -38,6 +38,8 @@ import type {
   ActualVisitStop,
   LocationPoint,
   RouteAudit,
+  AssignedVillage,
+  VillageApprovalRequest,
   CustomerVisit,
   DiscountAnalytics,
   OfficerDiscountSummary,
@@ -483,6 +485,60 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
     Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+// ─── Gujarat Village Coordinates Directory (for territory geofencing) ────────
+
+export const GUJARAT_VILLAGE_COORDS: Record<string, { lat: number; lng: number; taluka: string; district: string }> = {
+  // Vadodara & surrounding
+  "gorwa": { lat: 22.3364, lng: 73.1610, taluka: "Vadodara", district: "Vadodara" },
+  "gotri": { lat: 22.3168, lng: 73.1492, taluka: "Vadodara", district: "Vadodara" },
+  "bhayli": { lat: 22.2850, lng: 73.1200, taluka: "Vadodara", district: "Vadodara" },
+  "bil": { lat: 22.2600, lng: 73.1350, taluka: "Vadodara", district: "Vadodara" },
+  "chapad": { lat: 22.2350, lng: 73.1650, taluka: "Vadodara", district: "Vadodara" },
+  "samiyala": { lat: 22.2450, lng: 73.1400, taluka: "Vadodara", district: "Vadodara" },
+  "sevasi": { lat: 22.3150, lng: 73.1100, taluka: "Vadodara", district: "Vadodara" },
+  "ampad": { lat: 22.3250, lng: 73.0900, taluka: "Vadodara", district: "Vadodara" },
+  "manjalpur": { lat: 22.2680, lng: 73.1950, taluka: "Vadodara", district: "Vadodara" },
+  "makarpura": { lat: 22.2536, lng: 73.1965, taluka: "Vadodara", district: "Vadodara" },
+  "padra": { lat: 22.2415, lng: 73.0848, taluka: "Padra", district: "Vadodara" },
+  "savli": { lat: 22.5600, lng: 73.2200, taluka: "Savli", district: "Vadodara" },
+  "waghodia": { lat: 22.3000, lng: 73.4200, taluka: "Waghodia", district: "Vadodara" },
+  "dabhoi": { lat: 22.1800, lng: 73.4300, taluka: "Dabhoi", district: "Vadodara" },
+  "karjan": { lat: 22.0500, lng: 73.1200, taluka: "Karjan", district: "Vadodara" },
+  "sinor": { lat: 21.9167, lng: 73.3333, taluka: "Sinor", district: "Vadodara" },
+  "karelibagh": { lat: 22.3280, lng: 73.2050, taluka: "Vadodara", district: "Vadodara" },
+  "alkapuri": { lat: 22.3100, lng: 73.1700, taluka: "Vadodara", district: "Vadodara" },
+  // Bhavnagar & Saurashtra
+  "gadh": { lat: 21.8000, lng: 71.5500, taluka: "Gariadhar", district: "Bhavnagar" },
+  "palitana": { lat: 21.5236, lng: 71.8315, taluka: "Palitana", district: "Bhavnagar" },
+  "ranghola": { lat: 21.7289, lng: 71.8795, taluka: "Umrala", district: "Bhavnagar" },
+  "umrala": { lat: 21.8333, lng: 71.9000, taluka: "Umrala", district: "Bhavnagar" },
+  "gariadhar": { lat: 21.5333, lng: 71.5833, taluka: "Gariadhar", district: "Bhavnagar" },
+  "sihor": { lat: 21.7000, lng: 71.9700, taluka: "Sihor", district: "Bhavnagar" },
+  "talaja": { lat: 21.3500, lng: 72.0500, taluka: "Talaja", district: "Bhavnagar" },
+  "mahuva": { lat: 21.0833, lng: 71.7667, taluka: "Mahuva", district: "Bhavnagar" },
+  // North Gujarat & Mehsana
+  "becharaji": { lat: 23.5005, lng: 72.0366, taluka: "Becharaji", district: "Mehsana" },
+  "kadi": { lat: 23.3000, lng: 72.3300, taluka: "Kadi", district: "Mehsana" },
+  "mehsana": { lat: 23.6000, lng: 72.4000, taluka: "Mehsana", district: "Mehsana" },
+  "visnagar": { lat: 23.7000, lng: 72.5500, taluka: "Visnagar", district: "Mehsana" },
+  "patan": { lat: 23.8500, lng: 72.1300, taluka: "Patan", district: "Patan" },
+  "sidhpur": { lat: 23.9200, lng: 72.3800, taluka: "Sidhpur", district: "Patan" },
+  "chanasma": { lat: 23.7200, lng: 72.1200, taluka: "Chanasma", district: "Patan" },
+  "radhanpur": { lat: 23.8300, lng: 71.6000, taluka: "Radhanpur", district: "Patan" },
+  "harij": { lat: 23.7000, lng: 71.9000, taluka: "Harij", district: "Patan" },
+  "modhera": { lat: 23.5800, lng: 72.1300, taluka: "Becharaji", district: "Mehsana" },
+};
+
+export function lookupVillageCoordinates(villageName: string): { lat: number; lng: number; taluka: string; district: string } | null {
+  if (!villageName) return null;
+  const key = villageName.toLowerCase().trim();
+  if (GUJARAT_VILLAGE_COORDS[key]) return GUJARAT_VILLAGE_COORDS[key];
+  for (const [k, v] of Object.entries(GUJARAT_VILLAGE_COORDS)) {
+    if (key.includes(k) || k.includes(key)) return v;
+  }
+  return null;
 }
 
 // ─── Manager API Surface (v2.0.0) ─────────────────────────────────────────────
@@ -1187,6 +1243,157 @@ export const auraManagerAPI = {
       set_by_manager_email: localStorage.getItem("user_email") || "manager@paruchemicals.com",
     }),
 
+  // Territory & Village Allocation
+  getAssignedVillages: async (officerEmail?: string): Promise<AssignedVillage[]> => {
+    try {
+      let url = `${AURA_SUPABASE_URL}/rest/v1/officer_assigned_villages?select=*&order=village_name.asc`;
+      if (officerEmail) {
+        url += `&officer_email=ilike.${encodeURIComponent(officerEmail.trim())}`;
+      }
+      const res = await axios.get<AssignedVillage[]>(url, {
+        headers: {
+          apikey: AURA_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+        },
+      });
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        return res.data;
+      }
+    } catch (_) {}
+
+    // Fallback to localStorage cache
+    try {
+      const stored = localStorage.getItem("aura_officer_assigned_villages");
+      if (stored) {
+        const all: AssignedVillage[] = JSON.parse(stored);
+        if (officerEmail) {
+          const filtered = all.filter((v) => v.officer_email.toLowerCase() === officerEmail.toLowerCase());
+          if (filtered.length > 0) return filtered;
+        } else {
+          return all;
+        }
+      }
+    } catch (_) {}
+
+    // Default territory villages for seamless experience
+    if (officerEmail) {
+      return [
+        { officer_email: officerEmail, village_name: "Gorwa", taluka: "Vadodara", latitude: 22.3364, longitude: 73.1610 },
+        { officer_email: officerEmail, village_name: "Gotri", taluka: "Vadodara", latitude: 22.3168, longitude: 73.1492 },
+        { officer_email: officerEmail, village_name: "Bhayli", taluka: "Vadodara", latitude: 22.2850, longitude: 73.1200 },
+        { officer_email: officerEmail, village_name: "Sevasi", taluka: "Vadodara", latitude: 22.3150, longitude: 73.1100 },
+      ];
+    }
+    return [];
+  },
+
+  saveAssignedVillages: async (officerEmail: string, villages: AssignedVillage[]): Promise<boolean> => {
+    const email = officerEmail.toLowerCase().trim();
+    // Cache to localStorage
+    try {
+      const stored = localStorage.getItem("aura_officer_assigned_villages");
+      const existing: AssignedVillage[] = stored ? JSON.parse(stored) : [];
+      const filtered = existing.filter((v) => v.officer_email.toLowerCase() !== email);
+      const updated = [...filtered, ...villages.map((v) => ({ ...v, officer_email: email }))];
+      localStorage.setItem("aura_officer_assigned_villages", JSON.stringify(updated));
+      localStorage.setItem("aura_territory_setup_completed", "true");
+    } catch (_) {}
+
+    // Upsert to Supabase
+    try {
+      for (const v of villages) {
+        const coords = lookupVillageCoordinates(v.village_name);
+        await axios.post(
+          `${AURA_SUPABASE_URL}/rest/v1/officer_assigned_villages`,
+          {
+            officer_email: email,
+            officer_name: v.officer_name || email.split("@")[0],
+            village_name: v.village_name.trim(),
+            taluka: v.taluka || coords?.taluka || "Vadodara",
+            district: v.district || coords?.district || "Gujarat",
+            latitude: v.latitude ?? coords?.lat ?? null,
+            longitude: v.longitude ?? coords?.lng ?? null,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            headers: {
+              apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+              Prefer: "resolution=merge-duplicates",
+            },
+          }
+        );
+      }
+      return true;
+    } catch (e) {
+      console.warn("[AURA] Supabase saveAssignedVillages note:", e);
+      return true;
+    }
+  },
+
+  getPendingVillageRequests: async (): Promise<VillageApprovalRequest[]> => {
+    try {
+      const res = await axios.get<VillageApprovalRequest[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/village_approval_requests?status=eq.pending&order=created_at.desc`,
+        {
+          headers: {
+            apikey: AURA_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (Array.isArray(res.data)) return res.data;
+    } catch (_) {}
+
+    try {
+      const stored = localStorage.getItem("aura_pending_village_requests");
+      if (stored) return JSON.parse(stored);
+    } catch (_) {}
+    return [];
+  },
+
+  reviewVillageRequest: async (requestId: string, status: "approved" | "rejected", reviewedBy: string, requestData?: VillageApprovalRequest): Promise<boolean> => {
+    try {
+      await axios.patch(
+        `${AURA_SUPABASE_URL}/rest/v1/village_approval_requests?id=eq.${encodeURIComponent(requestId)}`,
+        {
+          status,
+          reviewed_by: reviewedBy,
+          reviewed_at: new Date().toISOString(),
+        },
+        {
+          headers: {
+            apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+          },
+        }
+      );
+    } catch (_) {}
+
+    if (status === "approved" && requestData) {
+      const coords = lookupVillageCoordinates(requestData.village_name);
+      await auraManagerAPI.saveAssignedVillages(requestData.officer_email, [{
+        officer_email: requestData.officer_email,
+        officer_name: requestData.officer_name,
+        village_name: requestData.village_name,
+        taluka: requestData.taluka || coords?.taluka,
+        latitude: coords?.lat,
+        longitude: coords?.lng,
+      }]);
+    }
+
+    try {
+      const stored = localStorage.getItem("aura_pending_village_requests");
+      if (stored) {
+        const list: VillageApprovalRequest[] = JSON.parse(stored);
+        const filtered = list.filter((r) => r.id !== requestId);
+        localStorage.setItem("aura_pending_village_requests", JSON.stringify(filtered));
+      }
+    } catch (_) {}
+    return true;
+  },
+
   getRouteAudit: async (params: { fo_user_id?: string; date?: string; user_email?: string; session_id?: string }) => {
     const emailOrId = params.user_email || params.fo_user_id || "";
     const auditDate = params.date || new Date().toISOString().slice(0, 10);
@@ -1288,6 +1495,12 @@ export const auraManagerAPI = {
         edit_revision_number = plan.revision_number || 1;
         edited_at = plan.updated_at || "";
 
+        let assignedVillages: AssignedVillage[] = [];
+        try {
+          assignedVillages = await auraManagerAPI.getAssignedVillages(targetUserEmail || undefined);
+        } catch (_) {}
+        const assignedMap = new Map(assignedVillages.map((av) => [av.village_name.toLowerCase().trim(), av]));
+
         const itRes = await axios.get<any[]>(
           `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(plan.id)}&select=*,customers(*)&order=planned_sequence.asc`,
           { headers: auraAnonHeaders }
@@ -1296,15 +1509,24 @@ export const auraManagerAPI = {
         planned_stops = (itRes.data || []).map((it: any) => {
           const cust = it.customers || {};
           const vName = it.village_name || cust.village || cust.name || "";
+          const vKey = vName.toLowerCase().trim();
+          const av = assignedMap.get(vKey);
+          const knownCoord = lookupVillageCoordinates(vName);
+
+          const explicitLat = av?.latitude ?? knownCoord?.lat ?? (cust.latitude || null);
+          const explicitLng = av?.longitude ?? knownCoord?.lng ?? (cust.longitude || null);
+          const hasExplicitCoords = typeof explicitLat === "number" && typeof explicitLng === "number";
+
           return {
             stop_number: it.planned_sequence || 1,
             customer_id: it.customer_id || it.id,
             customer_name: it.village_name ? `Village: ${it.village_name}` : (cust.name || "Planned Stop"),
             village: vName,
             village_name: it.village_name || cust.village,
-            taluka: cust.taluka || "",
-            lat: cust.latitude || (actual_stops[0]?.checkin_lat ?? 22.3072),
-            lng: cust.longitude || (actual_stops[0]?.checkin_lng ?? 73.1812),
+            taluka: av?.taluka || knownCoord?.taluka || cust.taluka || "",
+            lat: explicitLat ?? 22.3072,
+            lng: explicitLng ?? 73.1812,
+            has_explicit_coords: hasExplicitCoords,
             planned_time: it.planned_time || "09:00",
             status: "pending" as const,
           };
@@ -1342,15 +1564,22 @@ export const auraManagerAPI = {
     }
 
     // 4. Match Planned Destinations vs Actual Visits by Village Name / Address / GPS
+    // Strict 1-to-1 matching: one actual visit cannot complete multiple planned destinations.
+    const matchedVisitIds = new Set<string>();
+
     planned_stops.forEach((p) => {
       const pVillage = (p.village_name || p.village || "").toLowerCase().trim();
       const pCustId = p.customer_id;
+      const hasExplicitCoords = Boolean((p as any).has_explicit_coords);
 
       const matched = actual_stops.find((a) => {
-        // Direct customer ID match
+        if (matchedVisitIds.has(a.visit_id)) return false;
+
+        // A. Direct customer ID match
         if (pCustId && a.customer_id && a.customer_id === pCustId) return true;
-        // Village / Address text match
-        if (pVillage) {
+
+        // B. Village / Address text match (strict: must be a meaningful village name, >= 3 chars)
+        if (pVillage && pVillage.length >= 3) {
           const candidates = [
             a.village,
             a.visit_village,
@@ -1359,21 +1588,33 @@ export const auraManagerAPI = {
             a.checkin_location,
             a.checkout_location,
             a.customer_name,
-          ].filter(Boolean).map((s) => s!.toLowerCase());
+          ]
+            .filter(Boolean)
+            .map((s) => s!.toLowerCase());
 
-          if (candidates.some((c) => c.includes(pVillage) || pVillage.includes(c))) {
-            return true;
+          const hasNameMatch = candidates.some((c) => {
+            return c === pVillage || c.includes(pVillage) || (pVillage.length >= 4 && pVillage.includes(c));
+          });
+
+          if (hasNameMatch) return true;
+        }
+
+        // C. GPS distance match (ONLY if planned stop has genuine known coordinates)
+        if (hasExplicitCoords && p.lat && p.lng && a.checkin_lat && a.checkin_lng) {
+          const dIn = calculateDistanceMeters(p.lat, p.lng, a.checkin_lat, a.checkin_lng);
+          if (dIn <= 2500) return true;
+
+          if (a.checkout_lat && a.checkout_lng) {
+            const dOut = calculateDistanceMeters(p.lat, p.lng, a.checkout_lat, a.checkout_lng);
+            if (dOut <= 2500) return true;
           }
         }
-        // GPS distance <= 2000 meters
-        if (p.lat && p.lng && a.checkin_lat && a.checkin_lng) {
-          const d = calculateDistanceMeters(p.lat, p.lng, a.checkin_lat, a.checkin_lng);
-          if (d <= 2000) return true;
-        }
+
         return false;
       });
 
       if (matched) {
+        matchedVisitIds.add(matched.visit_id);
         p.status = "completed";
         matched.village_match = true;
         matched.matched_planned_stop_number = p.stop_number;
@@ -1385,9 +1626,10 @@ export const auraManagerAPI = {
 
     // Mark remaining actual visits as ad-hoc
     actual_stops.forEach((a) => {
-      if (!a.village_match) {
+      if (!matchedVisitIds.has(a.visit_id)) {
         a.status = "adhoc";
         a.is_unplanned = true;
+        a.village_match = false;
       }
     });
 

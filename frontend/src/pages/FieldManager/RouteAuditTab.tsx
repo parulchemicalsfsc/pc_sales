@@ -55,6 +55,7 @@ import "leaflet/dist/leaflet.css";
 import { auraManagerAPI, isUUID, type InjectStopPayload } from "../../services/auraApi";
 import type { RouteAudit, RoutePlanItem, ActualVisitStop, LocationPoint, FieldOfficerItem } from "../../types/aura";
 import OfficerReportModal from "../../components/reports/OfficerReportModal";
+import TerritoryAssignmentModal from "../../components/territory/TerritoryAssignmentModal";
 
 interface Props {
   selectedFoEmail: string | "all";
@@ -135,6 +136,7 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
   const [injectLoading, setInjectLoading] = useState(false);
   const [injectSuccess, setInjectSuccess] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [territoryModalOpen, setTerritoryModalOpen] = useState(false);
 
   // 1. Sync officers if passed as prop, otherwise fetch from AURA
   useEffect(() => {
@@ -340,6 +342,15 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                 size="small"
               />
             )}
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<PlaceIcon />}
+              onClick={() => setTerritoryModalOpen(true)}
+              sx={{ textTransform: "none", fontWeight: 600 }}
+            >
+              Territory Villages
+            </Button>
             <Button
               variant="outlined"
               size="small"
@@ -1131,6 +1142,27 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
         initialFoEmail={currentOfficer?.email || effectiveEmail}
         initialDate={selectedDate}
         officersList={officers}
+      />
+
+      {/* ── Territory Villages Assignment Modal ──────────────────── */}
+      <TerritoryAssignmentModal
+        open={territoryModalOpen}
+        onClose={() => setTerritoryModalOpen(false)}
+        officers={officers}
+        selectedOfficerEmail={currentOfficer?.email || effectiveEmail}
+        onSaved={async () => {
+          // Re-fetch route audit so that new territory coordinates immediately update destination verification
+          try {
+            const res = await auraManagerAPI.getRouteAudit({
+              fo_user_id: targetIdentifier,
+              user_email: currentOfficer?.email || (effectiveEmail.includes("@") ? effectiveEmail : undefined),
+              date: selectedDate,
+            });
+            setAudit(res.data?.audit ?? null);
+          } catch {
+            // no-op
+          }
+        }}
       />
     </Box>
   );

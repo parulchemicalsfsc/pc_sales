@@ -33,6 +33,7 @@ import {
   Inventory as StockIcon,
   Refresh as RefreshIcon,
   PictureAsPdf as PdfIcon,
+  LocationOn as LocationIcon,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 
@@ -44,6 +45,7 @@ import EditAuditLogTab from "./EditAuditLogTab";
 import StockApprovalTab from "./StockApprovalTab";
 import PlansByOfficerTab from "./PlansByOfficerTab";
 import OfficerReportModal from "../../components/reports/OfficerReportModal";
+import TerritoryAssignmentModal from "../../components/territory/TerritoryAssignmentModal";
 
 import { auraManagerAPI } from "../../services/auraApi";
 import type { FieldOfficerItem, RecentActivityItem } from "../../types/aura";
@@ -59,6 +61,17 @@ export default function FieldManagerWorkspace() {
   const [notifAnchor, setNotifAnchor] = useState<null | HTMLElement>(null);
   const [alertsCount, setAlertsCount] = useState<number>(0);
   const [reportModalOpen, setReportModalOpen] = useState<boolean>(false);
+  const [territoryModalOpen, setTerritoryModalOpen] = useState<boolean>(false);
+  const [isMandatorySetup, setIsMandatorySetup] = useState<boolean>(false);
+
+  // Check mandatory territory setup on first launch
+  useEffect(() => {
+    const setupDone = localStorage.getItem("aura_territory_setup_completed");
+    if (!setupDone) {
+      setIsMandatorySetup(true);
+      setTerritoryModalOpen(true);
+    }
+  }, []);
 
   // Fetch real officers directly from AURA backend
   const loadOfficers = async () => {
@@ -181,6 +194,21 @@ export default function FieldManagerWorkspace() {
                 sx={{ textTransform: "none", fontWeight: 700 }}
               >
                 Download FO Report
+              </Button>
+
+              {/* Territory Village Allocation Button */}
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                startIcon={<LocationIcon />}
+                onClick={() => {
+                  setIsMandatorySetup(false);
+                  setTerritoryModalOpen(true);
+                }}
+                sx={{ textTransform: "none", fontWeight: 700 }}
+              >
+                Territory Villages
               </Button>
 
               {/* Refresh Button */}
@@ -324,6 +352,22 @@ export default function FieldManagerWorkspace() {
         initialFoEmail={selectedFoEmail === "all" ? officers[0]?.email : selectedFoEmail}
         initialDate={selectedDate}
         officersList={officers}
+      />
+
+      {/* ── Territory Villages Assignment Modal (Mandatory first-time or on-demand) ── */}
+      <TerritoryAssignmentModal
+        open={territoryModalOpen}
+        onClose={() => {
+          setTerritoryModalOpen(false);
+          setIsMandatorySetup(false);
+        }}
+        officers={officers}
+        selectedOfficerEmail={selectedFoEmail === "all" ? undefined : selectedFoEmail}
+        isMandatoryFirstTime={isMandatorySetup}
+        onSaved={() => {
+          localStorage.setItem("aura_territory_setup_completed", "true");
+          setIsMandatorySetup(false);
+        }}
       />
     </Box>
   );
