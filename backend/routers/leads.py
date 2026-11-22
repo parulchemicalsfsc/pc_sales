@@ -61,9 +61,21 @@ def verify_lead_access(
 
 
 def _generate_lead_id(db: SupabaseClient, prefix: str) -> str:
-    # Count existing leads with this specific prefix to ensure uniqueness
+    # Find the maximum existing numeric suffix for this prefix to avoid duplicate ID conflicts
     res = db.table("leads").select("lead_id").like("lead_id", f"{prefix}-%").execute()
-    n = len(res.data or []) + 1
+    max_num = 0
+    prefix_len = len(prefix) + 1
+    for row in (res.data or []):
+        lead_id = row.get("lead_id", "")
+        if lead_id.startswith(f"{prefix}-"):
+            suffix = lead_id[prefix_len:]
+            try:
+                num = int(suffix)
+                if num > max_num:
+                    max_num = num
+            except ValueError:
+                pass
+    n = max_num + 1
     return f"{prefix}-{n:04d}"
 
 
