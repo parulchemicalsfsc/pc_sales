@@ -247,10 +247,14 @@ def resolve_reporting_user_emails(
     If selected_email is provided, returns that single email.
     Otherwise, queries app_users for active reporting roles and unions with extra_emails (e.g. from call logs).
     """
+    if selected_email:
+        norm_selected = normalize_email(selected_email)
+        if allowed_emails is not None:
+            norm_allowed = {normalize_email(e) for e in allowed_emails if e}
+            return {norm_selected} if norm_selected in norm_allowed else set()
+        return {norm_selected}
     if allowed_emails is not None:
         return {normalize_email(e) for e in allowed_emails if e}
-    if selected_email:
-        return {normalize_email(selected_email)}
         
     reporting_roles = {"telecaller", "staff", "telecaller1", "telecaller2", "sales_manager", "salesmanager"}
     active_emails = set()
@@ -531,11 +535,12 @@ def get_telecaller_dashboard(
     total_time_count = sum(tc_time_count.values())
     avg_duration_seconds = round((total_call_seconds / total_time_count) if total_time_count else 0, 1)
 
-    # Display users in performance table (union of active user_emails and all_telecallers)
-    display_users = user_emails.union(all_telecallers)
+    # Display users in performance table (single user if selected_email, else union of active user_emails and all_telecallers)
+    display_users = {selected_email} if selected_email else user_emails.union(all_telecallers)
 
     total_screen_seconds = sum(tc_screen_time[email] for email in display_users)
-    total_working_seconds = total_call_seconds + total_screen_seconds
+    # Total Working Hours is strictly the collective call duration only
+    total_working_seconds = total_call_seconds
 
     summary = {
         "total_calls": total_calls,
@@ -580,7 +585,8 @@ def get_telecaller_dashboard(
         time_sum = tc_time[email]
         time_cnt = tc_time_count[email]
         screen_time_sec = tc_screen_time[email]
-        total_time_sec = time_sum + screen_time_sec
+        # Total working time is strictly call duration only
+        total_time_sec = time_sum
         
         att_info = user_attendance.get(email, {
             "present_days": 0,
@@ -615,6 +621,8 @@ def get_telecaller_dashboard(
             "absent_days": att_info["absent_days"],
             "total_duty_days": att_info["total_duty_days"],
             "attendance_pct": att_info["attendance_pct"],
+            "total_working_time": format_call_duration_hms(total_time_sec),
+            "total_working_seconds": total_time_sec,
             "status": att_info.get("status", "Needs Improvement")
         })
         
@@ -777,7 +785,7 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
         f"attendance during the period, resulting in an overall attendance rate of {att_summary.get('overall_attendance_pct', 0.0)}%."
     )
 
-    headers = ["Rank", "Name", "Present Days", "Absent Days", "Total Days", "Attendance %", "Status"]
+    headers = ["Rank", "Name", "Present Days", "Absent Days", "Total Days", "Attendance %", "Total Working Hours", "Status"]
     rows = []
     for i, row in enumerate(attendance_list):
         rows.append([
@@ -787,6 +795,7 @@ def prepare_attendance_export(db: SupabaseClient, start_date: str, end_date: str
             row.get("absent_days", 0),
             row.get("total_duty_days", 0),
             f"{row.get('attendance_pct', 0)}%",
+            row.get("total_working_time", "00:00:00"),
             row.get("status", "Needs Improvement")
         ])
 
@@ -797,8 +806,8 @@ def prepare_call_logs_export(db: SupabaseClient, start_date: str, end_date: str,
     start_bound = f"{start_date}T00:00:00+05:30"
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, time_taken, notes").gte("called_at", start_bound).lt("called_at", end_bound)
-    if telecaller_email:
-        query = query.eq("user_email", telecaller_email)
+    if telecaller_email and telecaller_email.lower() != "all":
+        query = query.ilike("user_email", telecaller_email.strip())
     
     call_logs = fetch_all_paginated(query)
     call_logs = filter_by_allowed_emails(call_logs, "user_email", allowed_emails)
@@ -860,7 +869,7 @@ def prepare_notes_export(
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("call_logs").select("called_at, user_email, customer_id, call_outcome, notes").gte("called_at", start_bound).lt("called_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
-        query = query.eq("user_email", telecaller_email)
+        query = query.ilike("user_email", telecaller_email.strip())
     
     call_logs = fetch_all_paginated(query)
     
@@ -948,7 +957,7 @@ def prepare_orders_export(
     end_bound = f"{next_day}T00:00:00+05:30"
     query = db.table("telecaller_orders").select("*").gte("created_at", start_bound).lt("created_at", end_bound)
     if telecaller_email and telecaller_email.lower() != "all":
-        query = query.eq("telecaller_email", telecaller_email)
+        query = query.ilike("telecaller_email", telecaller_email.strip())
     if order_status and order_status.lower() != "all":
         query = query.eq("status", order_status)
     

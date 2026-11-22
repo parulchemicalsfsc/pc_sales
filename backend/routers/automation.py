@@ -7,6 +7,7 @@ and load-aware auto-distribution with APScheduler.
 import os
 import math
 import logging
+from collections import defaultdict
 from datetime import datetime, date, timedelta
 import pytz
 from typing import Optional, Dict, Any
@@ -571,7 +572,7 @@ def get_my_assignments(
         if all_ids:
             try:
                 dist_res = db.table("distributors") \
-                    .select("distributor_id, mantri_name, village, taluka, district, mantri_mobile, priority_score, priority_label") \
+                    .select("distributor_id, mantri_name, village, taluka, district, state, mantri_mobile, priority_score, priority_label") \
                     .in_("distributor_id", all_ids) \
                     .execute()
                 for d in (dist_res.data or []):
@@ -581,6 +582,7 @@ def get_my_assignments(
                         "village": d.get("village"),
                         "taluka": d.get("taluka"),
                         "district": d.get("district"),
+                        "state": d.get("state") or "Gujarat",
                         "priority_score": d.get("priority_score"),
                         "priority_label": d.get("priority_label")
                     }
@@ -589,7 +591,7 @@ def get_my_assignments(
                 
             try:
                 cust_res = db.table("customers") \
-                    .select("customer_id, name, village, taluka, district, mobile, customer_code") \
+                    .select("customer_id, name, village, taluka, district, state, mobile, customer_code") \
                     .in_("customer_id", all_ids) \
                     .execute()
                 for c in (cust_res.data or []):
@@ -599,6 +601,7 @@ def get_my_assignments(
                         "village": c.get("village"),
                         "taluka": c.get("taluka"),
                         "district": c.get("district"),
+                        "state": c.get("state") or "Gujarat",
                         "customer_code": c.get("customer_code"),
                         "priority_score": 0,
                         "priority_label": "None"
@@ -643,6 +646,7 @@ def get_my_assignments(
                 "village": c.get("village", ""),
                 "taluka": c.get("taluka", ""),
                 "district": c.get("district", ""),
+                "state": c.get("state") or "Gujarat",
                 "customer_code": c.get("customer_code"),
                 "priority_score": c.get("priority_score", 0),
                 "priority_label": c.get("priority_label", "LOW"),
@@ -2055,6 +2059,110 @@ def admin_distribute(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Distribution failed: {e}")
 
+class CheckVillageStatusPayload(BaseModel):
+    state: Optional[str] = ""
+    district: Optional[str] = ""
+    taluka: Optional[str] = ""
+    village: Optional[str] = ""
+
+@router.post("/admin/check-village-status")
+def check_village_status(
+    payload: CheckVillageStatusPayload,
+    user_role: str = Header(None, alias="x-user-role"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """Admin/Sales Manager: Check whether a village has existing assignments and get breakdown."""
+    role = (user_role or "").lower()
+    if role not in ["admin", "sales_manager"]:
+        raise HTTPException(status_code=403, detail="Only Admins or Sales Managers can check assignment status")
+
+    try:
+        query = db.table("customers").select("customer_id")
+        if payload.state and payload.state.strip():
+            query = query.ilike("state", payload.state.strip())
+        if payload.district and payload.district.strip():
+            query = query.ilike("district", payload.district.strip())
+        if payload.taluka and payload.taluka.strip():
+            query = query.ilike("taluka", payload.taluka.strip())
+        if payload.village and payload.village.strip():
+            query = query.ilike("village", payload.village.strip())
+
+        cust_res = query.limit(1000).execute()
+        cust_ids = [c["customer_id"] for c in (cust_res.data or [])]
+
+        if not cust_ids:
+            return {
+                "total_contacts": 0,
+                "is_assigned": False,
+                "pending_count": 0,
+                "called_count": 0,
+                "assigned_telecallers": [],
+                "assigned_emails": [],
+            }
+
+        assignments = []
+        for i in range(0, len(cust_ids), 100):
+            chunk = cust_ids[i:i+100]
+            res = db.table("calling_assignments") \
+                .select("customer_id, user_email, status") \
+                .eq("entity_type", "customer") \
+                .in_("customer_id", chunk) \
+                .execute()
+            if res.data:
+                assignments.extend(res.data)
+
+        if not assignments:
+            return {
+                "total_contacts": len(cust_ids),
+                "is_assigned": False,
+                "pending_count": 0,
+                "called_count": 0,
+                "assigned_telecallers": [],
+                "assigned_emails": [],
+            }
+
+        pending_cust_ids = set()
+        called_cust_ids = set()
+        telecaller_emails = set()
+
+        for a in assignments:
+            cid = a.get("customer_id")
+            st = a.get("status")
+            email = a.get("user_email")
+            if email:
+                telecaller_emails.add(email)
+            if st == "Pending":
+                pending_cust_ids.add(cid)
+            else:
+                called_cust_ids.add(cid)
+
+        # Map emails to names
+        user_names = []
+        if telecaller_emails:
+            users_res = db.table("app_users").select("email, name").in_("email", list(telecaller_emails)).execute()
+            user_names = [u.get("name") or u["email"].split("@")[0] for u in (users_res.data or [])]
+            if not user_names:
+                user_names = [e.split("@")[0] for e in telecaller_emails]
+
+        return {
+            "total_contacts": len(cust_ids),
+            "is_assigned": len(assignments) > 0,
+            "pending_count": len(pending_cust_ids),
+            "called_count": len(called_cust_ids),
+            "assigned_telecallers": user_names,
+            "assigned_emails": list(telecaller_emails),
+        }
+    except Exception as e:
+        logger.error(f"[CHECK-VILLAGE-STATUS] Error: {e}", exc_info=True)
+        return {
+            "total_contacts": 0,
+            "is_assigned": False,
+            "pending_count": 0,
+            "called_count": 0,
+            "assigned_telecallers": [],
+            "assigned_emails": [],
+        }
+
 class SabhsadDistributePayload(BaseModel):
     telecaller_emails: list[str]
     state: str
@@ -2105,6 +2213,7 @@ def distribute_sabhsads(
             return {"message": "No sabhsads found in this location", "assigned": 0}
 
         if payload.reassign_existing:
+            # Reassign ALL contacts in this village, including previously called ones
             # Delete any existing 'Pending' assignments for these customers to avoid duplicate pending calls
             for i in range(0, len(all_cust_ids), 100):
                 chunk = all_cust_ids[i:i+100]
@@ -2115,27 +2224,39 @@ def distribute_sabhsads(
                     .execute()
             ids_to_assign = all_cust_ids
         else:
-            # Find which of these are already assigned (paginate in chunks of 100 for IN query)
-            assigned_ids = set()
+            # Only fresh (remained calling / uncalled) calls!
+            # Find which of these contacts have ALREADY BEEN CALLED (status != 'Pending')
+            already_called_ids = set()
             for i in range(0, len(all_cust_ids), 100):
                 chunk = all_cust_ids[i:i+100]
-                assigned_res = db.table("calling_assignments") \
+                called_res = db.table("calling_assignments") \
                     .select("customer_id") \
                     .eq("entity_type", "customer") \
+                    .neq("status", "Pending") \
                     .in_("customer_id", chunk) \
                     .execute()
-                for a in (assigned_res.data or []):
-                    assigned_ids.add(a["customer_id"])
-                
-            unassigned_ids = [cid for cid in all_cust_ids if cid not in assigned_ids]
+                for a in (called_res.data or []):
+                    already_called_ids.add(a["customer_id"])
 
-            if not unassigned_ids:
+            fresh_ids = [cid for cid in all_cust_ids if cid not in already_called_ids]
+
+            if not fresh_ids:
                 return {
-                    "message": f"All {len(all_cust_ids)} sabhsads in this location were previously assigned. Check 'Re-distribute all' to assign them again.",
+                    "message": f"All {len(all_cust_ids)} sabhsads in this location have already been called. Choose 'All Calls (Including Called)' to re-assign them.",
                     "assigned": 0
                 }
 
-            ids_to_assign = unassigned_ids
+            # Delete any existing 'Pending' assignments for these fresh customers
+            # so they get reassigned from their old telecaller to the new telecaller(s)
+            for i in range(0, len(fresh_ids), 100):
+                chunk = fresh_ids[i:i+100]
+                db.table("calling_assignments") \
+                    .eq("status", "Pending") \
+                    .in_("customer_id", chunk) \
+                    .delete() \
+                    .execute()
+
+            ids_to_assign = fresh_ids
         
         today_str = get_today_ist()
         assignments = []
@@ -2726,3 +2847,162 @@ def trigger_scoring_cron(
     except Exception as e:
         logger.error(f"[CRON] Unexpected error in trigger_scoring_cron: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Scoring cron trigger failed: {e}")
+
+@router.get("/my-performance")
+def get_my_performance(
+    x_user_email: Optional[str] = Header(None, alias="x-user-email"),
+    email: Optional[str] = Query(None, description="Optional target email (admin/manager can view others)"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    db: SupabaseClient = Depends(get_db),
+):
+    """
+    Returns user performance metrics for the logged-in user (or target user for admin):
+    1. Working hours with dates (daily breakdown + total)
+    2. Calls Attempted vs Target Given (assigned, attempted, pending, completion %)
+    3. Leads Converted (orders created/approved, conversion rate %)
+    """
+    target_email = (email or x_user_email or "").strip().lower()
+    if not target_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    today_ist = get_today_ist()
+
+    def _fmt_seconds(sec: int) -> str:
+        if not sec:
+            return "0s"
+        h = sec // 3600
+        m = (sec % 3600) // 60
+        s = sec % 60
+        if h > 0:
+            return f"{h}h {m}m"
+        elif m > 0:
+            return f"{m}m {s}s"
+        return f"{s}s"
+
+    # 1. Collective Call Duration (strictly Total Working Hours)
+    total_call_seconds = 0
+    today_call_seconds = 0
+    daily_call_seconds = defaultdict(int)
+    try:
+        call_q = db.table("call_logs").select("called_at,time_taken").ilike("user_email", target_email)
+        if start_date:
+            call_q = call_q.gte("called_at", f"{start_date}T00:00:00+05:30")
+        if end_date:
+            try:
+                from services.telecaller_reports import get_next_day_str
+                next_day = get_next_day_str(end_date)
+            except Exception:
+                next_day = end_date
+            call_q = call_q.lt("called_at", f"{next_day}T00:00:00+05:30")
+        call_res = call_q.limit(10000).execute()
+        for c in (call_res.data or []):
+            sec = int(round(c.get("time_taken") or 0))
+            if sec > 0:
+                total_call_seconds += sec
+                called_at = c.get("called_at")
+                if called_at:
+                    d_str = str(called_at)[:10]
+                    daily_call_seconds[d_str] += sec
+                    if d_str == today_ist:
+                        today_call_seconds += sec
+    except Exception as ce:
+        logger.warning(f"Error fetching call logs for {target_email}: {ce}")
+
+    # 2. Screen Time (strictly active user sessions only)
+    try:
+        sess_q = db.table("user_sessions").select("session_date,total_seconds").ilike("user_email", target_email)
+        if start_date:
+            sess_q = sess_q.gte("session_date", start_date)
+        if end_date:
+            sess_q = sess_q.lte("session_date", end_date)
+        sess_res = sess_q.order("session_date", desc=True).limit(365).execute()
+        sessions = sess_res.data or []
+    except Exception as se:
+        logger.warning(f"Error fetching user sessions for {target_email}: {se}")
+        sessions = []
+
+    total_screen_seconds = sum(s.get("total_seconds", 0) or 0 for s in sessions)
+    today_screen_seconds = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == today_ist), 0)
+
+    # Combine dates for daily breakdown
+    all_dates = sorted(set(list(daily_call_seconds.keys()) + [s.get("session_date") for s in sessions if s.get("session_date")]), reverse=True)
+    daily_working_hours = []
+    for d in all_dates:
+        c_sec = daily_call_seconds.get(d, 0)
+        s_sec = next((s.get("total_seconds", 0) for s in sessions if s.get("session_date") == d), 0)
+        daily_working_hours.append({
+            "date": d,
+            "seconds": c_sec,
+            "hours": round(c_sec / 3600, 2),
+            "formatted": _fmt_seconds(c_sec),
+            "screen_seconds": s_sec,
+            "screen_formatted": _fmt_seconds(s_sec)
+        })
+
+    # 2. Calling assignments: Target Given vs Calls Attempted
+    try:
+        assign_q = db.table("calling_assignments").select("status,assigned_date").eq("user_email", target_email)
+        if start_date:
+            assign_q = assign_q.gte("assigned_date", start_date)
+        if end_date:
+            assign_q = assign_q.lte("assigned_date", end_date)
+        assign_res = assign_q.limit(5000).execute()
+        assignments = assign_res.data or []
+    except Exception as ae:
+        logger.warning(f"Error fetching calling assignments for {target_email}: {ae}")
+        assignments = []
+
+    target_calls = len(assignments)
+    pending_calls = sum(1 for a in assignments if a.get("status") == "Pending")
+    calls_attempted = target_calls - pending_calls
+    completion_rate = round((calls_attempted / target_calls * 100) if target_calls > 0 else 0, 1)
+
+    # 3. Conversions & Orders
+    leads_converted = 0
+    recent_conversions = []
+    try:
+        orders_q = db.table("telecaller_orders").select("order_id,customer_name,status,created_at,products_json").eq("telecaller_email", target_email)
+        if start_date:
+            orders_q = orders_q.gte("created_at", f"{start_date}T00:00:00")
+        if end_date:
+            orders_q = orders_q.lte("created_at", f"{end_date}T23:59:59")
+        orders_res = orders_q.order("created_at", desc=True).limit(500).execute()
+        orders = orders_res.data or []
+        approved_orders = [o for o in orders if (o.get("status") or "").lower() == "approved"]
+        leads_converted = len(approved_orders) if approved_orders else len(orders)
+        recent_conversions = [
+            {
+                "order_id": o.get("order_id"),
+                "customer_name": o.get("customer_name") or "Unknown",
+                "status": o.get("status") or "pending",
+                "created_at": (o.get("created_at") or "")[:10]
+            }
+            for o in orders[:5]
+        ]
+    except Exception as oe:
+        logger.warning(f"Error fetching orders for {target_email}: {oe}")
+
+    conversion_rate = round((leads_converted / calls_attempted * 100) if calls_attempted > 0 else 0, 1)
+
+    return {
+        "user_email": target_email,
+        # Total working hours = collective call duration only
+        "total_working_seconds": total_call_seconds,
+        "total_working_formatted": _fmt_seconds(total_call_seconds),
+        "today_working_seconds": today_call_seconds,
+        "today_working_formatted": _fmt_seconds(today_call_seconds),
+        # Screen time = screen time only
+        "total_screen_seconds": total_screen_seconds,
+        "total_screen_formatted": _fmt_seconds(total_screen_seconds),
+        "today_screen_seconds": today_screen_seconds,
+        "today_screen_formatted": _fmt_seconds(today_screen_seconds),
+        "target_calls": target_calls,
+        "calls_attempted": calls_attempted,
+        "pending_calls": pending_calls,
+        "completion_rate": completion_rate,
+        "leads_converted": leads_converted,
+        "conversion_rate": conversion_rate,
+        "daily_working_hours": daily_working_hours,
+        "recent_conversions": recent_conversions,
+    }

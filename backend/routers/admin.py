@@ -528,7 +528,8 @@ def update_product_price(
         rate_gujarat = price_data.get("rate_gujarat")
         rate_maharashtra = price_data.get("rate_maharashtra")
         rate_mp = price_data.get("rate_mp")
-        
+        custom_rates = price_data.get("custom_rates")
+
         update_data = {}
         if standard_rate is not None:
             update_data["standard_rate"] = standard_rate
@@ -536,8 +537,20 @@ def update_product_price(
              update_data["rate_gujarat"] = rate_gujarat
         if rate_maharashtra is not None:
              update_data["rate_maharashtra"] = rate_maharashtra
-        if "custom_rates" in price_data:
-             update_data["custom_rates"] = price_data["custom_rates"]
+        if custom_rates is not None:
+             update_data["custom_rates"] = custom_rates
+             # Keep standard_rate in sync with custom_rates so the price is
+             # consistent everywhere (admin module, Take Order, Invoice, etc.)
+             if standard_rate is None and isinstance(custom_rates, dict):
+                 # Pick the first non-zero value from any region/category as standard_rate
+                 for _region_rates in custom_rates.values():
+                     if isinstance(_region_rates, dict):
+                         for _rate in _region_rates.values():
+                             if _rate and float(_rate) > 0:
+                                 update_data.setdefault("standard_rate", float(_rate))
+                                 break
+                     if "standard_rate" in update_data:
+                         break
 
         if not update_data:
              raise HTTPException(
@@ -627,7 +640,18 @@ def update_product_prices_bulk(
             if "rate_maharashtra" in update: update_data["rate_maharashtra"] = update["rate_maharashtra"]
             if "rate_mp" in update: update_data["rate_mp"] = update["rate_mp"]
 
-            if "custom_rates" in update: update_data["custom_rates"] = update["custom_rates"]
+            if "custom_rates" in update:
+                update_data["custom_rates"] = update["custom_rates"]
+                # Sync standard_rate with custom_rates when not explicitly provided
+                if "standard_rate" not in update_data and isinstance(update["custom_rates"], dict):
+                    for _region_rates in update["custom_rates"].values():
+                        if isinstance(_region_rates, dict):
+                            for _rate in _region_rates.values():
+                                if _rate and float(_rate) > 0:
+                                    update_data.setdefault("standard_rate", float(_rate))
+                                    break
+                        if "standard_rate" in update_data:
+                            break
 
             if product_id is None or not update_data:
                 errors.append(f"Invalid update data: {update}")

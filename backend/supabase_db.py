@@ -871,7 +871,7 @@ def get_supabase_admin() -> Client:
     (Settings → API → service_role key). This is different from the anon key.
     The service role key bypasses Row Level Security and can call auth.admin APIs.
     """
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
     if not service_key:
         raise ValueError(
             "SUPABASE_SERVICE_ROLE_KEY is not set in .env. "

@@ -193,10 +193,11 @@ export default function ProductPricing() {
 
     const handlePriceChange = (productId: number, val: string) => {
         const numValue = parseFloat(val) || 0;
-        
+
+        // standard_rate is the single source of truth — update it directly.
+        // custom_rates is also kept in sync for any legacy/advanced lookups.
         const currentPrices = editingPrices[productId] || { custom_rates: {} };
         const rates = currentPrices.custom_rates || {};
-        
         if (!rates[selectedRegion]) rates[selectedRegion] = {};
         rates[selectedRegion][selectedCategory] = numValue;
 
@@ -204,7 +205,8 @@ export default function ProductPricing() {
             ...editingPrices,
             [productId]: {
                 ...currentPrices,
-                custom_rates: rates
+                standard_rate: numValue,   // ← primary source used everywhere
+                custom_rates: rates,       // ← kept for backward compatibility
             },
         });
     };
@@ -543,7 +545,7 @@ export default function ProductPricing() {
                                         <TableCell sx={{ fontWeight: 600 }}>{t("pricing.capacityLtr", "Capacity (Ltr)")}</TableCell>
                                         <TableCell sx={{ fontWeight: 600 }}>{t("pricing.category", "Category")}</TableCell>
                                         <TableCell sx={{ fontWeight: 600 }}>
-                                            Rate ({selectedRegion} - {selectedCategory})
+                                            Standard Rate
                                         </TableCell>
                                         <TableCell sx={{ fontWeight: 600 }}>{t("userMgmt.status", "Status")}</TableCell>
                                         <TableCell sx={{ fontWeight: 600 }}>Actions</TableCell>
@@ -558,10 +560,8 @@ export default function ProductPricing() {
                                         </TableRow>
                                     ) : (
                                         products.map((product) => {
-                                            // Determine current displayed price
-                                            // Fallback logic: custom rate -> standard rate -> 0
-                                            const customRateValue = product.custom_rates?.[selectedRegion]?.[selectedCategory];
-                                            const displayPrice = customRateValue !== undefined ? customRateValue : (product.standard_rate || 0);
+                                            // Always show standard_rate — the single source of truth
+                                            const displayPrice = product.standard_rate || 0;
 
                                             return (
                                                 <TableRow key={product.product_id} hover sx={{ "&:hover": { bgcolor: "action.hover" } }}>
@@ -575,7 +575,7 @@ export default function ProductPricing() {
                                                             <TextField
                                                                 size="small"
                                                                 type="number"
-                                                                value={editingPrices[product.product_id]?.custom_rates?.[selectedRegion]?.[selectedCategory] ?? displayPrice}
+                                                                value={editingPrices[product.product_id]?.standard_rate ?? displayPrice}
                                                                 onChange={(e) => handlePriceChange(product.product_id, e.target.value)}
                                                                 InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                                                                 sx={{ width: 100 }}

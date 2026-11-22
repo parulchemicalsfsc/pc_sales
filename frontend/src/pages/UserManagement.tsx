@@ -45,6 +45,8 @@ import {
     Key as KeyIcon,
     PersonOff as PersonOffIcon,
     ManageAccounts as ManageAccountsIcon,
+    Visibility,
+    VisibilityOff,
 } from "@mui/icons-material";
 import { TableSkeleton } from "../components/Skeletons";
 import { useAuth } from "../contexts/AuthContext";
@@ -121,9 +123,42 @@ export default function UserManagement() {
     const [editName, setEditName] = useState("");
     const [editRole, setEditRole] = useState("");
     const [editPassword, setEditPassword] = useState("");
+    const [showEditPassword, setShowEditPassword] = useState(false);
     const [savingName, setSavingName] = useState(false);
     const [savingRole, setSavingRole] = useState(false);
     const [savingPassword, setSavingPassword] = useState(false);
+
+    // — Password Security & Policy Helper (Telecaller 60/90 Days) —
+    const getPasswordStatus = (userRole?: string, createdAt?: string) => {
+        if (userRole !== "telecaller") {
+            return { label: "Standard", color: "default" as const, isExpired: false, isTelecaller: false };
+        }
+        if (!createdAt) return { label: "Active", color: "success" as const, isExpired: false, isTelecaller: true };
+        const createdDate = new Date(createdAt);
+        const now = new Date();
+        const diffDays = Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
+        const daysLeft = Math.max(0, 90 - (diffDays % 90));
+        const isExpired = diffDays >= 90;
+        if (isExpired) {
+            return { label: `Expired (>90d)`, color: "error" as const, isExpired: true, isTelecaller: true };
+        } else if (daysLeft <= 15) {
+            return { label: `${daysLeft}d left`, color: "warning" as const, isExpired: false, isTelecaller: true };
+        }
+        return { label: `Active (${daysLeft}d left)`, color: "success" as const, isExpired: false, isTelecaller: true };
+    };
+
+    const generateTempPassword = () => {
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        let pwd = "PC@";
+        for (let i = 0; i < 5; i++) {
+            pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        pwd += "!9";
+        setEditPassword(pwd);
+        setShowEditPassword(true);
+        navigator.clipboard.writeText(pwd).catch(() => { });
+        showSnackbar(`Temporary password generated: ${pwd} (copied to clipboard!)`, "success");
+    };
 
     // — Deactivate Confirm —
     const [confirmDeactivate, setConfirmDeactivate] = useState<AppUser | null>(null);
@@ -209,6 +244,7 @@ export default function UserManagement() {
         setEditName(u.name || "");
         setEditRole(u.role || "");
         setEditPassword("");
+        setShowEditPassword(false);
     };
 
     const handleSaveName = async () => {
@@ -444,6 +480,7 @@ export default function UserManagement() {
                                     <TableCell>{t("admin.user", "User")}</TableCell>
                                     <TableCell>{t("userMgmt.email", "Email")}</TableCell>
                                     <TableCell>{t("userMgmt.role", "Role")}</TableCell>
+                                    <TableCell>Password Status</TableCell>
                                     <TableCell>{t("userMgmt.status", "Status")}</TableCell>
                                     <TableCell align="right">{t("userMgmt.actions", "Actions")}</TableCell>
                                 </TableRow>
@@ -451,15 +488,15 @@ export default function UserManagement() {
                             <TableBody>
                                 {filteredUsers.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
-                                            <Typography color="text.secondary">
-                                                {searchTerm
-                                                    ? t("userMgmt.noResults", "No users match your search")
-                                                    : activeTab === "active"
-                                                        ? t("userMgmt.noActiveUsers", "No active users")
-                                                        : t("userMgmt.noInactiveUsers", "No inactive users")}
-                                            </Typography>
-                                        </TableCell>
+                                            <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                                                <Typography color="text.secondary">
+                                                    {searchTerm
+                                                        ? t("userMgmt.noResults", "No users match your search")
+                                                        : activeTab === "active"
+                                                            ? t("userMgmt.noActiveUsers", "No active users")
+                                                            : t("userMgmt.noInactiveUsers", "No inactive users")}
+                                                </Typography>
+                                            </TableCell>
                                     </TableRow>
                                 ) : (
                                     filteredUsers.map((u) => (
@@ -502,6 +539,24 @@ export default function UserManagement() {
                                                     variant="outlined"
                                                     sx={{ fontWeight: 500 }}
                                                 />
+                                            </TableCell>
+
+                                            {/* Password Status (Telecaller 60/90 Days Expiry) */}
+                                            <TableCell>
+                                                {(() => {
+                                                    const ps = getPasswordStatus(u.role, u.created_at);
+                                                    return (
+                                                        <Tooltip title={ps.isTelecaller ? `Telecaller Policy: Must change every 60-90 days. User joined: ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A'}` : "Standard User: Password does not expire"}>
+                                                            <Chip
+                                                                label={ps.label}
+                                                                size="small"
+                                                                color={ps.color}
+                                                                variant={ps.isExpired ? "filled" : "outlined"}
+                                                                sx={{ fontSize: "0.75rem", fontWeight: 600 }}
+                                                            />
+                                                        </Tooltip>
+                                                    );
+                                                })()}
                                             </TableCell>
 
                                             {/* Status column */}
@@ -661,10 +716,21 @@ export default function UserManagement() {
 
                     {/* — Reset Password — */}
                     <Box>
-                        <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                            <KeyIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: "middle" }} />
-                            {t("userMgmt.resetPassword", "Reset Password")}
-                        </Typography>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                            <Typography variant="subtitle2" fontWeight="bold">
+                                <KeyIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: "middle" }} />
+                                {t("userMgmt.resetPassword", "Reset Password")}
+                            </Typography>
+                            <Button
+                                size="small"
+                                variant="text"
+                                color="primary"
+                                onClick={generateTempPassword}
+                                sx={{ textTransform: "none", fontSize: "0.75rem", fontWeight: 600 }}
+                            >
+                                ⚡ Generate &amp; Copy Temp Password
+                            </Button>
+                        </Box>
                         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
                             {t("userMgmt.resetPasswordNote", "Set a new password directly. User will need to use this new password on next login.")}
                         </Typography>
@@ -672,10 +738,23 @@ export default function UserManagement() {
                             <TextField
                                 fullWidth size="small"
                                 label={t("userMgmt.newPassword", "New Password")}
-                                type="password"
+                                type={showEditPassword ? "text" : "password"}
                                 value={editPassword}
                                 onChange={(e) => setEditPassword(e.target.value)}
                                 helperText={t("userMgmt.passwordMinLength", "Minimum 6 characters")}
+                                InputProps={{
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => setShowEditPassword(!showEditPassword)}
+                                                edge="end"
+                                            >
+                                                {showEditPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                                            </IconButton>
+                                        </InputAdornment>
+                                    ),
+                                }}
                             />
                             <Button
                                 variant="outlined"

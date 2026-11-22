@@ -70,6 +70,18 @@ import { reportsAPI, apiClient } from "../../services/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const getToday = () => {
+  const today = new Date().toISOString().split("T")[0];
+  return { start: today, end: today };
+};
+
+const getYesterday = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const yest = d.toISOString().split("T")[0];
+  return { start: yest, end: yest };
+};
+
 const getThisMonth = () => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
@@ -195,7 +207,11 @@ const ROLE_CONFIGS: Record<string, RoleConfig> = {
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
 
-export default function TelecallerReports() {
+interface TelecallerReportsProps {
+  fixedEmail?: string;
+}
+
+export default function TelecallerReports({ fixedEmail }: TelecallerReportsProps = {}) {
   const { user } = useAuth();
   const theme = useTheme();
 
@@ -205,7 +221,7 @@ export default function TelecallerReports() {
     preset: "this_month",
     start_date: thisMonth.start,
     end_date: thisMonth.end,
-    telecaller_email: null as string | null,
+    telecaller_email: fixedEmail || (null as string | null),
     order_status: "all",
     district: "all",
     village: "all",
@@ -213,7 +229,7 @@ export default function TelecallerReports() {
   });
 
   const [locationsHierarchy, setLocationsHierarchy] = useState<any>({});
-  
+
   useEffect(() => {
     apiClient.get("/api/automation/locations").then(res => {
       setLocationsHierarchy(res.data || {});
@@ -260,19 +276,26 @@ export default function TelecallerReports() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (fixedEmail && filters.telecaller_email !== fixedEmail) {
+      setFilters((f) => ({ ...f, telecaller_email: fixedEmail }));
+    }
+  }, [fixedEmail]);
+
   const handleDownload = async (reportType: string, format: "pdf" | "excel") => {
     const downloadId = `${reportType}-${format}`;
     setDownloading(downloadId);
     setDownloadError(null);
     try {
+      const targetEmail = fixedEmail || filters.telecaller_email || undefined;
       const blob = await reportsAPI.downloadTelecallerReport({
         report: reportType,
         format,
         start_date: filters.start_date,
         end_date: filters.end_date,
-        telecaller_email: filters.telecaller_email || undefined,
+        telecaller_email: targetEmail,
         order_status: filters.order_status === "all" ? undefined : filters.order_status,
-        role: filters.role === "all" ? undefined : filters.role,
+        role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         district: filters.district === "all" ? undefined : filters.district,
         village: filters.village === "all" ? undefined : filters.village,
       });
@@ -281,10 +304,7 @@ export default function TelecallerReports() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      // Note: Backend sets Content-Disposition header, but browser might require a filename fallback.
-      // Usually passing no explicit download attribute tells the browser to respect Content-Disposition
-      // But it's safer to provide a fallback name if needed, or just let it download.
-      link.setAttribute("download", `Telecaller_${reportType}_${filters.start_date}.${format === "excel" ? "xlsx" : "pdf"}`);
+      link.setAttribute("download", `${fixedEmail ? "My" : "Telecaller"}_${reportType}_${filters.start_date}.${format === "excel" ? "xlsx" : "pdf"}`);
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
@@ -303,23 +323,25 @@ export default function TelecallerReports() {
 
   const loadAll = useCallback(async () => {
     if (!user?.email) return;
+    if (!filters.start_date || !filters.end_date) return;
     setLoading(true);
     setError(null);
     try {
+      const targetEmail = fixedEmail || filters.telecaller_email || undefined;
       const [response, chartsRes] = await Promise.all([
         reportsAPI.getTelecallerDashboard({
           start_date: filters.start_date,
           end_date: filters.end_date,
-          telecaller_email: filters.telecaller_email || undefined,
+          telecaller_email: targetEmail,
           order_status: filters.order_status === "all" ? undefined : filters.order_status,
-          role: filters.role === "all" ? undefined : filters.role,
+          role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         }),
         reportsAPI.getTelecallerCharts({
           start_date: filters.start_date,
           end_date: filters.end_date,
-          telecaller_email: filters.telecaller_email || undefined,
+          telecaller_email: targetEmail,
           view_by: filters.view_by,
-          role: filters.role === "all" ? undefined : filters.role,
+          role: fixedEmail ? undefined : (filters.role === "all" ? undefined : filters.role),
         })
       ]);
       console.log("DEBUG: Frontend chartsRes:", chartsRes);
@@ -330,14 +352,20 @@ export default function TelecallerReports() {
     } finally {
       setLoading(false);
     }
-  }, [user?.email, filters]);
+  }, [user?.email, filters, fixedEmail]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
   const applyPreset = (preset: string) => {
-    if (preset === "this_month") {
+    if (preset === "today") {
+      const r = getToday();
+      setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
+    } else if (preset === "yesterday") {
+      const r = getYesterday();
+      setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
+    } else if (preset === "this_month") {
       const r = getThisMonth();
       setFilters((f) => ({ ...f, preset, start_date: r.start, end_date: r.end }));
     } else if (preset === "last_month") {
@@ -370,15 +398,20 @@ export default function TelecallerReports() {
 
   return (
     <Box sx={{ animation: "fadeIn 0.5s ease-in-out", "@keyframes fadeIn": { "0%": { opacity: 0 }, "100%": { opacity: 1 } } }}>
-      
+
       {/* ── Header ── */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" sx={{ fontWeight: 800, mb: 1, color: "text.primary" }}>
-          {config.title}
+          {fixedEmail ? "My Reports" : config.title}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          {config.subtitle}
+          {fixedEmail
+            ? "Your personal performance, attendance, call logs, and orders — download as PDF or Excel"
+            : config.subtitle}
         </Typography>
+        {fixedEmail && (
+          <Chip label={fixedEmail} size="small" sx={{ mt: 1, fontWeight: 600 }} color="primary" variant="outlined" />
+        )}
       </Box>
 
       {error && (
@@ -391,28 +424,32 @@ export default function TelecallerReports() {
       <Card sx={{ mb: 4, borderRadius: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
         <CardContent sx={{ pb: "16px !important" }}>
           {/* ── Role Filter ── */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
-            <TextField
-              select
-              size="small"
-              label="Role"
-              value={filters.role}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  role: e.target.value,
-                  telecaller_email: null, // Reset user filter on role change
-                }))
-              }
-              sx={{ minWidth: 200 }}
-            >
-              <MenuItem value="all">All Roles</MenuItem>
-              <MenuItem value="telecaller">Telecaller</MenuItem>
-              <MenuItem value="sales_manager">Sales Manager</MenuItem>
-            </TextField>
-          </Box>
+          {!fixedEmail && (
+            <>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+                <TextField
+                  select
+                  size="small"
+                  label="Role"
+                  value={filters.role}
+                  onChange={(e) =>
+                    setFilters((f) => ({
+                      ...f,
+                      role: e.target.value,
+                      telecaller_email: null, // Reset user filter on role change
+                    }))
+                  }
+                  sx={{ minWidth: 200 }}
+                >
+                  <MenuItem value="all">All Roles</MenuItem>
+                  <MenuItem value="telecaller">Telecaller</MenuItem>
+                  <MenuItem value="sales_manager">Sales Manager</MenuItem>
+                </TextField>
+              </Box>
 
-          <Divider sx={{ mb: 2 }} />
+              <Divider sx={{ mb: 2 }} />
+            </>
+          )}
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", mb: 2 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -425,9 +462,11 @@ export default function TelecallerReports() {
               size="small"
               onChange={(_, v) => { if (v) applyPreset(v); }}
             >
-              <ToggleButton value="this_month" sx={{ px: 3, fontWeight: 600 }}>This Month</ToggleButton>
-              <ToggleButton value="last_month" sx={{ px: 3, fontWeight: 600 }}>Last Month</ToggleButton>
-              <ToggleButton value="custom" sx={{ px: 3, fontWeight: 600 }}>Custom</ToggleButton>
+              <ToggleButton value="today" sx={{ px: 2, fontWeight: 600 }}>Today</ToggleButton>
+              <ToggleButton value="yesterday" sx={{ px: 2, fontWeight: 600 }}>Yesterday</ToggleButton>
+              <ToggleButton value="this_month" sx={{ px: 2, fontWeight: 600 }}>This Month</ToggleButton>
+              <ToggleButton value="last_month" sx={{ px: 2, fontWeight: 600 }}>Last Month</ToggleButton>
+              <ToggleButton value="custom" sx={{ px: 2, fontWeight: 600 }}>Custom</ToggleButton>
             </ToggleButtonGroup>
 
             {filters.preset === "custom" && (
@@ -451,14 +490,16 @@ export default function TelecallerReports() {
           <Divider sx={{ mb: 2.5 }} />
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
-            <Autocomplete
-              size="small"
-              options={telecallerOptions}
-              value={filters.telecaller_email}
-              onChange={(_, v) => setFilters((f) => ({ ...f, telecaller_email: v }))}
-              renderInput={(params) => <TextField {...params} label={config.userFilterLabel} placeholder={config.userFilterPlaceholder} />}
-              sx={{ minWidth: 260 }}
-            />
+            {!fixedEmail && (
+              <Autocomplete
+                size="small"
+                options={telecallerOptions}
+                value={filters.telecaller_email}
+                onChange={(_, v) => setFilters((f) => ({ ...f, telecaller_email: v }))}
+                renderInput={(params) => <TextField {...params} label={config.userFilterLabel} placeholder={config.userFilterPlaceholder} />}
+                sx={{ minWidth: 260 }}
+              />
+            )}
             <TextField
               select
               size="small"
@@ -496,7 +537,7 @@ export default function TelecallerReports() {
             </TextField>
 
             <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-            
+
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "text.secondary" }}>View By:</Typography>
               <ToggleButtonGroup
@@ -562,42 +603,32 @@ export default function TelecallerReports() {
         </Grid>
 
         {/* Row 2: Timing & Working Hours */}
-        <Grid item xs={12} sm={6} md={3} lg={3}>
+        <Grid item xs={12} sm={6} md={4} lg={4}>
           <KpiCard
-            label="Total Talk Time"
+            label="Total Working Hours"
             value={summary.total_call_duration || summary.total_talk_time || "0s"}
-            subLabel="Total duration across calls"
+            subLabel="Total call duration only"
             icon={<TimeIcon fontSize="medium" />}
             color="#0284c7"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3} lg={3}>
+        <Grid item xs={12} sm={6} md={4} lg={4}>
           <KpiCard
             label="Total Screen Time"
             value={summary.total_screen_duration || "0s"}
-            subLabel="Active user session time"
+            subLabel="Active screen session time only"
             icon={<TimeIcon fontSize="medium" />}
             color="#0d9488"
             loading={loading}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3} lg={3}>
-          <KpiCard
-            label="Total Working Time"
-            value={summary.total_working_duration || "0s"}
-            subLabel="Screen Time + Talk Time"
-            icon={<TimeIcon fontSize="medium" />}
-            color="#6366f1"
-            loading={loading}
-          />
-        </Grid>
         {config.showCallKpis && (
-          <Grid item xs={12} sm={6} md={3} lg={3}>
+          <Grid item xs={12} sm={6} md={4} lg={4}>
             <KpiCard
               label="Avg Call Duration"
               value={summary.avg_duration || "0s"}
-              subLabel="Average time per call"
+              subLabel="Average duration per call"
               icon={<TimeIcon fontSize="medium" />}
               color="#9c27b0"
               loading={loading}
@@ -688,7 +719,7 @@ export default function TelecallerReports() {
                   </Box>
                 </Box>
               </Grid>
-              
+
               <Grid item xs={12} md={7}>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 700 }}>
                   Assignment Modes
@@ -734,7 +765,7 @@ export default function TelecallerReports() {
       </Typography>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        
+
         {/* Performance Table */}
         <Grid item xs={12}>
           <Card sx={{ height: "100%" }}>
@@ -746,7 +777,7 @@ export default function TelecallerReports() {
                 </Typography>
                 <Chip label={performance.length} size="small" sx={{ ml: "auto" }} />
               </Box>
-              
+
               {loading ? (
                 <Box sx={{ p: 2 }}>{[...Array(5)].map((_, i) => <Skeleton key={i} height={40} sx={{ mb: 0.5 }} />)}</Box>
               ) : performance.length === 0 ? (
@@ -781,7 +812,7 @@ export default function TelecallerReports() {
                     </TableHead>
                     <TableBody>
                       {performance.map((row: any, i: number) => (
-                        <TableRow 
+                        <TableRow
                           key={row.email}
                           hover
                           sx={{ "&:nth-of-type(even)": { bgcolor: "action.hover" } }}
@@ -809,9 +840,9 @@ export default function TelecallerReports() {
                                   <Typography variant="caption" sx={{ fontWeight: 600 }}>
                                     {row.connected_pct}%
                                   </Typography>
-                                  <LinearProgress 
-                                    variant="determinate" 
-                                    value={row.connected_pct} 
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={row.connected_pct}
                                     sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
                                     color="primary"
                                   />
@@ -949,9 +980,9 @@ export default function TelecallerReports() {
                                   <Typography variant="caption" sx={{ fontWeight: 600 }}>
                                     {row.percentage}%
                                   </Typography>
-                                  <LinearProgress 
-                                    variant="determinate" 
-                                    value={row.percentage} 
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={row.percentage}
                                     sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
                                     color="info"
                                   />
@@ -990,6 +1021,7 @@ export default function TelecallerReports() {
                             <TableCell sx={{ fontWeight: 700 }}>{config.userTableColumnHeader}</TableCell>
                             <TableCell sx={{ fontWeight: 700 }} align="right">Present</TableCell>
                             <TableCell sx={{ fontWeight: 700, minWidth: 80 }} align="right">Att %</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }} align="right">Working Hours</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -1008,13 +1040,18 @@ export default function TelecallerReports() {
                                   <Typography variant="caption" sx={{ fontWeight: 600 }}>
                                     {row.attendance_pct}%
                                   </Typography>
-                                  <LinearProgress 
-                                    variant="determinate" 
-                                    value={row.attendance_pct} 
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={row.attendance_pct}
                                     sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
                                     color="success"
                                   />
                                 </Box>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: "primary.main" }}>
+                                  {row.total_working_time || "00:00:00"}
+                                </Typography>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -1067,9 +1104,9 @@ export default function TelecallerReports() {
                                   <Typography variant="caption" sx={{ fontWeight: 600 }}>
                                     {row.approval_rate}%
                                   </Typography>
-                                  <LinearProgress 
-                                    variant="determinate" 
-                                    value={row.approval_rate} 
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={row.approval_rate}
                                     sx={{ width: 50, height: 4, borderRadius: 2, bgcolor: "action.hover" }}
                                     color="warning"
                                   />
@@ -1086,7 +1123,7 @@ export default function TelecallerReports() {
             </Grid>
           </>
         )}
-        
+
       </Grid>
 
       {/* ── Geographical Analysis ── */}
@@ -1140,11 +1177,11 @@ export default function TelecallerReports() {
                     <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                       Timing Trend (Screen & Call Time)
                     </Typography>
-                    <Chip 
-                      label="Screen Time + Call Time = Total Time" 
-                      size="small" 
-                      color="primary" 
-                      variant="outlined" 
+                    <Chip
+                      label="Screen Time + Call Time = Total Time"
+                      size="small"
+                      color="primary"
+                      variant="outlined"
                       sx={{ fontWeight: 600 }}
                     />
                   </Box>
@@ -1164,8 +1201,8 @@ export default function TelecallerReports() {
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="period" tick={{ fontSize: 12 }} />
                           <YAxis tick={{ fontSize: 12 }} />
-                          <RechartsTooltip 
-                            cursor={{ fill: 'rgba(0,0,0,0.05)' }} 
+                          <RechartsTooltip
+                            cursor={{ fill: 'rgba(0,0,0,0.05)' }}
                             formatter={(val: any, name: string, item: any) => {
                               const p = item?.payload || {};
                               if (name === "Screen Time") return [p.screen_time_formatted || `${val}h`, name];

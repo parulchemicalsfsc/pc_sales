@@ -877,8 +877,21 @@ export const automationAPI = {
     const response = await apiClient.get("/api/automation/admin/telecaller-profile", { params: { email } });
     return response.data;
   },
+  getMyPerformance: async (params?: { email?: string; start_date?: string; end_date?: string }) => {
+    const response = await apiClient.get("/api/automation/my-performance", { params });
+    return response.data;
+  },
   adminDistributeMantris: async () => {
     const response = await apiClient.post("/api/automation/admin/distribute-mantris");
+    return response.data;
+  },
+  checkVillageStatus: async (payload: {
+    state?: string;
+    district?: string;
+    taluka?: string;
+    village?: string;
+  }) => {
+    const response = await apiClient.post("/api/automation/admin/check-village-status", payload);
     return response.data;
   },
   adminDistributeSabhsads: async (payload: {

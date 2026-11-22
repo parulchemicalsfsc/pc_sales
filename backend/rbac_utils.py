@@ -452,3 +452,52 @@ def verify_admin_role(require_token: bool = False):
         return authenticated_email
 
     return checker
+
+
+def verify_telecaller_reports_access():
+    """
+    Dependency for telecaller self-report endpoints.
+    Passes if the user has 'view_reports' (admin/manager) OR 'view_calling_list' (telecaller).
+    This lets telecallers query their own data without admin privileges.
+    """
+    def checker(
+        authorization: Optional[str] = Header(None, alias="authorization"),
+        user_email: Optional[str] = Header(None, alias="x-user-email"),
+        db: SupabaseClient = Depends(get_db),
+    ) -> str:
+        authenticated_email = authenticate_request(
+            authorization=authorization,
+            user_email_header=user_email,
+            require_token=False,
+        )
+
+        try:
+            user_res = db.table("app_users").select("role, is_active").eq("email", authenticated_email).execute()
+        except Exception as db_err:
+            logger.error(f"[RBAC ERROR] Failed to query app_users for {authenticated_email}: {db_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database error verifying user account.",
+            )
+
+        if not user_res.data:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"User '{authenticated_email}' not found.")
+
+        user_data = user_res.data[0]
+        if not user_data.get("is_active", True):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ACCOUNT_DEACTIVATED")
+
+        permissions = get_user_permissions(authenticated_email, db)
+        if "view_reports" not in permissions and "view_calling_list" not in permissions:
+            logger.warning(
+                f"[RBAC] Telecaller reports access denied for {authenticated_email}. "
+                f"Missing 'view_reports' or 'view_calling_list'. Permissions: {permissions}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Requires 'view_reports' or 'view_calling_list' permission.",
+            )
+
+        return authenticated_email
+
+    return checker

@@ -294,14 +294,25 @@ def approve_telecaller_order(
         total_amount = 0.0
         total_liters = 0.0
 
-        products_resp = db.table("products").select("product_id, capacity_ltr").execute()
+        products_resp = db.table("products").select("product_id, capacity_ltr, standard_rate, custom_rates").execute()
         products_dict = {p["product_id"]: p for p in (products_resp.data or [])}
 
         for p in products:
             pid = p.get("product_id")
             qty = p.get("quantity", 0)
             rate = p.get("rate", 0)
-            amount = p.get("amount", 0)
+            if pid and qty > 0 and (not rate or rate <= 0):
+                prod_data = products_dict.get(pid, {})
+                c_rates = prod_data.get("custom_rates") or {}
+                if isinstance(c_rates, str):
+                    try:
+                        c_rates = json.loads(c_rates)
+                    except Exception:
+                        c_rates = {}
+                cat_key = "Mantri" if (customer_type or "").lower() in ("mantri", "distributor") else "Sabhasad"
+                rate = (c_rates.get("Gujarat", {}) if isinstance(c_rates, dict) else {}).get(cat_key) or prod_data.get("standard_rate", 0)
+
+            amount = p.get("amount") or (qty * rate)
             if not pid or qty <= 0 or rate <= 0:
                 continue
             items_data.append({"product_id": pid, "quantity": qty, "rate": rate, "amount": amount})

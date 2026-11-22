@@ -37,6 +37,7 @@ import {
   Checkbox,
   FormControlLabel,
   InputAdornment,
+  Collapse,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
@@ -61,10 +62,12 @@ import {
   DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, productAPI } from "../services/api";
+import { getProductRate } from "../utils/pricing";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
 import { FEATURE_FLAGS } from "../config/featureFlags";
 import VoiceTextField from "../components/VoiceTextField";
+import MyPerformanceWidget from "../components/MyPerformanceWidget";
 import TelecallerQuestionnaire, {
   initialQuestionnaireData,
   QuestionnaireData,
@@ -87,6 +90,8 @@ interface Assignment {
   village: string;
   taluka?: string;
   district?: string;
+  state?: string;
+  customer_type?: string;
   customer_code?: string;
   priority_label?: string;
   priority_score?: number;
@@ -218,6 +223,7 @@ export default function CallingList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; sev: "success" | "error" | "info" } | null>(null);
+  const [showPerformance, setShowPerformance] = useState(false);
 
   // History Dialog
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -902,6 +908,9 @@ export default function CallingList() {
         }
       }
 
+      const targetRegion = targetItem?.state || "Gujarat";
+      const targetCategory = role === "sales_manager" ? "Mantri" : (targetItem?.customer_type || "Sabhasad");
+
       setOrderItems([{ product_id: 0, product_name: "", quantity: 1, rate: 0, amount: 0 }]);
       setOrderNotes("");
       setOrderDate("");
@@ -999,6 +1008,27 @@ export default function CallingList() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
+            <Button
+              variant={showPerformance ? "contained" : "outlined"}
+              size="small"
+              onClick={() => setShowPerformance(!showPerformance)}
+              startIcon={<TrendingUpIcon />}
+              sx={{
+                borderRadius: 2,
+                fontWeight: 700,
+                textTransform: "none",
+                color: showPerformance ? "#fff" : "#16a34a",
+                bgcolor: showPerformance ? "#16a34a" : alpha("#16a34a", 0.05),
+                border: `2px solid ${alpha("#16a34a", 0.3)}`,
+                px: 2,
+                "&:hover": {
+                  bgcolor: showPerformance ? "#15803d" : alpha("#16a34a", 0.1),
+                  border: `2px solid #16a34a`,
+                },
+              }}
+            >
+              {showPerformance ? "Hide Performance" : "My Performance"}
+            </Button>
             <Tooltip title="Estimation Calculator">
               <Button
                 variant="outlined"
@@ -1034,6 +1064,11 @@ export default function CallingList() {
 
 
       </Box>
+
+      {/* ── My Performance & Working Hours Drawer ── */}
+      <Collapse in={showPerformance} unmountOnExit sx={{ mb: 2.5 }}>
+        <MyPerformanceWidget />
+      </Collapse>
 
       {/* ── Stats ── */}
       <Stack direction="row" spacing={2} sx={{ mb: 2.5 }}>
@@ -2429,6 +2464,7 @@ export default function CallingList() {
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           <Stack spacing={2}>
+
             {orderItems.map((item, idx) => (
               <Paper key={idx} sx={{ p: 2, borderRadius: 2, border: `1px solid ${border}` }}>
                 <Grid container spacing={1.5} alignItems="center">
@@ -2441,7 +2477,7 @@ export default function CallingList() {
                         onChange={(e) => {
                           const pid = Number(e.target.value);
                           const prod = productsList.find((p: any) => p.product_id === pid);
-                          const rate = prod?.standard_rate || prod?.rate_gujarat || 0;
+                          const rate = Number(prod?.standard_rate) || 0;
                           const newItems = [...orderItems];
                           newItems[idx] = { ...newItems[idx], product_id: pid, product_name: prod?.product_name || "", rate, amount: newItems[idx].quantity * rate };
                           setOrderItems(newItems);

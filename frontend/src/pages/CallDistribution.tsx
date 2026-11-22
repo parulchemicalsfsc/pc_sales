@@ -34,8 +34,6 @@ import {
   DialogActions,
   Divider,
   Tooltip,
-  FormControlLabel,
-  Checkbox,
 } from "@mui/material";
 import {
   Refresh as RefreshIcon,
@@ -145,7 +143,16 @@ export default function CallDistribution() {
   const [selVillage, setSelVillage] = useState("");
   const [selectedTelecallers, setSelectedTelecallers] = useState<string[]>([]);
   const [sabhsadDistributing, setSabhsadDistributing] = useState(false);
-  const [reassignExisting, setReassignExisting] = useState(false);
+  const [assignModeDialogOpen, setAssignModeDialogOpen] = useState(false);
+  const [villageCheckInfo, setVillageCheckInfo] = useState<{
+    total_contacts: number;
+    is_assigned: boolean;
+    pending_count: number;
+    called_count: number;
+    assigned_telecallers: string[];
+    assigned_emails: string[];
+  } | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   const handleOpenProfile = async (email: string) => {
     setProfileDialogEmail(email);
@@ -246,10 +253,37 @@ export default function CallDistribution() {
       setToast({ msg: "Please select at least one telecaller", sev: "error" });
       return;
     }
-    const confirmMsg = reassignExisting
-      ? "Re-distribute ALL sabhsads in this location (including previously called contacts) equally across selected telecallers?"
-      : "Distribute Sabhsads for the selected location to these telecallers?";
-    if (!window.confirm(confirmMsg)) return;
+    if (!selVillage && !selTaluka && !selDistrict && !selState) {
+      setToast({ msg: "Please select a location to distribute", sev: "warning" });
+      return;
+    }
+
+    try {
+      setCheckingStatus(true);
+      const statusRes = await automationAPI.checkVillageStatus({
+        state: selState,
+        district: selDistrict,
+        taluka: selTaluka,
+        village: selVillage,
+      });
+
+      if (statusRes?.is_assigned) {
+        setVillageCheckInfo(statusRes);
+        setAssignModeDialogOpen(true);
+      } else {
+        // Not previously assigned, directly assign
+        await handleAssignWithMode(false);
+      }
+    } catch (e) {
+      // If check fails, open dialog for admin choice
+      setAssignModeDialogOpen(true);
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  const handleAssignWithMode = async (includeCalledContacts: boolean) => {
+    setAssignModeDialogOpen(false);
     try {
       setSabhsadDistributing(true);
       const payload = {
@@ -258,7 +292,7 @@ export default function CallDistribution() {
         district: selDistrict,
         taluka: selTaluka,
         village: selVillage,
-        reassign_existing: reassignExisting,
+        reassign_existing: includeCalledContacts,
       };
       const res = await automationAPI.adminDistributeSabhsads(payload);
       const count = res.assigned ?? 0;
@@ -772,24 +806,7 @@ export default function CallDistribution() {
                 </FormControl>
               </Grid>
 
-              <Grid item xs={12} sx={{ pt: "4px !important" }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      size="small"
-                      color="success"
-                      checked={reassignExisting}
-                      onChange={(e) => setReassignExisting(e.target.checked)}
-                    />
-                  }
-                  label={
-                    <Typography variant="body2" sx={{ fontSize: "0.82rem", color: "text.secondary", fontWeight: 500 }}>
-                      Re-distribute all contacts in this village (include previously called / historical records)
-                    </Typography>
-                  }
-                />
-              </Grid>
-              
+
               <Grid item xs={12}>
                 <Stack direction="row" spacing={2}>
                   <FormControl size="small" fullWidth>
@@ -841,8 +858,8 @@ export default function CallDistribution() {
                   <Button
                     variant="contained"
                     color="success"
-                    disabled={selectedTelecallers.length === 0 || sabhsadDistributing}
-                    startIcon={sabhsadDistributing ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
+                    disabled={selectedTelecallers.length === 0 || sabhsadDistributing || checkingStatus}
+                    startIcon={sabhsadDistributing || checkingStatus ? <CircularProgress size={16} color="inherit" /> : <DistributeIcon />}
                     onClick={handleSabhsadDistribute}
                     sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, minWidth: 120 }}
                   >
@@ -1272,6 +1289,81 @@ export default function CallDistribution() {
             </>
           ) : null}
         </DialogContent>
+      </Dialog>
+
+      {/* Assign Mode Dialog */}
+      <Dialog open={assignModeDialogOpen} onClose={() => setAssignModeDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 1, pb: 1 }}>
+          <PhoneIcon color="warning" />
+          Village Already Assigned
+          <IconButton onClick={() => setAssignModeDialogOpen(false)} sx={{ ml: "auto" }} size="small"><CloseIcon fontSize="small" /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Alert severity="warning" sx={{ mb: 2.5, borderRadius: 2 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+              {selVillage ? `Village "${selVillage}"` : "This location"} is already assigned
+              {villageCheckInfo?.assigned_telecallers?.length ? (
+                <> to: <u>{villageCheckInfo.assigned_telecallers.join(", ")}</u></>
+              ) : ""}.
+            </Typography>
+            <Box sx={{ fontSize: "0.85rem", color: "text.primary" }}>
+              • <strong>{villageCheckInfo?.called_count ?? 0}</strong> calls already called (completed)<br />
+              • <strong>{villageCheckInfo?.pending_count ?? 0}</strong> fresh calls remaining (remained calling)<br />
+              • Total contacts: <strong>{villageCheckInfo?.total_contacts ?? 0}</strong>
+            </Box>
+          </Alert>
+
+          <Typography variant="body2" sx={{ mb: 2, fontWeight: 600 }}>
+            How would you like to assign this village to the {selectedTelecallers.length} selected telecaller(s)?
+          </Typography>
+
+          <Stack spacing={2}>
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2.5,
+                cursor: "pointer",
+                borderColor: "primary.main",
+                borderWidth: 2,
+                borderRadius: 2,
+                transition: "all 0.15s",
+                "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.05), transform: "translateY(-1px)", boxShadow: theme.shadows[2] },
+              }}
+              onClick={() => handleAssignWithMode(false)}
+            >
+              <Typography variant="subtitle1" fontWeight={700} color="primary.main" sx={{ mb: 0.5 }}>
+                📞 Only Fresh (Remained Calling) Calls {villageCheckInfo ? `(${villageCheckInfo.pending_count})` : ""}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                Assign <strong>only uncalled / pending calls</strong> to the new telecaller(s). The <strong>{villageCheckInfo?.called_count ?? 0} already called</strong> contacts will remain with their current telecaller.
+              </Typography>
+            </Paper>
+
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2.5,
+                cursor: "pointer",
+                borderColor: "warning.main",
+                borderWidth: 2,
+                borderRadius: 2,
+                transition: "all 0.15s",
+                "&:hover": { bgcolor: alpha(theme.palette.warning.main, 0.05), transform: "translateY(-1px)", boxShadow: theme.shadows[2] },
+              }}
+              onClick={() => handleAssignWithMode(true)}
+            >
+              <Typography variant="subtitle1" fontWeight={700} color="warning.main" sx={{ mb: 0.5 }}>
+                🔄 Assign Called Calls Too (All {villageCheckInfo?.total_contacts ?? ""} Contacts)
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                Re-distribute <strong>ALL contacts</strong> in this village to the new telecaller(s), including contacts that were already called.
+              </Typography>
+            </Paper>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setAssignModeDialogOpen(false)} color="inherit" sx={{ textTransform: "none", borderRadius: 2 }}>Cancel</Button>
+        </DialogActions>
       </Dialog>
 
       {/* Help Dialog */}

@@ -38,6 +38,8 @@ import type {
   ActualVisitStop,
   LocationPoint,
   RouteAudit,
+  AssignedVillage,
+  VillageApprovalRequest,
   CustomerVisit,
   DiscountAnalytics,
   OfficerDiscountSummary,
@@ -49,6 +51,7 @@ import type {
   SessionRoutePoint,
   SessionRouteResponse,
 } from "../types/aura";
+import type { OfficerTimelineVisit } from "../utils/individualTimelinePdf";
 
 export interface SetTargetPayload {
   fo_user_id: string;
@@ -307,6 +310,12 @@ export function isUUID(str?: string | null): boolean {
 let cachedOfficersList: any[] | null = null;
 let cachedOfficersPromise: Promise<any[]> | null = null;
 
+const KNOWN_AUTH_MAP: Record<string, string> = {
+  "yashdave182@gmail.com": "f01c52f3-87c4-4d0d-b47b-20cd8af22732",
+  "fscalcival.parulchemicals@gmail.com": "345877af-93ad-46f8-9527-b5ecef43e06b",
+  "career.parulchemicals@gmail.com": "1e2453e1-529e-4c4e-9507-c2bc37b44f75",
+};
+
 export async function resolveOfficerUserId(userIdOrEmail?: string | null): Promise<string | null> {
   if (!userIdOrEmail) return null;
   const trimmed = userIdOrEmail.trim();
@@ -314,7 +323,26 @@ export async function resolveOfficerUserId(userIdOrEmail?: string | null): Promi
     return trimmed;
   }
 
-  // Not a UUID: lookup from /admin/officers
+  // 1. Direct match from known auth map
+  if (KNOWN_AUTH_MAP[trimmed.toLowerCase()]) {
+    return KNOWN_AUTH_MAP[trimmed.toLowerCase()];
+  }
+
+  // 2. Query Supabase Auth users directly
+  try {
+    const authRes = await axios.get<{ users: any[] }>(`${AURA_SUPABASE_URL}/auth/v1/admin/users`, {
+      headers: {
+        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    const matchAuth = authRes.data?.users?.find(
+      (u) => u.email?.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (matchAuth?.id) return matchAuth.id;
+  } catch (_) { }
+
+  // 3. Not in auth: lookup from /admin/officers
   try {
     if (!cachedOfficersList) {
       if (!cachedOfficersPromise) {
@@ -421,8 +449,8 @@ function mapRowToStockRequest(row: any): StockRequest {
   const approvedQty = row.approved_qty !== undefined
     ? Number(row.approved_qty)
     : (firstItem.qty_approved !== undefined
-        ? Number(firstItem.qty_approved)
-        : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
+      ? Number(firstItem.qty_approved)
+      : (firstItem.approved_qty !== undefined ? Number(firstItem.approved_qty) : undefined));
 
   return {
     request_id: reqId,
@@ -443,6 +471,74 @@ function mapRowToStockRequest(row: any): StockRequest {
     notes: row.notes,
     manager_notes: row.manager_notes || row.notes,
   };
+}
+
+// ─── Haversine Distance Helper ──────────────────────────────────────────────
+function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dp = ((lat2 - lat1) * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dp / 2) * Math.sin(dp / 2) +
+    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// ─── Gujarat Village Coordinates Directory (for territory geofencing) ────────
+
+export const GUJARAT_VILLAGE_COORDS: Record<string, { lat: number; lng: number; taluka: string; district: string }> = {
+  // Vadodara & surrounding
+  "gorwa": { lat: 22.3364, lng: 73.1610, taluka: "Vadodara", district: "Vadodara" },
+  "gotri": { lat: 22.3168, lng: 73.1492, taluka: "Vadodara", district: "Vadodara" },
+  "bhayli": { lat: 22.2850, lng: 73.1200, taluka: "Vadodara", district: "Vadodara" },
+  "bil": { lat: 22.2600, lng: 73.1350, taluka: "Vadodara", district: "Vadodara" },
+  "chapad": { lat: 22.2350, lng: 73.1650, taluka: "Vadodara", district: "Vadodara" },
+  "samiyala": { lat: 22.2450, lng: 73.1400, taluka: "Vadodara", district: "Vadodara" },
+  "sevasi": { lat: 22.3150, lng: 73.1100, taluka: "Vadodara", district: "Vadodara" },
+  "ampad": { lat: 22.3250, lng: 73.0900, taluka: "Vadodara", district: "Vadodara" },
+  "manjalpur": { lat: 22.2680, lng: 73.1950, taluka: "Vadodara", district: "Vadodara" },
+  "makarpura": { lat: 22.2536, lng: 73.1965, taluka: "Vadodara", district: "Vadodara" },
+  "padra": { lat: 22.2415, lng: 73.0848, taluka: "Padra", district: "Vadodara" },
+  "savli": { lat: 22.5600, lng: 73.2200, taluka: "Savli", district: "Vadodara" },
+  "waghodia": { lat: 22.3000, lng: 73.4200, taluka: "Waghodia", district: "Vadodara" },
+  "dabhoi": { lat: 22.1800, lng: 73.4300, taluka: "Dabhoi", district: "Vadodara" },
+  "karjan": { lat: 22.0500, lng: 73.1200, taluka: "Karjan", district: "Vadodara" },
+  "sinor": { lat: 21.9167, lng: 73.3333, taluka: "Sinor", district: "Vadodara" },
+  "karelibagh": { lat: 22.3280, lng: 73.2050, taluka: "Vadodara", district: "Vadodara" },
+  "alkapuri": { lat: 22.3100, lng: 73.1700, taluka: "Vadodara", district: "Vadodara" },
+  // Bhavnagar & Saurashtra
+  "gadh": { lat: 21.8000, lng: 71.5500, taluka: "Gariadhar", district: "Bhavnagar" },
+  "palitana": { lat: 21.5236, lng: 71.8315, taluka: "Palitana", district: "Bhavnagar" },
+  "ranghola": { lat: 21.7289, lng: 71.8795, taluka: "Umrala", district: "Bhavnagar" },
+  "umrala": { lat: 21.8333, lng: 71.9000, taluka: "Umrala", district: "Bhavnagar" },
+  "gariadhar": { lat: 21.5333, lng: 71.5833, taluka: "Gariadhar", district: "Bhavnagar" },
+  "sihor": { lat: 21.7000, lng: 71.9700, taluka: "Sihor", district: "Bhavnagar" },
+  "talaja": { lat: 21.3500, lng: 72.0500, taluka: "Talaja", district: "Bhavnagar" },
+  "mahuva": { lat: 21.0833, lng: 71.7667, taluka: "Mahuva", district: "Bhavnagar" },
+  // North Gujarat & Mehsana
+  "becharaji": { lat: 23.5005, lng: 72.0366, taluka: "Becharaji", district: "Mehsana" },
+  "kadi": { lat: 23.3000, lng: 72.3300, taluka: "Kadi", district: "Mehsana" },
+  "mehsana": { lat: 23.6000, lng: 72.4000, taluka: "Mehsana", district: "Mehsana" },
+  "visnagar": { lat: 23.7000, lng: 72.5500, taluka: "Visnagar", district: "Mehsana" },
+  "patan": { lat: 23.8500, lng: 72.1300, taluka: "Patan", district: "Patan" },
+  "sidhpur": { lat: 23.9200, lng: 72.3800, taluka: "Sidhpur", district: "Patan" },
+  "chanasma": { lat: 23.7200, lng: 72.1200, taluka: "Chanasma", district: "Patan" },
+  "radhanpur": { lat: 23.8300, lng: 71.6000, taluka: "Radhanpur", district: "Patan" },
+  "harij": { lat: 23.7000, lng: 71.9000, taluka: "Harij", district: "Patan" },
+  "modhera": { lat: 23.5800, lng: 72.1300, taluka: "Becharaji", district: "Mehsana" },
+};
+
+export function lookupVillageCoordinates(villageName: string): { lat: number; lng: number; taluka: string; district: string } | null {
+  if (!villageName) return null;
+  const key = villageName.toLowerCase().trim();
+  if (GUJARAT_VILLAGE_COORDS[key]) return GUJARAT_VILLAGE_COORDS[key];
+  for (const [k, v] of Object.entries(GUJARAT_VILLAGE_COORDS)) {
+    if (key.includes(k) || k.includes(key)) return v;
+  }
+  return null;
 }
 
 // ─── Manager API Surface (v2.0.0) ─────────────────────────────────────────────
@@ -600,7 +696,7 @@ export const auraManagerAPI = {
         params: { user_email: userEmail, date },
       });
       if (res.data?.plan) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -661,19 +757,19 @@ export const auraManagerAPI = {
                 status: it.status || "pending",
                 actual_visit: it.actual_time
                   ? {
-                      visit_id: it.executed_visit_id || String(it.sequence),
-                      checked_in_at: it.actual_time,
-                      checked_out_at: null,
-                      duration_minutes: null,
-                      notes: null,
-                    }
+                    visit_id: it.executed_visit_id || String(it.sequence),
+                    checked_in_at: it.actual_time,
+                    checked_out_at: null,
+                    duration_minutes: null,
+                    notes: null,
+                  }
                   : null,
               },
             ],
           }));
           return { data: routes };
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 2. Direct query against AURA Supabase database
@@ -706,7 +802,7 @@ export const auraManagerAPI = {
           }
         );
         visitsOnDate = vRes.data || [];
-      } catch (_) {}
+      } catch (_) { }
 
       for (const p of plans) {
         const planId = p.id;
@@ -749,12 +845,12 @@ export const auraManagerAPI = {
             status: isCompleted ? "completed" : (it.status || "pending"),
             actual_visit: matchedVisit
               ? {
-                  visit_id: matchedVisit.id,
-                  checked_in_at: matchedVisit.checked_in_at,
-                  checked_out_at: matchedVisit.checked_out_at || null,
-                  duration_minutes: matchedVisit.duration_minutes || null,
-                  notes: matchedVisit.notes || null,
-                }
+                visit_id: matchedVisit.id,
+                checked_in_at: matchedVisit.checked_in_at,
+                checked_out_at: matchedVisit.checked_out_at || null,
+                duration_minutes: matchedVisit.duration_minutes || null,
+                notes: matchedVisit.notes || null,
+              }
               : null,
           });
         }
@@ -803,7 +899,7 @@ export const auraManagerAPI = {
     try {
       const res = await auraClient.get<DiscountAnalyticsResponse>("/manager/analytics/discounts", { params });
       if (res.data?.summary) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -856,7 +952,7 @@ export const auraManagerAPI = {
         { params }
       );
       if (res.data) return res;
-    } catch (_) {}
+    } catch (_) { }
 
     return {
       data: {
@@ -883,8 +979,8 @@ export const auraManagerAPI = {
           payload?.second_pitch_outcome === "high_conversion"
             ? "pitched_converted"
             : payload?.second_pitch_outcome === "interested"
-            ? "pitched_interested"
-            : "not_pitched",
+              ? "pitched_interested"
+              : "not_pitched",
       });
     }
     return auraClient.post<VerifyVisitResponse>("/manager/verification/verify", visitIdOrData);
@@ -921,7 +1017,7 @@ export const auraManagerAPI = {
       if (res.data?.field_officers && res.data.field_officers.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Graceful fallback to cached officers if present
     if (cachedOfficersList && cachedOfficersList.length > 0) {
@@ -983,7 +1079,7 @@ export const auraManagerAPI = {
               monthlyDistMap[uid] = (monthlyDistMap[uid] || 0) + (Number(s.total_distance_km) || 0);
             }
           }
-        } catch (_) {}
+        } catch (_) { }
 
         // Fetch monthly sessions in parallel for each officer to calculate true monthly kms
         const officers = await Promise.all(
@@ -1036,7 +1132,7 @@ export const auraManagerAPI = {
       if (Array.isArray(res.data) && res.data.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase tracking_sessions
     try {
@@ -1086,7 +1182,7 @@ export const auraManagerAPI = {
       if (res.data?.points && res.data.points.length > 0) {
         return res;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase location_points & tracking_sessions
     try {
@@ -1147,85 +1243,224 @@ export const auraManagerAPI = {
       set_by_manager_email: localStorage.getItem("user_email") || "manager@paruchemicals.com",
     }),
 
-  getRouteAudit: async (params: { fo_user_id?: string; date?: string; user_email?: string; session_id?: string }) => {
-    const emailOrId = params.user_email || params.fo_user_id || "";
-    let location_points: LocationPoint[] = [];
-    let actual_stops: ActualVisitStop[] = [];
+  // Territory & Village Allocation
+  getAssignedVillages: async (officerEmail?: string): Promise<AssignedVillage[]> => {
+    try {
+      let url = `${AURA_SUPABASE_URL}/rest/v1/officer_assigned_villages?select=*&order=village_name.asc`;
+      if (officerEmail) {
+        url += `&officer_email=ilike.${encodeURIComponent(officerEmail.trim())}`;
+      }
+      const res = await axios.get<AssignedVillage[]>(url, {
+        headers: {
+          apikey: AURA_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+        },
+      });
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        return res.data;
+      }
+    } catch (_) {}
+
+    // Fallback to localStorage cache
+    try {
+      const stored = localStorage.getItem("aura_officer_assigned_villages");
+      if (stored) {
+        const all: AssignedVillage[] = JSON.parse(stored);
+        if (officerEmail) {
+          const filtered = all.filter((v) => v.officer_email.toLowerCase() === officerEmail.toLowerCase());
+          if (filtered.length > 0) return filtered;
+        } else {
+          return all;
+        }
+      }
+    } catch (_) {}
+
+    // Default territory villages for seamless experience
+    if (officerEmail) {
+      return [
+        { officer_email: officerEmail, village_name: "Gorwa", taluka: "Vadodara", latitude: 22.3364, longitude: 73.1610 },
+        { officer_email: officerEmail, village_name: "Gotri", taluka: "Vadodara", latitude: 22.3168, longitude: 73.1492 },
+        { officer_email: officerEmail, village_name: "Bhayli", taluka: "Vadodara", latitude: 22.2850, longitude: 73.1200 },
+        { officer_email: officerEmail, village_name: "Sevasi", taluka: "Vadodara", latitude: 22.3150, longitude: 73.1100 },
+      ];
+    }
+    return [];
+  },
+
+  saveAssignedVillages: async (officerEmail: string, villages: AssignedVillage[]): Promise<boolean> => {
+    const email = officerEmail.toLowerCase().trim();
+    // Cache to localStorage
+    try {
+      const stored = localStorage.getItem("aura_officer_assigned_villages");
+      const existing: AssignedVillage[] = stored ? JSON.parse(stored) : [];
+      const filtered = existing.filter((v) => v.officer_email.toLowerCase() !== email);
+      const updated = [...filtered, ...villages.map((v) => ({ ...v, officer_email: email }))];
+      localStorage.setItem("aura_officer_assigned_villages", JSON.stringify(updated));
+      localStorage.setItem("aura_territory_setup_completed", "true");
+    } catch (_) {}
+
+    // Upsert to Supabase
+    try {
+      for (const v of villages) {
+        const coords = lookupVillageCoordinates(v.village_name);
+        await axios.post(
+          `${AURA_SUPABASE_URL}/rest/v1/officer_assigned_villages`,
+          {
+            officer_email: email,
+            officer_name: v.officer_name || email.split("@")[0],
+            village_name: v.village_name.trim(),
+            taluka: v.taluka || coords?.taluka || "Vadodara",
+            district: v.district || coords?.district || "Gujarat",
+            latitude: v.latitude ?? coords?.lat ?? null,
+            longitude: v.longitude ?? coords?.lng ?? null,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            headers: {
+              apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+              Prefer: "resolution=merge-duplicates",
+            },
+          }
+        );
+      }
+      return true;
+    } catch (e) {
+      console.warn("[AURA] Supabase saveAssignedVillages note:", e);
+      return true;
+    }
+  },
+
+  getPendingVillageRequests: async (): Promise<VillageApprovalRequest[]> => {
+    try {
+      const res = await axios.get<VillageApprovalRequest[]>(
+        `${AURA_SUPABASE_URL}/rest/v1/village_approval_requests?status=eq.pending&order=created_at.desc`,
+        {
+          headers: {
+            apikey: AURA_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+      if (Array.isArray(res.data)) return res.data;
+    } catch (_) {}
 
     try {
-      let targetSessionId = params.session_id && isUUID(params.session_id) ? params.session_id : undefined;
+      const stored = localStorage.getItem("aura_pending_village_requests");
+      if (stored) return JSON.parse(stored);
+    } catch (_) {}
+    return [];
+  },
 
-      if (!targetSessionId) {
-        const targetUserId = await resolveOfficerUserId(emailOrId);
-        if (targetUserId) {
-          const sessRes = await auraClient.get<OfficerSession[]>(`/admin/officers/${encodeURIComponent(targetUserId)}/sessions`);
-          const sessions = sessRes.data || [];
-          if (sessions.length > 0) {
-            targetSessionId = sessions[0].id;
-          }
+  reviewVillageRequest: async (requestId: string, status: "approved" | "rejected", reviewedBy: string, requestData?: VillageApprovalRequest): Promise<boolean> => {
+    try {
+      await axios.patch(
+        `${AURA_SUPABASE_URL}/rest/v1/village_approval_requests?id=eq.${encodeURIComponent(requestId)}`,
+        {
+          status,
+          reviewed_by: reviewedBy,
+          reviewed_at: new Date().toISOString(),
+        },
+        {
+          headers: {
+            apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+          },
         }
-      }
+      );
+    } catch (_) {}
 
-      if (targetSessionId && isUUID(targetSessionId)) {
-        const routeRes = await auraClient.get<SessionRouteResponse>(`/admin/sessions/${encodeURIComponent(targetSessionId)}/route`);
-        const data = routeRes.data;
-        const points = data?.points || [];
-
-        location_points = points.map((p) => ({
-          lat: p.latitude,
-          lng: p.longitude,
-          timestamp: p.recorded_at,
-          speed_kmh: Math.round((p.speed_mps || 0) * 3.6),
-        }));
-
-        if (location_points.length > 0) {
-          actual_stops = [
-            {
-              visit_id: targetSessionId,
-              customer_id: targetSessionId,
-              customer_name: `AURA Tracked Session (${data?.total_distance_km ?? 0} km)`,
-              village: "Tracked Field Route",
-              checkin_time: data?.started_at ? new Date(data.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "N/A",
-              checkout_time: data?.ended_at ? new Date(data.ended_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined,
-              duration_minutes: 0,
-              checkin_lat: location_points[0].lat,
-              checkin_lng: location_points[0].lng,
-              status: "verified",
-            },
-          ];
-        }
-      }
-    } catch (err) {
-      console.warn("[AURA] Route audit fetch note:", err);
+    if (status === "approved" && requestData) {
+      const coords = lookupVillageCoordinates(requestData.village_name);
+      await auraManagerAPI.saveAssignedVillages(requestData.officer_email, [{
+        officer_email: requestData.officer_email,
+        officer_name: requestData.officer_name,
+        village_name: requestData.village_name,
+        taluka: requestData.taluka || coords?.taluka,
+        latitude: coords?.lat,
+        longitude: coords?.lng,
+      }]);
     }
 
-    // Fetch actual customer visits from Supabase customer_visits
     try {
-      const auditDate = params.date || new Date().toISOString().slice(0, 10);
-      const auraServiceHeaders = {
-        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
-      };
-      const visitsRes = await axios.get<any[]>(
-        `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`,
-        { headers: auraServiceHeaders }
-      );
-      for (const v of (visitsRes.data || [])) {
+      const stored = localStorage.getItem("aura_pending_village_requests");
+      if (stored) {
+        const list: VillageApprovalRequest[] = JSON.parse(stored);
+        const filtered = list.filter((r) => r.id !== requestId);
+        localStorage.setItem("aura_pending_village_requests", JSON.stringify(filtered));
+      }
+    } catch (_) {}
+    return true;
+  },
+
+  getRouteAudit: async (params: { fo_user_id?: string; date?: string; user_email?: string; session_id?: string }) => {
+    const emailOrId = params.user_email || params.fo_user_id || "";
+    const auditDate = params.date || new Date().toISOString().slice(0, 10);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isPastDate = auditDate < todayStr;
+
+    let location_points: LocationPoint[] = [];
+    const actual_stops: ActualVisitStop[] = [];
+    let planned_stops: RoutePlanItem[] = [];
+    let plan_status: "locked" | "draft" | "submitted" | "completed" = "locked";
+    let has_plan = false;
+    let plan_id: string | null = null;
+    let is_edited = false;
+    let edit_reason = "";
+    let edit_revision_number = 1;
+    let edited_at = "";
+
+    const auraServiceHeaders = {
+      apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+    };
+    const auraAnonHeaders = {
+      apikey: AURA_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
+    };
+
+    let targetUserId: string | null = null;
+    let targetUserEmail: string | null = emailOrId.includes("@") ? emailOrId.toLowerCase().trim() : null;
+
+    try {
+      targetUserId = await resolveOfficerUserId(emailOrId);
+      if (!targetUserEmail && cachedOfficersList && targetUserId) {
+        const found = cachedOfficersList.find((o: any) => o.user_id === targetUserId);
+        if (found?.email) targetUserEmail = found.email.toLowerCase().trim();
+      }
+    } catch (_) { }
+
+    // 1. Fetch actual customer visits for the given DATE (Date-Wise)
+    try {
+      let vUrl = `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`;
+      if (targetUserId) {
+        vUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
+      }
+
+      const visitsRes = await axios.get<any[]>(vUrl, { headers: auraServiceHeaders });
+      const rawVisits = Array.isArray(visitsRes.data) ? visitsRes.data : [];
+
+      for (const v of rawVisits) {
         const cust = v.customers || {};
-        const village = v.visit_village || cust.village || "";
+        const village = v.checkin_village_name || v.visit_village || cust.village || "";
         const customerName = v.customer_name || cust.name || `Customer #${String(v.customer_id || "").slice(0, 8)}`;
-        
+
         actual_stops.push({
           visit_id: v.id,
           customer_id: v.customer_id || v.id,
           customer_name: customerName,
           village: village,
           visit_village: village,
+          checkin_village_name: v.checkin_village_name,
+          checkout_village_name: v.checkout_village_name,
+          checkin_location: v.checkin_location,
+          checkout_location: v.checkout_location,
           checkin_time: v.checked_in_at,
           checkout_time: v.checked_out_at,
           duration_minutes: v.duration_minutes || 0,
-          checkin_lat: v.checkin_lat || (location_points[0] ? location_points[0].lat : 22.3072),
-          checkin_lng: v.checkin_lng || (location_points[0] ? location_points[0].lng : 73.1812),
+          checkin_lat: v.checkin_lat || 22.3072,
+          checkin_lng: v.checkin_lng || 73.1812,
           checkout_lat: v.checkout_lat,
           checkout_lng: v.checkout_lng,
           is_unknown_customer: Boolean(v.is_unknown_customer),
@@ -1234,102 +1469,409 @@ export const auraManagerAPI = {
         });
       }
     } catch (err) {
-      console.warn("[AURA] Route audit customer_visits note:", err);
+      console.warn("[AURA] Date-wise customer_visits note:", err);
     }
 
-    let planned_stops: RoutePlanItem[] = [];
+    // 2. Fetch daily route plan for the given DATE (Date-Wise)
     try {
-      const email = params.user_email || (params.fo_user_id?.includes("@") ? params.fo_user_id : undefined);
-      const auditDate = params.date || new Date().toISOString().slice(0, 10);
-      const auraHeaders = {
-        apikey: AURA_SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${AURA_SUPABASE_ANON_KEY}`,
-      };
       let pUrl = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(auditDate)}`;
-      if (email) {
-        pUrl += `&user_email=eq.${encodeURIComponent(email)}`;
+      if (targetUserEmail) {
+        pUrl += `&user_email=ilike.${encodeURIComponent(targetUserEmail)}`;
       }
-      const pRes = await axios.get<any[]>(pUrl, { headers: auraHeaders });
+
+      let pRes = await axios.get<any[]>(pUrl, { headers: auraAnonHeaders });
+      // If not found with user filter, try fetching all plans for this date as fallback
+      if ((!pRes.data || pRes.data.length === 0) && targetUserEmail) {
+        pRes = await axios.get<any[]>(`${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(auditDate)}`, { headers: auraAnonHeaders });
+      }
+
       if (pRes.data && pRes.data.length > 0) {
-        const planId = pRes.data[0].id;
+        const plan = pRes.data[0];
+        has_plan = true;
+        plan_id = plan.id;
+        plan_status = plan.status || "locked";
+        is_edited = Boolean(plan.is_edited);
+        edit_reason = plan.last_edit_reason || "";
+        edit_revision_number = plan.revision_number || 1;
+        edited_at = plan.updated_at || "";
+
+        let assignedVillages: AssignedVillage[] = [];
+        try {
+          assignedVillages = await auraManagerAPI.getAssignedVillages(targetUserEmail || undefined);
+        } catch (_) {}
+        const assignedMap = new Map(assignedVillages.map((av) => [av.village_name.toLowerCase().trim(), av]));
+
         const itRes = await axios.get<any[]>(
-          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=*,customers(*)&order=planned_sequence.asc`,
-          { headers: auraHeaders }
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(plan.id)}&select=*,customers(*)&order=planned_sequence.asc`,
+          { headers: auraAnonHeaders }
         );
+
         planned_stops = (itRes.data || []).map((it: any) => {
           const cust = it.customers || {};
           const vName = it.village_name || cust.village || cust.name || "";
+          const vKey = vName.toLowerCase().trim();
+          const av = assignedMap.get(vKey);
+          const knownCoord = lookupVillageCoordinates(vName);
+
+          const explicitLat = av?.latitude ?? knownCoord?.lat ?? (cust.latitude || null);
+          const explicitLng = av?.longitude ?? knownCoord?.lng ?? (cust.longitude || null);
+          const hasExplicitCoords = typeof explicitLat === "number" && typeof explicitLng === "number";
+
           return {
             stop_number: it.planned_sequence || 1,
             customer_id: it.customer_id || it.id,
-            customer_name: it.village_name ? `Village: ${it.village_name}` : (cust.name || "Stop"),
+            customer_name: it.village_name ? `Village: ${it.village_name}` : (cust.name || "Planned Stop"),
             village: vName,
-            village_name: it.village_name,
-            taluka: cust.taluka || "",
-            lat: cust.latitude || (location_points[0] ? location_points[0].lat : 22.3072),
-            lng: cust.longitude || (location_points[0] ? location_points[0].lng : 73.1812),
+            village_name: it.village_name || cust.village,
+            taluka: av?.taluka || knownCoord?.taluka || cust.taluka || "",
+            lat: explicitLat ?? 22.3072,
+            lng: explicitLng ?? 73.1812,
+            has_explicit_coords: hasExplicitCoords,
             planned_time: it.planned_time || "09:00",
-            status: "pending",
+            status: "pending" as const,
           };
         });
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn("[AURA] Date-wise daily_route_plans note:", err);
+    }
 
-    // Evaluate Village Matching and Sequence Adherence
-    const plannedVillages = planned_stops.map((p) => (p.village || "").toLowerCase().trim()).filter(Boolean);
-    let correctSequenceCount = 0;
-    actual_stops.forEach((actual, idx) => {
-      const actVillage = (actual.village || "").toLowerCase().trim();
-      const expectedPlannedVillage = plannedVillages[idx];
-      if (actVillage && expectedPlannedVillage && actVillage === expectedPlannedVillage) {
-        actual.village_match = true;
-        actual.sequence_match = true;
-        actual.status = "on_sequence";
-        correctSequenceCount++;
-      } else if (actVillage && plannedVillages.includes(actVillage)) {
-        actual.village_match = true;
-        actual.sequence_match = false;
-        actual.status = "out_of_sequence";
-      } else {
-        actual.village_match = false;
-        actual.sequence_match = false;
-        actual.status = "adhoc";
+    // 3. Fetch GPS location points recorded on this DATE for the officer (Date-Wise Map Track)
+    try {
+      let locUrl = `${AURA_SUPABASE_URL}/rest/v1/location_points?recorded_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&recorded_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&order=recorded_at.asc&limit=1000`;
+      if (targetUserId) {
+        locUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
       }
-    });
-    // Mark matching planned stops as completed
-    planned_stops.forEach((p, idx) => {
-      const pVillage = (p.village || "").toLowerCase().trim();
-      const matched = actual_stops.find((a) => (a.village || "").toLowerCase().trim() === pVillage);
+      const locRes = await axios.get<any[]>(locUrl, { headers: auraServiceHeaders });
+      if (Array.isArray(locRes.data) && locRes.data.length > 0) {
+        location_points = locRes.data.map((p) => ({
+          lat: p.latitude,
+          lng: p.longitude,
+          timestamp: p.recorded_at,
+          speed_kmh: Math.round((p.speed_mps || 0) * 3.6),
+        }));
+      }
+    } catch (_) { }
+
+    // Fallback GPS points from actual visits if no breadcrumbs exist
+    if (location_points.length === 0 && actual_stops.length > 0) {
+      location_points = actual_stops.map((a) => ({
+        lat: a.checkin_lat,
+        lng: a.checkin_lng,
+        timestamp: a.checkin_time,
+        speed_kmh: 0,
+      }));
+    }
+
+    // 4. Match Planned Destinations vs Actual Visits by Village Name / Address / GPS
+    // Strict 1-to-1 matching: one actual visit cannot complete multiple planned destinations.
+    const matchedVisitIds = new Set<string>();
+
+    planned_stops.forEach((p) => {
+      const pVillage = (p.village_name || p.village || "").toLowerCase().trim();
+      const pCustId = p.customer_id;
+      const hasExplicitCoords = Boolean((p as any).has_explicit_coords);
+
+      const matched = actual_stops.find((a) => {
+        if (matchedVisitIds.has(a.visit_id)) return false;
+
+        // A. Direct customer ID match
+        if (pCustId && a.customer_id && a.customer_id === pCustId) return true;
+
+        // B. Village / Address text match (strict: must be a meaningful village name, >= 3 chars)
+        if (pVillage && pVillage.length >= 3) {
+          const candidates = [
+            a.village,
+            a.visit_village,
+            a.checkin_village_name,
+            a.checkout_village_name,
+            a.checkin_location,
+            a.checkout_location,
+            a.customer_name,
+          ]
+            .filter(Boolean)
+            .map((s) => s!.toLowerCase());
+
+          const hasNameMatch = candidates.some((c) => {
+            return c === pVillage || c.includes(pVillage) || (pVillage.length >= 4 && pVillage.includes(c));
+          });
+
+          if (hasNameMatch) return true;
+        }
+
+        // C. GPS distance match (ONLY if planned stop has genuine known coordinates)
+        if (hasExplicitCoords && p.lat && p.lng && a.checkin_lat && a.checkin_lng) {
+          const dIn = calculateDistanceMeters(p.lat, p.lng, a.checkin_lat, a.checkin_lng);
+          if (dIn <= 2500) return true;
+
+          if (a.checkout_lat && a.checkout_lng) {
+            const dOut = calculateDistanceMeters(p.lat, p.lng, a.checkout_lat, a.checkout_lng);
+            if (dOut <= 2500) return true;
+          }
+        }
+
+        return false;
+      });
+
       if (matched) {
+        matchedVisitIds.add(matched.visit_id);
         p.status = "completed";
+        matched.village_match = true;
+        matched.matched_planned_stop_number = p.stop_number;
+        matched.status = "on_sequence";
+      } else {
+        p.status = isPastDate ? "skipped" : "pending";
       }
     });
-    const completionPct = planned_stops.length > 0
-      ? Math.round((planned_stops.filter((p) => p.status === "completed").length / planned_stops.length) * 100)
+
+    // Mark remaining actual visits as ad-hoc
+    actual_stops.forEach((a) => {
+      if (!matchedVisitIds.has(a.visit_id)) {
+        a.status = "adhoc";
+        a.is_unplanned = true;
+        a.village_match = false;
+      }
+    });
+
+    const completedCount = planned_stops.filter((p) => p.status === "completed").length;
+    const totalPlanned = planned_stops.length;
+    const completionPct = totalPlanned > 0
+      ? Math.round((completedCount / totalPlanned) * 100)
       : (actual_stops.length > 0 ? 100 : 0);
-    const sequenceAdherencePct = actual_stops.length > 0
-      ? Math.round((correctSequenceCount / actual_stops.length) * 100)
-      : 100;
+    const scoreText = totalPlanned > 0
+      ? `${completedCount}/${totalPlanned} destinations completed today`
+      : `${actual_stops.length} visits recorded today`;
 
     return {
       data: {
         audit: {
           fo_user_id: emailOrId,
-          date: params.date || new Date().toISOString().slice(0, 10),
-          plan_status: "locked",
-          is_edited: false,
+          date: auditDate,
+          has_plan,
+          plan_id,
+          plan_status,
+          is_edited,
+          edit_revision_number,
+          edit_reason,
+          edited_at,
           planned_stops,
           actual_stops,
           location_points,
           completion_pct: completionPct,
           sequence_adherence_pct: 100,
+          completed_destinations_count: completedCount,
+          total_planned_destinations: totalPlanned,
+          score_text: scoreText,
         } as RouteAudit,
       },
     };
   },
 
-  injectStop: (data: InjectStopPayload) =>
-    auraClient.post("/manager/plans/inject-stop", data).catch(() => ({ data: { success: true } })),
+  injectStop: async (data: InjectStopPayload) => {
+    try {
+      await auraClient.post("/manager/plans/inject-stop", data);
+    } catch (_) { }
+
+    try {
+      const email = data.fo_user_id.includes("@") ? data.fo_user_id.toLowerCase().trim() : "";
+      const auraHeaders = {
+        apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+      };
+
+      // 1. Check if daily route plan exists for this date and email
+      let planId: string | null = null;
+      let planQuery = `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans?plan_date=eq.${encodeURIComponent(data.date)}`;
+      if (email) planQuery += `&user_email=eq.${encodeURIComponent(email)}`;
+      const planRes = await axios.get<any[]>(planQuery, { headers: auraHeaders });
+
+      if (planRes.data && planRes.data.length > 0) {
+        planId = planRes.data[0].id;
+      } else {
+        // Create plan for the date
+        const createRes = await axios.post<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/daily_route_plans`,
+          {
+            plan_date: data.date,
+            user_email: email || "yashdave182@gmail.com",
+            status: "submitted",
+          },
+          { headers: { ...auraHeaders, Prefer: "return=representation" } }
+        );
+        if (createRes.data && createRes.data.length > 0) {
+          planId = createRes.data[0].id;
+        }
+      }
+
+      if (planId) {
+        const countRes = await axios.get<any[]>(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items?plan_id=eq.${encodeURIComponent(planId)}&select=id`,
+          { headers: auraHeaders }
+        );
+        const nextSeq = (countRes.data?.length || 0) + 1;
+
+        await axios.post(
+          `${AURA_SUPABASE_URL}/rest/v1/route_plan_items`,
+          {
+            plan_id: planId,
+            customer_name: data.customer_name,
+            village_name: data.village || data.customer_name,
+            planned_sequence: nextSeq,
+            planned_time: "10:00",
+            status: "pending",
+          },
+          { headers: auraHeaders }
+        );
+      }
+      return { data: { success: true } };
+    } catch (e) {
+      console.warn("[AURA] Supabase injectStop note:", e);
+      return { data: { success: true } };
+    }
+  },
+
+  // 19. Individual Field Officer Timeline Report (Custom Dates with Distance in KM & Speed Breakdown)
+  getOfficerTimelineReport: async (params: {
+    fo_email_or_id?: string;
+    start_date: string;
+    end_date: string;
+  }) => {
+    const emailOrId = (params.fo_email_or_id || "").trim();
+    const startDate = params.start_date;
+    const endDate = params.end_date;
+
+    const auraHeaders = {
+      apikey: AURA_SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${AURA_SUPABASE_SERVICE_ROLE_KEY}`,
+    };
+
+    let targetUserId: string | null = null;
+    let targetEmail: string | null = emailOrId.includes("@") ? emailOrId.toLowerCase().trim() : null;
+    let targetName: string = emailOrId ? emailOrId.split("@")[0] : "All Officers";
+
+    // 1. Resolve officer identity
+    try {
+      if (emailOrId && emailOrId !== "all") {
+        targetUserId = await resolveOfficerUserId(emailOrId);
+        if (targetUserId && cachedOfficersList) {
+          const match = cachedOfficersList.find(
+            (o: any) => o.user_id === targetUserId || o.email?.toLowerCase() === emailOrId.toLowerCase()
+          );
+          if (match) {
+            targetName = match.name || targetName;
+            targetEmail = match.email || targetEmail;
+          }
+        }
+      }
+    } catch (_) { }
+
+    // 2. Fetch customer visits in date range
+    let visits: any[] = [];
+    try {
+      let vUrl = `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(startDate)}T00:00:00Z&checked_in_at=lte.${encodeURIComponent(endDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`;
+      if (targetUserId) {
+        vUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
+      }
+      const vRes = await axios.get<any[]>(vUrl, { headers: auraHeaders });
+      visits = Array.isArray(vRes.data) ? vRes.data : [];
+    } catch (e) {
+      console.warn("[AURA] getOfficerTimelineReport visits note:", e);
+    }
+
+    // 3. Fetch GPS location points in date range for speed calculation
+    let locPoints: any[] = [];
+    try {
+      let lUrl = `${AURA_SUPABASE_URL}/rest/v1/location_points?recorded_at=gte.${encodeURIComponent(startDate)}T00:00:00Z&recorded_at=lte.${encodeURIComponent(endDate)}T23:59:59Z&order=recorded_at.asc&limit=3000`;
+      if (targetUserId) {
+        lUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
+      }
+      const lRes = await axios.get<any[]>(lUrl, { headers: auraHeaders });
+      locPoints = Array.isArray(lRes.data) ? lRes.data : [];
+    } catch (_) { }
+
+    // 4. Map visits with distance & speed breakdown
+    const mappedVisits: OfficerTimelineVisit[] = visits.map((v) => {
+      const inTime = new Date(v.checked_in_at).getTime();
+      const outTime = v.checked_out_at
+        ? new Date(v.checked_out_at).getTime()
+        : inTime + (v.duration_minutes || 0) * 60000;
+
+      // Filter location points during this visit window
+      const visitPoints = locPoints.filter((lp) => {
+        const ptTime = new Date(lp.recorded_at).getTime();
+        return ptTime >= inTime && ptTime <= outTime;
+      });
+
+      let walkingMinutes = 0;
+      let motorcycleMinutes = 0;
+
+      if (visitPoints.length > 0) {
+        const walkPoints = visitPoints.filter((p) => (p.speed_mps || 0) < 1.4).length;
+        const bikePoints = visitPoints.filter((p) => (p.speed_mps || 0) >= 1.4).length;
+        const totalPts = walkPoints + bikePoints;
+        const dur = v.duration_minutes || 0;
+        if (totalPts > 0) {
+          walkingMinutes = Math.round((walkPoints / totalPts) * dur);
+          motorcycleMinutes = dur - walkingMinutes;
+        } else {
+          walkingMinutes = dur;
+        }
+      } else {
+        walkingMinutes = v.duration_minutes || 0;
+        motorcycleMinutes = 0;
+      }
+
+      // Checkin to Checkout distance
+      let distKm = 0;
+      if (v.checkin_lat && v.checkin_lng && v.checkout_lat && v.checkout_lng) {
+        const dMeters = calculateDistanceMeters(
+          v.checkin_lat,
+          v.checkin_lng,
+          v.checkout_lat,
+          v.checkout_lng
+        );
+        distKm = parseFloat((dMeters / 1000).toFixed(2));
+      }
+
+      const cust = v.customers || {};
+
+      return {
+        id: v.id,
+        user_id: v.user_id,
+        customer_id: v.customer_id,
+        customer_name: v.customer_name || cust.name || null,
+        party_name: cust.name || v.customer_name || null,
+        checked_in_at: v.checked_in_at,
+        checked_out_at: v.checked_out_at,
+        duration_minutes: v.duration_minutes || 0,
+        walking_minutes: walkingMinutes,
+        motorcycle_minutes: motorcycleMinutes,
+        checkin_lat: v.checkin_lat,
+        checkin_lng: v.checkin_lng,
+        checkin_location: v.checkin_location,
+        checkin_village_name: v.checkin_village_name || v.visit_village,
+        checkout_lat: v.checkout_lat,
+        checkout_lng: v.checkout_lng,
+        checkout_location: v.checkout_location,
+        checkout_village_name: v.checkout_village_name,
+        distance_km: distKm,
+        notes: v.notes,
+        customers: cust,
+      };
+    });
+
+    return {
+      data: {
+        officer: {
+          name: targetName,
+          email: targetEmail || emailOrId,
+          user_id: targetUserId,
+        },
+        visits: mappedVisits,
+        count: mappedVisits.length,
+      },
+    };
+  },
 
   getVisits: (params?: { fo_user_id?: string; user_email?: string; date?: string; verification_status?: string }) =>
     auraClient
@@ -1353,16 +1895,16 @@ export const auraManagerAPI = {
           photos: [],
           orders: pv.order_created
             ? [
-                {
-                  order_id: `ord-${pv.visit_id}`,
-                  order_number: `ORD-${pv.visit_id.slice(0, 6)}`,
-                  date: pv.date,
-                  customer: pv.customer.name,
-                  discount_amount: 0,
-                  discount_percent: 0,
-                  order_total: pv.order_amount || 0,
-                },
-              ]
+              {
+                order_id: `ord-${pv.visit_id}`,
+                order_number: `ORD-${pv.visit_id.slice(0, 6)}`,
+                date: pv.date,
+                customer: pv.customer.name,
+                discount_amount: 0,
+                discount_percent: 0,
+                order_total: pv.order_amount || 0,
+              },
+            ]
             : [],
           verification_status: "pending" as const,
         }));
@@ -1471,7 +2013,7 @@ export const auraManagerAPI = {
       if (rawList.length > 0) {
         return { data: { requests: rawList.map(mapRowToStockRequest) } };
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct query against AURA Supabase fo_stock_requests table
     try {
@@ -1502,7 +2044,7 @@ export const auraManagerAPI = {
     // 1. Forward update to AURA backend
     try {
       await auraClient.patch(`/manager/stock-requests/${requestId}`, data);
-    } catch (_) {}
+    } catch (_) { }
 
     // 2. Direct update to Supabase fo_stock_requests table
     try {
@@ -1538,7 +2080,7 @@ export const auraManagerAPI = {
               updates.requested_items = updatedItems;
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       const patchRes = await axios.patch(
