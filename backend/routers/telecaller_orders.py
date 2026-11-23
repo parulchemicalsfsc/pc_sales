@@ -171,13 +171,19 @@ def get_telecaller_orders(
         raise HTTPException(status_code=500, detail=f"Error fetching telecaller orders: {str(e)}")
 
 
+class TelecallerConfirmRequest(BaseModel):
+    callback_date: Optional[str] = None
+    callback_notes: Optional[str] = None
+
+
 @router.post("/{order_id}/telecaller-confirm", dependencies=[Depends(verify_permission("view_calling_list"))])
 def telecaller_confirm_order(
     order_id: int,
+    body: Optional[TelecallerConfirmRequest] = None,
     db: SupabaseClient = Depends(get_supabase),
     user_email: Optional[str] = Header(None, alias="x-user-email"),
 ):
-    """Telecaller confirms the order, sending it to the Sales Manager for approval."""
+    """Telecaller confirms the order, sending it to the Sales Manager for approval, with optional scheduled follow-up."""
     try:
         if user_email:
             user_email = user_email.strip()
@@ -210,6 +216,49 @@ def telecaller_confirm_order(
                 )
         except Exception as n_err:
             logger.warning(f"Failed to send notification: {n_err}")
+
+        # If follow-up callback requested upon approval, schedule it in calling_assignments
+        if body and body.callback_date:
+            try:
+                target_email = user_email or order.get("telecaller_email")
+                callback_time = body.callback_date[11:16] if len(body.callback_date) >= 16 else ""
+                time_prefix = f"[Time: {callback_time}] " if callback_time else ""
+                order_note = body.callback_notes or "Post-order follow-up"
+                full_notes = f"{time_prefix}[Order #{order_id}] {order_note}".strip()
+
+                cust_type = (order.get("customer_type") or "").strip().lower()
+                entity_type = "distributor" if cust_type in ["distributor", "mantri"] else "customer"
+
+                new_assign_row = {
+                    "user_email": target_email,
+                    "customer_id": order.get("customer_id"),
+                    "entity_type": entity_type,
+                    "assigned_date": body.callback_date,
+                    "status": "Pending",
+                    "reason": "Scheduled Callback",
+                    "notes": full_notes,
+                    "priority": "High",
+                }
+                new_assign_res = db.table("calling_assignments").insert(new_assign_row).execute()
+                new_aid = (new_assign_res.data or [{}])[0].get("assignment_id")
+
+                c_name = order.get("customer_name") or f"Customer #{order.get('customer_id')}"
+                create_notification_helper(
+                    db,
+                    title="📅 Order Follow-Up Scheduled",
+                    message=f"Follow-up for Order #{order_id} ({c_name}) scheduled on {body.callback_date}.",
+                    notification_type="info",
+                    user_email=target_email,
+                    entity_type="calling_assignment",
+                    entity_id=new_aid,
+                    action_url=f"/calling-list?tab=2&open={new_aid}" if new_aid else "/calling-list?tab=2",
+                )
+
+                # Check if due today and trigger due notifications
+                from routers.notifications import check_and_notify_due_callbacks
+                check_and_notify_due_callbacks(db, target_email)
+            except Exception as cb_err:
+                logger.error(f"Error scheduling follow-up for order {order_id}: {cb_err}")
         
         return {"message": "Order confirmed and sent to Sales Manager"}
     except HTTPException:

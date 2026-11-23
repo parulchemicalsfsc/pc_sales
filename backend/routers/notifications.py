@@ -24,6 +24,10 @@ def get_notifications(
 ):
     """Get all notifications for a user"""
     try:
+        # Check and trigger notifications for due follow-up callbacks
+        if user_email:
+            check_and_notify_due_callbacks(db, user_email)
+
         # Build query
         query = db.table("notifications").select("*")
 
@@ -85,6 +89,9 @@ def get_unread_count(
 ):
     """Get count of unread notifications for a user"""
     try:
+        if user_email:
+            check_and_notify_due_callbacks(db, user_email)
+
         query = db.table("notifications").select("notification_id", count="exact").eq("is_read", False)
 
         # Filter for user-specific and broadcast
@@ -325,3 +332,128 @@ def create_notification_helper(
     except Exception as e:
         print(f"Error creating notification: {str(e)}")
         return False
+
+
+def check_and_notify_due_callbacks(db: SupabaseClient, user_email: str) -> int:
+    """
+    Checks if there are any scheduled callbacks due today or overdue for this user.
+    Creates notifications in the `notifications` table if not already notified today.
+    Returns the count of new notifications created.
+    """
+    if not user_email:
+        return 0
+    try:
+        user_email = user_email.strip()
+        import pytz
+        today_ist = datetime.now(pytz.timezone("Asia/Kolkata")).date().isoformat()  # YYYY-MM-DD
+        today_start_utc = (
+            datetime.now(pytz.timezone("Asia/Kolkata"))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(pytz.utc)
+            .isoformat()
+        )
+
+        # 1. Fetch pending scheduled callbacks for this user
+        cb_res = (
+            db.table("calling_assignments")
+            .select("assignment_id, customer_id, entity_type, assigned_date, notes")
+            .eq("user_email", user_email)
+            .eq("status", "Pending")
+            .eq("reason", "Scheduled Callback")
+            .execute()
+        )
+
+        callbacks = cb_res.data or []
+        if not callbacks:
+            return 0
+
+        due_callbacks = []
+        for cb in callbacks:
+            raw_ad = (cb.get("assigned_date") or "").strip()
+            ad = raw_ad[:10]
+            # Match if scheduled on or before today
+            if ad and ad <= today_ist:
+                due_callbacks.append(cb)
+
+        if not due_callbacks:
+            return 0
+
+        # 2. Check which assignments already received a due notification today
+        due_assignment_ids = [c["assignment_id"] for c in due_callbacks]
+        notif_res = (
+            db.table("notifications")
+            .select("entity_id")
+            .eq("user_email", user_email)
+            .eq("entity_type", "calling_assignment")
+            .in_("entity_id", due_assignment_ids)
+            .gte("created_at", today_start_utc)
+            .execute()
+        )
+
+        already_notified_ids = set([n["entity_id"] for n in (notif_res.data or []) if n.get("entity_id") is not None])
+        to_notify = [c for c in due_callbacks if c["assignment_id"] not in already_notified_ids]
+        if not to_notify:
+            return 0
+
+        # 3. Enrich customer/distributor details
+        cust_ids = list(set([c["customer_id"] for c in to_notify if c.get("customer_id")]))
+        name_map = {}
+        if cust_ids:
+            try:
+                c_res = db.table("customers").select("customer_id, name, village, mobile").in_("customer_id", cust_ids).execute()
+                for c in (c_res.data or []):
+                    name_map[("customer", c["customer_id"])] = c
+            except Exception:
+                pass
+            try:
+                d_res = db.table("distributors").select("distributor_id, mantri_name, village, mantri_mobile").in_("distributor_id", cust_ids).execute()
+                for d in (d_res.data or []):
+                    name_map[("distributor", d["distributor_id"])] = {
+                        "name": d.get("mantri_name"),
+                        "village": d.get("village"),
+                        "mobile": d.get("mantri_mobile"),
+                    }
+            except Exception:
+                pass
+
+        created_count = 0
+        import re
+        for cb in to_notify:
+            cid = cb.get("customer_id")
+            etype = cb.get("entity_type") or "customer"
+            entity_info = name_map.get((etype, cid)) or name_map.get(("customer", cid)) or name_map.get(("distributor", cid)) or {}
+            c_name = entity_info.get("name") or f"Customer #{cid}"
+            village = entity_info.get("village")
+            loc_str = f" ({village})" if village else ""
+
+            raw_date = cb.get("assigned_date") or ""
+            time_part = ""
+            if "T" in raw_date and len(raw_date) >= 16:
+                time_part = f" at {raw_date[11:16]}"
+            elif cb.get("notes") and "[Time:" in cb["notes"]:
+                tm = re.search(r"\[Time:\s*(\d{1,2}:\d{2})\]", cb["notes"])
+                if tm:
+                    time_part = f" at {tm.group(1)}"
+
+            is_overdue = (raw_date[:10] < today_ist) if raw_date else False
+            status_text = "Overdue" if is_overdue else "Due Today"
+
+            title = f"🔔 Follow-Up Call {status_text}: {c_name}"
+            msg = f"Scheduled follow-up call with {c_name}{loc_str}{time_part}. Tap to view and call."
+
+            create_notification_helper(
+                db=db,
+                title=title,
+                message=msg,
+                notification_type="callback_due",
+                user_email=user_email,
+                entity_type="calling_assignment",
+                entity_id=cb["assignment_id"],
+                action_url=f"/calling-list?tab=2&open={cb['assignment_id']}",
+            )
+            created_count += 1
+
+        return created_count
+    except Exception as e:
+        print(f"Error checking due callbacks: {str(e)}")
+        return 0

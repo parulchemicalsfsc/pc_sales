@@ -38,10 +38,14 @@ import {
   FormControlLabel,
   InputAdornment,
   Collapse,
+  Switch,
 } from "@mui/material";
 import {
   Phone as PhoneIcon,
   CheckCircle as CheckIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
+  Event as EventIcon,
+  Notifications as NotificationsIcon,
   Refresh as RefreshIcon,
   ReportProblem as WrongIcon,
   ShoppingCart as ShoppingCartIcon,
@@ -88,6 +92,7 @@ interface Assignment {
   name: string;
   mobile: string;
   village: string;
+  entity_type?: string;
   taluka?: string;
   district?: string;
   state?: string;
@@ -163,7 +168,7 @@ type WizardState = {
   callConn: string; callReach: string; callInterest: string;
   interestedIntro: boolean; interestedDetails: string; callReason: string;
   callSubReason: string; qualityFollowUpDate: string; callRetry: string;
-  notes: string; callbackDate: string;
+  notes: string; callbackDate: string; enableFollowUp: boolean;
   dmName: string; dmPhone: string; dmScheduleToggle: boolean; dmScheduleDate: string;
   otherScheduleToggle: boolean; otherScheduleDate: string;
   questionnaire: QuestionnaireData;
@@ -177,7 +182,7 @@ const initialWizardState: WizardState = {
   callConn: "", callReach: "", callInterest: "",
   interestedIntro: false, interestedDetails: "", callReason: "",
   callSubReason: "", qualityFollowUpDate: "", callRetry: "",
-  notes: "", callbackDate: "",
+  notes: "", callbackDate: "", enableFollowUp: false,
   dmName: "", dmPhone: "", dmScheduleToggle: false, dmScheduleDate: "",
   otherScheduleToggle: false, otherScheduleDate: "",
   questionnaire: initialQuestionnaireData,
@@ -237,6 +242,19 @@ export default function CallingList() {
 
 
 
+  // Helper to format Date to YYYY-MM-DDTHH:mm
+  const formatDateTimeLocal = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  // Order Approval Dialog State (Tab 3)
+  const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
+  const [orderToApprove, setOrderToApprove] = useState<any | null>(null);
+  const [orderFollowUpEnabled, setOrderFollowUpEnabled] = useState(true);
+  const [orderFollowUpDate, setOrderFollowUpDate] = useState("");
+  const [orderFollowUpNotes, setOrderFollowUpNotes] = useState("");
+
   // Call Outcome Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeItem, setActiveItem] = useState<Assignment | null>(null);
@@ -248,7 +266,7 @@ export default function CallingList() {
   // Destructure for easier access in the JSX
   const {
     callConn, callReach, callInterest, interestedIntro, interestedDetails,
-    callReason, callSubReason, qualityFollowUpDate, callRetry, notes, callbackDate,
+    callReason, callSubReason, qualityFollowUpDate, callRetry, notes, callbackDate, enableFollowUp,
     dmName, dmPhone, dmScheduleToggle, dmScheduleDate, otherScheduleToggle, otherScheduleDate
   } = wizardState;
 
@@ -264,6 +282,7 @@ export default function CallingList() {
   const setCallRetry = (v: any) => dispatchWizard({ type: "SET", field: "callRetry", value: v });
   const setNotes = (v: any) => dispatchWizard({ type: "SET", field: "notes", value: v });
   const setCallbackDate = (v: any) => dispatchWizard({ type: "SET", field: "callbackDate", value: v });
+  const setEnableFollowUp = (v: any) => dispatchWizard({ type: "SET", field: "enableFollowUp", value: v });
   const setDmName = (v: any) => dispatchWizard({ type: "SET", field: "dmName", value: v });
   const setDmPhone = (v: any) => dispatchWizard({ type: "SET", field: "dmPhone", value: v });
   const setDmScheduleToggle = (v: any) => dispatchWizard({ type: "SET", field: "dmScheduleToggle", value: v });
@@ -525,14 +544,31 @@ export default function CallingList() {
     return () => clearInterval(interval);
   }, [tab, role, loadConfirmationOrders]);
   
-  const handleApproveOrder = async (orderId: number) => {
+  const openApprovalDialog = (order: any) => {
+    setOrderToApprove(order);
+    setOrderFollowUpEnabled(true);
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() + 3);
+    defaultDate.setHours(11, 0, 0, 0);
+    setOrderFollowUpDate(formatDateTimeLocal(defaultDate));
+    setOrderFollowUpNotes("Check product delivery and condition");
+    setApprovalDialogOpen(true);
+  };
+
+  const handleApproveOrder = async (orderId: number, followUp?: { callback_date?: string; callback_notes?: string }) => {
     try {
       setProcessingOrder(orderId);
-      await telecallerOrderAPI.telecallerConfirm(orderId);
-      setToast({ msg: "Order Confirmed & Sent to Sales Manager", sev: "success" });
+      await telecallerOrderAPI.telecallerConfirm(orderId, followUp);
+      setToast({
+        msg: followUp ? "Order Approved & Follow-Up Scheduled!" : "Order Confirmed & Sent to Sales Manager",
+        sev: "success"
+      });
       // Optimistically remove card, then reload to keep list fresh
       setConfirmationOrders(prev => prev.filter(o => o.order_id !== orderId));
+      setApprovalDialogOpen(false);
+      setOrderToApprove(null);
       loadConfirmationOrders();
+      loadCallbacks();
       fetchSummary();
     } catch (e: any) {
       setToast({ msg: e?.response?.data?.detail || "Failed to approve", sev: "error" });
@@ -558,10 +594,23 @@ export default function CallingList() {
 
   useEffect(() => { load(1); }, [load]);
 
+  // Support tab param from notification URL (e.g. ?tab=2)
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam !== null) {
+      const parsedTab = parseInt(tabParam, 10);
+      if (!isNaN(parsedTab) && parsedTab >= 0 && parsedTab <= 3) {
+        setTab(parsedTab);
+      }
+    }
+  }, [searchParams]);
+
   // Auto-open call dialog if ?open=<assignment_id> is in the URL (from notification deep-link)
   useEffect(() => {
     const openId = searchParams.get("open");
-    if (!openId || assignments.length === 0) return;
+    if (!openId) return;
+
+    // First check in assignments
     const target = assignments.find(a => String(a.assignment_id) === openId);
     if (target && !dialogOpen) {
       setActiveItem(target);
@@ -569,8 +618,32 @@ export default function CallingList() {
       setNotes("");
       setCallbackDate("");
       setDialogOpen(true);
+      return;
     }
-  }, [searchParams, assignments]);
+
+    // Also check in callbacks
+    const targetCb = callbacks.find(c => String(c.assignment_id) === openId);
+    if (targetCb && !dialogOpen) {
+      setCallbackCallItem(targetCb);
+      setActiveItem({
+        assignment_id: targetCb.assignment_id,
+        customer_id: targetCb.customer_id,
+        user_email: targetCb.user_email,
+        status: targetCb.status || "Pending",
+        priority: targetCb.priority || "Medium",
+        assigned_date: targetCb.assigned_date,
+        notes: targetCb.notes,
+        name: targetCb.name,
+        mobile: targetCb.mobile,
+        village: targetCb.village,
+        entity_type: targetCb.entity_type || "customer",
+      });
+      setOutcome("");
+      setNotes("");
+      setCallbackDate("");
+      setDialogOpen(true);
+    }
+  }, [searchParams, assignments, callbacks, dialogOpen]);
 
   // Quick Call Search Debounce
   useEffect(() => {
@@ -769,13 +842,36 @@ export default function CallingList() {
 
     if (!isQuickCall && !activeItem && !orderCallItem) return;
 
-    if (finalOutcome === "take_order") {
-      return handleTakeOrder();
+    const followUpDateToSubmit = (enableFollowUp && callbackDate)
+      ? (callbackDate.includes("+") ? callbackDate : `${callbackDate}+05:30`)
+      : (finalOutcome === "callback" && callbackDate)
+        ? (callbackDate.includes("+") ? callbackDate : `${callbackDate}+05:30`)
+        : (callReason === "Quality Concern" && qualityFollowUpDate)
+          ? `${qualityFollowUpDate}+05:30`
+          : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate)
+            ? `${dmScheduleDate}+05:30`
+            : (callReason === "Other" && otherScheduleToggle && otherScheduleDate)
+              ? `${otherScheduleDate}+05:30`
+              : undefined;
+
+    if (enableFollowUp && !callbackDate) {
+      setToast({ msg: "Please select a date and time for the follow-up.", sev: "error" });
+      setSubmitting(false);
+      return;
     }
+
     if (finalOutcome === "callback" && !callbackDate) {
       setToast({ msg: "Please select a date for the follow-up.", sev: "error" });
       setSubmitting(false);
       return;
+    }
+
+    if (followUpDateToSubmit && callbackDate) {
+      finalNotes += ` | [Follow-up: ${callbackDate.replace("T", " ")}]`;
+    }
+
+    if (finalOutcome === "take_order") {
+      return handleTakeOrder();
     }
     try {
       setSubmitting(true);
@@ -790,7 +886,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: finalOutcome,
           notes: finalNotes,
-          callback_date: (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined))),
+          callback_date: followUpDateToSubmit,
           survey_data: surveyJson,
         });
         setToast({ msg: "Call logged successfully", sev: "success" });
@@ -814,7 +910,7 @@ export default function CallingList() {
           activeItem!.assignment_id, 
           finalOutcome, 
           finalNotes, 
-          (finalOutcome === "callback" && callbackDate) ? `${callbackDate}+05:30` : (callReason === "Quality Concern" && qualityFollowUpDate ? `${qualityFollowUpDate}+05:30` : (callReason === "Decision Maker" && dmScheduleToggle && dmScheduleDate ? `${dmScheduleDate}+05:30` : (callReason === "Other" && otherScheduleToggle && otherScheduleDate ? `${otherScheduleDate}+05:30` : undefined))),
+          followUpDateToSubmit,
           surveyJson
         );
         setToast({ msg: "Call logged successfully", sev: "success" });
@@ -881,8 +977,12 @@ export default function CallingList() {
       ].filter(Boolean).join(" | ");
 
       const surveyJson = cleanQuestionnaireData(wizardState.questionnaire) || undefined;
+      const followUpDateToSubmit = (enableFollowUp && callbackDate)
+        ? (callbackDate.includes("+") ? callbackDate : `${callbackDate}+05:30`)
+        : undefined;
+
       if (targetItem.assignment_id) {
-        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", callLogNotes, undefined, surveyJson);
+        await automationAPI.updateCallStatus(targetItem.assignment_id, "connected", callLogNotes, followUpDateToSubmit, surveyJson);
       } else {
         const entityType = role === "sales_manager" ? "distributor" : "customer";
         const entityId = entityType === "customer" ? targetItem.customer_id : targetItem.entity_id;
@@ -891,6 +991,7 @@ export default function CallingList() {
           entity_type: entityType,
           call_outcome: "take_order",
           notes: callLogNotes,
+          callback_date: followUpDateToSubmit,
           survey_data: surveyJson,
         });
       }
@@ -1350,6 +1451,23 @@ export default function CallingList() {
                   CSV
                 </Button>
               </Box>
+
+              {/* Due Today Banner */}
+              {(() => {
+                const todayStr = new Date().toISOString().slice(0, 10);
+                const dueTodayCount = callbacks.filter(c => (c.assigned_date || "").slice(0, 10) === todayStr).length;
+                if (dueTodayCount === 0) return null;
+                return (
+                  <Alert
+                    severity="warning"
+                    icon={<NotificationsIcon sx={{ color: "#ea580c" }} />}
+                    sx={{ mb: 1.5, borderRadius: 2, fontWeight: 600, border: "1px solid rgba(234,88,12,0.3)", bgcolor: alpha("#ea580c", 0.08) }}
+                  >
+                    🔔 You have <strong>{dueTodayCount} follow-up call{dueTodayCount > 1 ? "s" : ""} scheduled for today</strong>! Please call them at their scheduled time.
+                  </Alert>
+                );
+              })()}
+
               {callbacks.length === 0 ? (
                 <Box sx={{ textAlign: "center", py: 8 }}>
                   <Typography variant="h6" sx={{ color: "text.disabled", fontWeight: 600 }}>No Scheduled Followbacks</Typography>
@@ -1376,7 +1494,46 @@ export default function CallingList() {
                     }}
                   >
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{displayName(item)}</Typography>
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{displayName(item)}</Typography>
+                        {(() => {
+                          const todayStr = new Date().toISOString().slice(0, 10);
+                          const rawDate = item.assigned_date || "";
+                          const datePart = rawDate.slice(0, 10);
+                          const isToday = datePart === todayStr;
+                          const isOverdue = datePart < todayStr && !!datePart;
+                          if (isToday) {
+                            return (
+                              <Chip
+                                size="small"
+                                icon={<NotificationsIcon sx={{ fontSize: "14px !important", color: "#fff !important" }} />}
+                                label="DUE TODAY"
+                                sx={{ bgcolor: "#ea580c", color: "#fff", fontWeight: 700, fontSize: 11 }}
+                              />
+                            );
+                          }
+                          if (isOverdue) {
+                            return (
+                              <Chip
+                                size="small"
+                                label="OVERDUE"
+                                color="error"
+                                variant="outlined"
+                                sx={{ fontWeight: 700, fontSize: 11 }}
+                              />
+                            );
+                          }
+                          return (
+                            <Chip
+                              size="small"
+                              label="UPCOMING"
+                              color="primary"
+                              variant="outlined"
+                              sx={{ fontWeight: 600, fontSize: 11 }}
+                            />
+                          );
+                        })()}
+                      </Stack>
                       <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.25 }}>
                         {item.mobile && <Typography variant="caption" sx={{ color: "text.secondary" }}><PhoneIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.mobile}</Typography>}
                         {item.village && <Typography variant="caption" sx={{ color: "text.secondary" }}><PlaceIcon sx={{ fontSize: 12, verticalAlign: "middle" }} /> {item.village}</Typography>}
@@ -1537,7 +1694,7 @@ export default function CallingList() {
                             color="success"
                             size="small"
                             disabled={processingOrder === order.order_id}
-                            onClick={() => handleApproveOrder(order.order_id)}
+                            onClick={() => openApprovalDialog(order)}
                             sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600, boxShadow: "none" }}
                           >
                             {processingOrder === order.order_id ? <CircularProgress size={16} color="inherit" /> : "Approve"}
@@ -2288,7 +2445,7 @@ export default function CallingList() {
                   fullWidth
                   variant={callRetry === "retry" ? "contained" : "outlined"}
                   color="warning"
-                  onClick={() => { setCallRetry("retry"); setCallbackDate(""); }}
+                  onClick={() => { setCallRetry("retry"); setEnableFollowUp(true); setCallbackDate(""); }}
                   sx={{ borderRadius: 2, textTransform: "none" }}
                 >
                   Retry / Callback
@@ -2297,7 +2454,7 @@ export default function CallingList() {
                   fullWidth
                   variant={callRetry === "close" ? "contained" : "outlined"}
                   color="error"
-                  onClick={() => setCallRetry("close")}
+                  onClick={() => { setCallRetry("close"); setEnableFollowUp(false); }}
                   sx={{ borderRadius: 2, textTransform: "none" }}
                 >
                   Close Status
@@ -2316,20 +2473,128 @@ export default function CallingList() {
             placeholder="Write call notes or speak (Press Alt+V or click mic)..."
             sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
           />
-          
-          {(callRetry === "retry" || outcome === "callback") && (
-            <TextField
-              type="datetime-local"
-              label="Followback Date & Time"
-              fullWidth
-              required
-              value={callbackDate}
-              onChange={e => setCallbackDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              inputProps={{ min: new Date().toISOString().slice(0, 16) }}
-              sx={{ mt: 2.5, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
-            />
-          )}
+
+          {/* ── Universal Follow-Up Section (Available on EVERY response) ── */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              mt: 2,
+              mb: 1,
+              borderRadius: 2.5,
+              borderColor: (enableFollowUp || callRetry === "retry" || outcome === "callback") ? "primary.main" : border,
+              bgcolor: (enableFollowUp || callRetry === "retry" || outcome === "callback")
+                ? alpha(theme.palette.primary.main, isDark ? 0.08 : 0.03)
+                : (isDark ? "rgba(255,255,255,0.02)" : "#f8fafc"),
+              transition: "all 0.2s ease-in-out",
+            }}
+          >
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Stack direction="row" alignItems="center" spacing={1.5}>
+                <EventIcon color={(enableFollowUp || callRetry === "retry" || outcome === "callback") ? "primary" : "action"} sx={{ fontSize: 22 }} />
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: (enableFollowUp || callRetry === "retry" || outcome === "callback") ? "primary.main" : "text.primary" }}>
+                    Schedule Follow-Up Call
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    Set a scheduled reminder to call this customer back
+                  </Typography>
+                </Box>
+              </Stack>
+              <Switch
+                checked={enableFollowUp || callRetry === "retry" || outcome === "callback"}
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setEnableFollowUp(val);
+                  if (val && !callbackDate) {
+                    const tmr = new Date();
+                    tmr.setDate(tmr.getDate() + 1);
+                    tmr.setHours(10, 0, 0, 0);
+                    setCallbackDate(formatDateTimeLocal(tmr));
+                  }
+                }}
+                color="primary"
+              />
+            </Stack>
+
+            <Collapse in={enableFollowUp || callRetry === "retry" || outcome === "callback"}>
+              <Box sx={{ mt: 2, pt: 1.5, borderTop: `1px dashed ${border}` }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 1 }}>
+                  Quick Schedule Presets:
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                  <Chip
+                    label="+2 Hours"
+                    size="small"
+                    clickable
+                    color="primary"
+                    variant="outlined"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setHours(d.getHours() + 2);
+                      setCallbackDate(formatDateTimeLocal(d));
+                    }}
+                    sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                  />
+                  <Chip
+                    label="Tomorrow 10 AM"
+                    size="small"
+                    clickable
+                    color="primary"
+                    variant="outlined"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      d.setHours(10, 0, 0, 0);
+                      setCallbackDate(formatDateTimeLocal(d));
+                    }}
+                    sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                  />
+                  <Chip
+                    label="In 3 Days 10 AM"
+                    size="small"
+                    clickable
+                    color="primary"
+                    variant="outlined"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 3);
+                      d.setHours(10, 0, 0, 0);
+                      setCallbackDate(formatDateTimeLocal(d));
+                    }}
+                    sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                  />
+                  <Chip
+                    label="Next Week 10 AM"
+                    size="small"
+                    clickable
+                    color="primary"
+                    variant="outlined"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 7);
+                      d.setHours(10, 0, 0, 0);
+                      setCallbackDate(formatDateTimeLocal(d));
+                    }}
+                    sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                  />
+                </Stack>
+
+                <TextField
+                  type="datetime-local"
+                  label="Follow-Up Date & Time *"
+                  fullWidth
+                  size="small"
+                  required
+                  value={callbackDate}
+                  onChange={e => setCallbackDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  inputProps={{ min: formatDateTimeLocal(new Date()) }}
+                  sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                />
+              </Box>
+            </Collapse>
+          </Paper>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, justifyContent: "space-between" }}>
           <Stack direction="row" spacing={1}>
@@ -2348,8 +2613,6 @@ export default function CallingList() {
                 color="primary"
                 startIcon={<ShoppingCartIcon />}
                 onClick={() => {
-                  // Call handleTakeOrder directly — avoids the React async-state race condition
-                  // where setOutcome("take_order") wouldn't be visible inside submitOutcome's closure.
                   handleTakeOrder();
                 }}
                 disabled={submitting}
@@ -2366,13 +2629,228 @@ export default function CallingList() {
                 (!callConn ||
                  (callConn === "connected" && (!callReach || (callReach === "reached" && !callInterest) || (callReach === "not_reached" && !callReason))) ||
                  (callConn === "not_connected" && !callRetry) ||
-                 (callConn === "not_connected" && callRetry === "retry" && !callbackDate)
+                 (callConn === "not_connected" && callRetry === "retry" && !callbackDate) ||
+                 (enableFollowUp && !callbackDate)
                 )
               }
               startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <CheckIcon />}
               sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
             >
               {submitting ? "Saving…" : (isQuickCall && qcCurrentIndex < qcQueue.length - 1 ? "Save & Next" : "Submit")}
+            </Button>
+          </Stack>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Order Approval & Follow-Up Dialog (Tab 3) ── */}
+      <Dialog
+        open={approvalDialogOpen}
+        onClose={() => { if (!processingOrder) { setApprovalDialogOpen(false); setOrderToApprove(null); } }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, p: 1 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, pb: 1 }}>
+          <Stack direction="row" alignItems="center" gap={1.5}>
+            <CheckCircleOutlineIcon color="success" sx={{ fontSize: 28 }} />
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Approve Order #{orderToApprove?.order_id}</Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Confirm order and schedule customer follow-up
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers sx={{ py: 2.5 }}>
+          {orderToApprove && (
+            <Stack spacing={2.5}>
+              {/* Order Info Card */}
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: isDark ? "rgba(255,255,255,0.03)" : "#f8fafc" }}>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Customer</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{orderToApprove.customer_name || `Customer #${orderToApprove.customer_id}`}</Typography>
+                    {orderToApprove.customer_mobile && (
+                      <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
+                        📞 {orderToApprove.customer_mobile}
+                      </Typography>
+                    )}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="caption" color="text.secondary">Location</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {[orderToApprove.customer_village || orderToApprove.village, orderToApprove.customer_taluka, orderToApprove.customer_district].filter(Boolean).join(", ") || "-"}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="caption" color="text.secondary">
+                        Items: {orderToApprove.items?.length || 0} product(s)
+                      </Typography>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 800, color: "success.main" }}>
+                        Total: ₹{Number(orderToApprove.total_amount || 0).toLocaleString("en-IN")}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Follow-up scheduling section */}
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 2,
+                  borderColor: orderFollowUpEnabled ? "primary.main" : border,
+                  bgcolor: orderFollowUpEnabled ? alpha(theme.palette.primary.main, isDark ? 0.08 : 0.03) : "transparent",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <EventIcon color={orderFollowUpEnabled ? "primary" : "action"} />
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, color: orderFollowUpEnabled ? "primary.main" : "text.primary" }}>
+                        Schedule Customer Follow-Up
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        Post-order reminder for delivery check, feedback, or reorder
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <Switch
+                    checked={orderFollowUpEnabled}
+                    onChange={(e) => setOrderFollowUpEnabled(e.target.checked)}
+                    color="primary"
+                  />
+                </Stack>
+
+                <Collapse in={orderFollowUpEnabled}>
+                  <Box sx={{ mt: 2, pt: 1.5, borderTop: `1px dashed ${border}` }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 1 }}>
+                      Lifecycle Follow-Up Presets:
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                      <Chip
+                        label="📦 Delivery Check (3 Days)"
+                        size="small"
+                        clickable
+                        color="primary"
+                        variant="outlined"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + 3);
+                          d.setHours(11, 0, 0, 0);
+                          setOrderFollowUpDate(formatDateTimeLocal(d));
+                          setOrderFollowUpNotes("Check product delivery and condition");
+                        }}
+                        sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                      />
+                      <Chip
+                        label="🥛 Usage & Milk Yield (10 Days)"
+                        size="small"
+                        clickable
+                        color="primary"
+                        variant="outlined"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + 10);
+                          d.setHours(11, 0, 0, 0);
+                          setOrderFollowUpDate(formatDateTimeLocal(d));
+                          setOrderFollowUpNotes("Check dosage adherence and milk yield improvement");
+                        }}
+                        sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                      />
+                      <Chip
+                        label="🔄 Repeat Order / Refill (25 Days)"
+                        size="small"
+                        clickable
+                        color="primary"
+                        variant="outlined"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + 25);
+                          d.setHours(11, 0, 0, 0);
+                          setOrderFollowUpDate(formatDateTimeLocal(d));
+                          setOrderFollowUpNotes("Check remaining stock and take repeat order");
+                        }}
+                        sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                      />
+                      <Chip
+                        label="✏️ Custom"
+                        size="small"
+                        clickable
+                        variant="outlined"
+                        onClick={() => {
+                          const d = new Date();
+                          d.setDate(d.getDate() + 5);
+                          d.setHours(11, 0, 0, 0);
+                          setOrderFollowUpDate(formatDateTimeLocal(d));
+                        }}
+                        sx={{ borderRadius: 1.5, fontWeight: 600 }}
+                      />
+                    </Stack>
+
+                    <Stack spacing={2}>
+                      <TextField
+                        type="datetime-local"
+                        label="Follow-Up Date & Time *"
+                        fullWidth
+                        size="small"
+                        required
+                        value={orderFollowUpDate}
+                        onChange={(e) => setOrderFollowUpDate(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                        inputProps={{ min: formatDateTimeLocal(new Date()) }}
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                      />
+                      <TextField
+                        label="Follow-Up Purpose / Notes"
+                        fullWidth
+                        size="small"
+                        value={orderFollowUpNotes}
+                        onChange={(e) => setOrderFollowUpNotes(e.target.value)}
+                        placeholder="e.g. Delivery check, check milk increase, repeat order..."
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                      />
+                    </Stack>
+                  </Box>
+                </Collapse>
+              </Paper>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, justifyContent: "space-between" }}>
+          <Button
+            onClick={() => { setApprovalDialogOpen(false); setOrderToApprove(null); }}
+            disabled={processingOrder !== null}
+            sx={{ borderRadius: 2, textTransform: "none" }}
+          >
+            Cancel
+          </Button>
+          <Stack direction="row" spacing={1.5}>
+            <Button
+              variant="outlined"
+              color="primary"
+              disabled={processingOrder !== null}
+              onClick={() => handleApproveOrder(orderToApprove.order_id, undefined)}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600 }}
+            >
+              Approve Only
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              disabled={processingOrder !== null || (orderFollowUpEnabled && !orderFollowUpDate)}
+              onClick={() => handleApproveOrder(orderToApprove.order_id, orderFollowUpEnabled ? {
+                callback_date: orderFollowUpDate.includes("+") ? orderFollowUpDate : `${orderFollowUpDate}+05:30`,
+                callback_notes: orderFollowUpNotes || "Post-order follow-up",
+              } : undefined)}
+              startIcon={processingOrder ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, boxShadow: "none" }}
+            >
+              {processingOrder ? "Approving…" : (orderFollowUpEnabled ? "Approve & Schedule Follow-Up" : "Approve")}
             </Button>
           </Stack>
         </DialogActions>

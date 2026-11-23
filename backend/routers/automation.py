@@ -59,7 +59,7 @@ class AdhocCallRequest(BaseModel):
 class ReorderAssignmentsRequest(BaseModel):
     assignment_ids: list[int]
 
-VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number'}
+VALID_OUTCOMES = {'connected', 'not_reachable', 'callback', 'wrong_number', 'take_order'}
 
 # ─── Distribution Logic ──────────────────────────────────
 
@@ -772,6 +772,11 @@ def get_my_callbacks(
     try:
         if user_email:
             user_email = user_email.strip()
+            try:
+                from routers.notifications import check_and_notify_due_callbacks
+                check_and_notify_due_callbacks(db, user_email)
+            except Exception:
+                pass
         if not user_email:
             raise HTTPException(status_code=401, detail="User email required")
 
@@ -865,6 +870,13 @@ def get_calling_summary(
     db: SupabaseClient = Depends(get_db),
 ):
     try:
+        if user_email:
+            try:
+                from routers.notifications import check_and_notify_due_callbacks
+                check_and_notify_due_callbacks(db, user_email.strip())
+            except Exception:
+                pass
+
         role = get_user_role_cached(user_email, db)
         
         # We use count="exact" with limit=1 to avoid fetching thousands of rows
@@ -977,8 +989,9 @@ def log_adhoc_call(
             "not_reachable": "Not Reachable",
             "callback": "Called",
             "wrong_number": "Wrong Number",
+            "take_order": "Called",
         }
-        new_status = status_map[body.call_outcome]
+        new_status = status_map.get(body.call_outcome, "Called")
 
         # Check for an existing Pending assignment for this user + entity today
         existing_res = db.table("calling_assignments") \
@@ -994,7 +1007,7 @@ def log_adhoc_call(
             # Update existing
             assignment_id = existing_res.data[0]["assignment_id"]
             upd = {"status": new_status, "notes": body.notes or ""}
-            if body.call_outcome == "callback" and body.callback_date:
+            if body.callback_date:
                 upd["callback_date"] = body.callback_date
             db.table("calling_assignments").eq("assignment_id", assignment_id).update(upd).execute()
         else:
@@ -1011,11 +1024,43 @@ def log_adhoc_call(
                 "priority": priority,
                 "reason": "Adhoc Call",
             }
-            if body.call_outcome == "callback" and body.callback_date:
+            if body.callback_date:
                 new_row["callback_date"] = body.callback_date
             ins = db.table("calling_assignments").insert(new_row).execute()
             if ins.data:
                 assignment_id = ins.data[0].get("assignment_id")
+
+        # If follow-up callback requested on adhoc call, schedule future pending callback
+        if body.callback_date:
+            try:
+                callback_time = body.callback_date[11:16] if len(body.callback_date) >= 16 else ""
+                time_prefix = f"[Time: {callback_time}] " if callback_time else ""
+                cb_row = {
+                    "user_email": user_email,
+                    "customer_id": body.entity_id,
+                    "entity_type": body.entity_type,
+                    "assigned_date": body.callback_date,
+                    "status": "Pending",
+                    "priority": priority if 'priority' in locals() else "Medium",
+                    "reason": "Scheduled Callback",
+                    "notes": f"{time_prefix}{body.notes or ''}".strip(),
+                }
+                cb_ins = db.table("calling_assignments").insert(cb_row).execute()
+                new_aid = (cb_ins.data or [{}])[0].get("assignment_id")
+                from routers.notifications import create_notification_helper, check_and_notify_due_callbacks
+                create_notification_helper(
+                    db,
+                    title="📅 Callback Scheduled",
+                    message=f"You scheduled a follow-up callback on {body.callback_date}.",
+                    notification_type="info",
+                    user_email=user_email,
+                    entity_type="calling_assignment",
+                    entity_id=new_aid,
+                    action_url=f"/calling-list?tab=2&open={new_aid}" if new_aid else "/calling-list?tab=2",
+                )
+                check_and_notify_due_callbacks(db, user_email)
+            except Exception as _cb_err:
+                logger.warning(f"[ADHOC-CALL] Failed to schedule callback: {_cb_err}")
 
         # Always write a call_logs entry
         log_row = {
@@ -1125,6 +1170,7 @@ def update_call_status(
             "not_reachable": "Not Reachable",
             "callback": "Called",
             "wrong_number": "Wrong Number",
+            "take_order": "Called",
         }
         new_status = status_map.get(body.call_outcome, "Called")
 
@@ -1192,8 +1238,8 @@ def update_call_status(
             except Exception as e:
                 logger.warning(f"Failed to update customer cattle_profile: {e}")
 
-        # 5. If callback is selected with a date, schedule new assignment + send notifications
-        if body.call_outcome == "callback" and body.callback_date:
+        # 5. If callback is selected with a date (from ANY outcome / response), schedule new assignment + send notifications
+        if body.callback_date:
             # Check if a pending callback assignment already exists for this
             # customer + user + date to avoid creating duplicates
             existing_cb = db.table("calling_assignments") \
@@ -1278,6 +1324,13 @@ def update_call_status(
                         )
             except Exception as notif_err:
                 logger.warning(f"[CALLBACK] Admin notification failed: {notif_err}")
+
+            # If scheduled for today or overdue, trigger due notifications immediately
+            try:
+                from routers.notifications import check_and_notify_due_callbacks
+                check_and_notify_due_callbacks(db, user_email)
+            except Exception as _cb_err:
+                logger.warning(f"[CALLBACK] check_and_notify_due_callbacks failed: {_cb_err}")
 
         # 5b. Score adjustments based on call outcome
         # NOTE: customer_id here actually stores distributor_id (schema reuse).
