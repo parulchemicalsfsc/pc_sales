@@ -631,6 +631,7 @@ export default function CallingList() {
         user_email: targetCb.user_email,
         status: targetCb.status || "Pending",
         priority: targetCb.priority || "Medium",
+        reason: targetCb.reason || "Scheduled Callback",
         assigned_date: targetCb.assigned_date,
         notes: targetCb.notes,
         name: targetCb.name,
