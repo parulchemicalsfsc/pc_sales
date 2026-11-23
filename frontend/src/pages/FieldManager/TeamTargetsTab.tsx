@@ -230,6 +230,12 @@ function StatusChip({ status }: { status: FieldOfficer["today_status"] }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+function formatRevenueDisplay(amt: number): string {
+  if (amt >= 100000) return `₹${(amt / 100000).toFixed(1)}L`;
+  if (amt > 0) return `₹${amt.toLocaleString("en-IN")}`;
+  return "₹0.0L";
+}
+
 export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewRoute }: Props) {
   const [officers, setOfficers] = useState<FieldOfficer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -415,7 +421,7 @@ export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewR
         <Grid item xs={12} sm={6} md={3}>
           <KpiCard
             title="Team Target vs Achieved"
-            value={`₹${(kpi.total_achieved_amount / 100000).toFixed(1)}L / ₹${(kpi.total_target_amount / 100000).toFixed(1)}L`}
+            value={`${formatRevenueDisplay(kpi.total_achieved_amount)} / ₹${(kpi.total_target_amount / 100000).toFixed(1)}L`}
             sub={`Shortfall: ₹${(kpi.team_shortfall_amount / 100000).toFixed(1)}L (${kpi.team_shortfall_pct.toFixed(1)}%)`}
             icon={<TargetIcon />}
             color="#1976d2"

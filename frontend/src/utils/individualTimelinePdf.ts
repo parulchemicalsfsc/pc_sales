@@ -113,17 +113,22 @@ export function cleanVisitNotes(notes?: string | null): string {
   if (!notes) return "";
   let text = notes.trim();
 
-  if (/in\s*:|out\s*:/i.test(text)) {
-    const parts = text.split("|").map((p) => p.trim());
+  // Strip leading/trailing wrapping quotes if present
+  text = text.replace(/^["'`“”]+|["'`“”]+$/g, "").trim();
+
+  if (/\b(?:in|out)\s*:/i.test(text)) {
+    // Split on pipe or newline or semicolon
+    const parts = text.split(/[|\n;]/).map((p) => p.trim());
     const filtered = parts.filter((p) => !/^(?:in|out)\s*:/i.test(p));
     text = filtered.join(" | ").trim();
 
-    // Remove any remaining raw In: ... or Out: ... prefixes/tokens
-    text = text.replace(/^(?:in|out)\s*:[^|\n;]+(?:[|\n;]\s*)?/gi, "").trim();
-    text = text.replace(/^(?:in|out)\s*:[^|\n;]+(?:[|\n;]\s*)?/gi, "").trim();
-    text = text.replace(/(?:\|\s*)?(?:in|out)\s*:[^|\n;]+/gi, "").trim();
+    // Remove any remaining raw In: ... or Out: ... fragments
+    text = text.replace(/(?:^|[|\n;])\s*(?:in|out)\s*:[^|\n;]*/gi, "").trim();
     text = text.replace(/^\|\s*|\s*\|$/g, "").trim();
   }
+
+  // Strip again if clean note was quoted
+  text = text.replace(/^["'`“”]+|["'`“”]+$/g, "").trim();
 
   return text;
 }

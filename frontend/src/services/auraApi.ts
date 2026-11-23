@@ -409,9 +409,19 @@ function mapAdminOfficerToItem(o: any): FieldOfficerItem {
   };
 }
 
-function mapAdminOfficerToFieldOfficer(o: any, monthDistance?: number): FieldOfficer {
-  const email = o.email || o.user_id || "";
+function mapAdminOfficerToFieldOfficer(
+  o: any,
+  monthDistance?: number,
+  sales?: { amount: number; liters: number; discounts: number }
+): FieldOfficer {
+  const email = (o.email || o.user_id || "").toLowerCase();
   const name = o.name || email;
+  const targetAmount = 300000;
+  const achievedAmount = Math.round((sales?.amount ?? 0) * 100) / 100;
+  const achievedLiters = Math.round((sales?.liters ?? 0) * 100) / 100;
+  const discountsGiven = Math.round((sales?.discounts ?? 0) * 100) / 100;
+  const shortfall = Math.max(0, targetAmount - achievedAmount);
+
   return {
     fo_user_id: o.user_id,
     name,
@@ -420,15 +430,15 @@ function mapAdminOfficerToFieldOfficer(o: any, monthDistance?: number): FieldOff
     assigned_districts: ["Gujarat"],
     assigned_talukas: ["Vadodara"],
     today_status: o.status === "active" ? "in_visit" : "idle",
-    monthly_target_amount: 300000,
+    monthly_target_amount: targetAmount,
     monthly_target_liters: 500,
     monthly_target_visits: 50,
-    achieved_sales_amount: 0,
-    achieved_liters: 0,
-    target_shortfall: 300000,
+    achieved_sales_amount: achievedAmount,
+    achieved_liters: achievedLiters,
+    target_shortfall: shortfall,
     kms_this_month: monthDistance !== undefined ? monthDistance : (Number(o.total_distance_km) || 0),
     total_duration_hours: 0,
-    discounts_given: 0,
+    discounts_given: discountsGiven,
     today_distance_km: Number(o.today_distance_km) || 0,
     total_distance_km: Number(o.total_distance_km) || 0,
     sessions_count_today: Number(o.sessions_count_today) || 0,
@@ -1069,6 +1079,7 @@ export const auraManagerAPI = {
 
         // Direct batch query from AURA Supabase tracking_sessions for 0-latency monthly km
         const monthlyDistMap: Record<string, number> = {};
+        const monthlySalesMap: Record<string, { amount: number; liters: number; discounts: number }> = {};
         try {
           const auraHeaders = {
             apikey: AURA_SUPABASE_ANON_KEY,
@@ -1084,7 +1095,29 @@ export const auraManagerAPI = {
               monthlyDistMap[uid] = (monthlyDistMap[uid] || 0) + (Number(s.total_distance_km) || 0);
             }
           }
-        } catch (_) { }
+
+          // Fetch fo_sales_orders for this target month
+          const startDateStr = `${targetMonth}-01`;
+          const endDateStr = `${nextY}-${String(nextM).padStart(2, "0")}-01`;
+          const ordersRes = await axios.get<any[]>(
+            `${AURA_SUPABASE_URL}/rest/v1/fo_sales_orders?order_date=gte.${encodeURIComponent(startDateStr)}&order_date=lt.${encodeURIComponent(endDateStr)}&select=id,field_officer_email,gross_amount,discount_amount,net_amount,total_liters,status`,
+            { headers: auraHeaders }
+          );
+          for (const ord of (ordersRes.data || [])) {
+            if (ord.status === "cancelled") continue;
+            const email = (ord.field_officer_email || "").toLowerCase().trim();
+            if (email) {
+              if (!monthlySalesMap[email]) {
+                monthlySalesMap[email] = { amount: 0, liters: 0, discounts: 0 };
+              }
+              monthlySalesMap[email].amount += Number(ord.net_amount) || 0;
+              monthlySalesMap[email].liters += Number(ord.total_liters) || 0;
+              monthlySalesMap[email].discounts += Number(ord.discount_amount) || 0;
+            }
+          }
+        } catch (err) {
+          console.warn("[AURA] Could not fetch sessions or sales orders:", err);
+        }
 
         // Fetch monthly sessions in parallel for each officer to calculate true monthly kms
         const officers = await Promise.all(
@@ -1112,7 +1145,10 @@ export const auraManagerAPI = {
             } else if (monthDistance === undefined) {
               monthDistance = 0;
             }
-            return mapAdminOfficerToFieldOfficer(o, Math.round(monthDistance * 100) / 100);
+
+            const officerEmail = (o.email || "").toLowerCase().trim();
+            const sales = monthlySalesMap[officerEmail] || (o.user_id ? monthlySalesMap[o.user_id.toLowerCase()] : undefined);
+            return mapAdminOfficerToFieldOfficer(o, Math.round(monthDistance * 100) / 100, sales);
           })
         );
 
