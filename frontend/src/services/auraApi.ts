@@ -1437,8 +1437,12 @@ export const auraManagerAPI = {
 
   getRouteAudit: async (params: { fo_user_id?: string; date?: string; user_email?: string; session_id?: string }) => {
     const emailOrId = params.user_email || params.fo_user_id || "";
-    const auditDate = params.date || new Date().toISOString().slice(0, 10);
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const getLocalToday = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const auditDate = params.date || getLocalToday();
+    const todayStr = getLocalToday();
     const isPastDate = auditDate < todayStr;
 
     let location_points: LocationPoint[] = [];
@@ -1472,9 +1476,19 @@ export const auraManagerAPI = {
       }
     } catch (_) { }
 
-    // 1. Fetch actual customer visits for the given DATE (Date-Wise)
+    // 1. Fetch actual customer visits for the given DATE (Date-Wise, local timezone bounded)
+    let startIso = `${auditDate}T00:00:00Z`;
+    let endIso = `${auditDate}T23:59:59Z`;
     try {
-      let vUrl = `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&checked_in_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`;
+      const parts = auditDate.split("-").map(Number);
+      const startLocal = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+      const endLocal = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+      startIso = startLocal.toISOString();
+      endIso = endLocal.toISOString();
+    } catch (_) {}
+
+    try {
+      let vUrl = `${AURA_SUPABASE_URL}/rest/v1/customer_visits?checked_in_at=gte.${encodeURIComponent(startIso)}&checked_in_at=lte.${encodeURIComponent(endIso)}&select=*,customers(name,village,taluka,district)&order=checked_in_at.asc`;
       if (targetUserId) {
         vUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
       }
@@ -1587,7 +1601,7 @@ export const auraManagerAPI = {
 
     // 3. Fetch GPS location points recorded on this DATE for the officer (Date-Wise Map Track)
     try {
-      let locUrl = `${AURA_SUPABASE_URL}/rest/v1/location_points?recorded_at=gte.${encodeURIComponent(auditDate)}T00:00:00Z&recorded_at=lt.${encodeURIComponent(auditDate)}T23:59:59Z&order=recorded_at.asc&limit=1000`;
+      let locUrl = `${AURA_SUPABASE_URL}/rest/v1/location_points?recorded_at=gte.${encodeURIComponent(startIso)}&recorded_at=lte.${encodeURIComponent(endIso)}&order=recorded_at.asc&limit=1000`;
       if (targetUserId) {
         locUrl += `&user_id=eq.${encodeURIComponent(targetUserId)}`;
       }
