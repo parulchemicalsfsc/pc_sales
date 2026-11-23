@@ -54,6 +54,7 @@ import "leaflet/dist/leaflet.css";
 
 import { auraManagerAPI, isUUID, type InjectStopPayload } from "../../services/auraApi";
 import type { RouteAudit, RoutePlanItem, ActualVisitStop, LocationPoint, FieldOfficerItem } from "../../types/aura";
+import { cleanVisitNotes } from "../../utils/individualTimelinePdf";
 import OfficerReportModal from "../../components/reports/OfficerReportModal";
 import TerritoryAssignmentModal from "../../components/territory/TerritoryAssignmentModal";
 
@@ -704,9 +705,9 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                                   Tracked Place: {actualMatch.checkin_location || actualMatch.checkin_village_name || actualMatch.village}
                                 </Typography>
                               )}
-                              {actualMatch.notes && (
+                              {cleanVisitNotes(actualMatch.notes) && (
                                 <Typography variant="caption" color="text.secondary" display="block" fontStyle="italic">
-                                  Notes: &ldquo;{actualMatch.notes}&rdquo;
+                                  Notes: &ldquo;{cleanVisitNotes(actualMatch.notes)}&rdquo;
                                 </Typography>
                               )}
                             </Box>
@@ -785,9 +786,9 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                                 </Alert>
                               )}
 
-                              {adhoc.notes && (
+                              {cleanVisitNotes(adhoc.notes) && (
                                 <Typography variant="caption" color="text.secondary" display="block" fontStyle="italic" mt={0.5}>
-                                  Notes: &ldquo;{adhoc.notes}&rdquo;
+                                  Notes: &ldquo;{cleanVisitNotes(adhoc.notes)}&rdquo;
                                 </Typography>
                               )}
                             </Paper>

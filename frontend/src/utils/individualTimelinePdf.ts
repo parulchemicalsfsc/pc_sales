@@ -105,6 +105,29 @@ function fmtBizDur(minutes?: number | null): string {
   return `${minutes}m`;
 }
 
+/**
+ * Strips prepended "In: <addr> | Out: <addr> | " metadata from notes,
+ * returning ONLY the officer's actual notes/comments.
+ */
+export function cleanVisitNotes(notes?: string | null): string {
+  if (!notes) return "";
+  let text = notes.trim();
+
+  if (/in\s*:|out\s*:/i.test(text)) {
+    const parts = text.split("|").map((p) => p.trim());
+    const filtered = parts.filter((p) => !/^(?:in|out)\s*:/i.test(p));
+    text = filtered.join(" | ").trim();
+
+    // Remove any remaining raw In: ... or Out: ... prefixes/tokens
+    text = text.replace(/^(?:in|out)\s*:[^|\n;]+(?:[|\n;]\s*)?/gi, "").trim();
+    text = text.replace(/^(?:in|out)\s*:[^|\n;]+(?:[|\n;]\s*)?/gi, "").trim();
+    text = text.replace(/(?:\|\s*)?(?:in|out)\s*:[^|\n;]+/gi, "").trim();
+    text = text.replace(/^\|\s*|\s*\|$/g, "").trim();
+  }
+
+  return text;
+}
+
 // ─── Main PDF Export Function ─────────────────────────────────────────────────
 
 export async function exportOfficerTimelinePDF(params: {
@@ -238,10 +261,9 @@ export async function exportOfficerTimelinePDF(params: {
 
     const timeSpentCell = `${durStr} (${distKmStr})\nWalk: ${walkMins}m\nBike: ${motoMins}m`;
 
-    // Comment / Notes
-    const commentCell =
-      v.notes ||
-      (cust?.name ? `${cust.name}\n${cust.village || ""}` : "Verified Visit");
+    // Comment / Notes (clean out any "In: ... | Out: ... |" address prefixes)
+    const cleanComment = cleanVisitNotes(v.notes);
+    const commentCell = cleanComment || "—";
 
     return [
       dateStr,

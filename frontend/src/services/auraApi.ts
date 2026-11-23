@@ -52,7 +52,7 @@ import type {
   SessionRoutePoint,
   SessionRouteResponse,
 } from "../types/aura";
-import type { OfficerTimelineVisit } from "../utils/individualTimelinePdf";
+import { type OfficerTimelineVisit, cleanVisitNotes } from "../utils/individualTimelinePdf";
 
 export interface SetTargetPayload {
   fo_user_id: string;
@@ -1470,7 +1470,7 @@ export const auraManagerAPI = {
           checkout_lng: v.checkout_lng,
           is_unknown_customer: Boolean(v.is_unknown_customer),
           status: "pending",
-          notes: v.notes,
+          notes: cleanVisitNotes(v.notes),
         });
       }
     } catch (err) {
@@ -1909,7 +1909,7 @@ export const auraManagerAPI = {
         checkout_location: v.checkout_location,
         checkout_village_name: v.checkout_village_name,
         distance_km: distKm,
-        notes: v.notes,
+        notes: cleanVisitNotes(v.notes),
         customers: cust,
       };
     });

@@ -47,6 +47,7 @@ import { auraManagerAPI } from "../../services/auraApi";
 import type { FieldOfficerItem } from "../../types/aura";
 import {
   exportOfficerTimelinePDF,
+  cleanVisitNotes,
   type OfficerTimelineVisit,
 } from "../../utils/individualTimelinePdf";
 
@@ -526,7 +527,7 @@ export default function FieldOfficerTimelineReport({
                       </TableCell>
                       <TableCell sx={{ maxWidth: 180 }}>
                         <Typography variant="caption" color="text.secondary">
-                          {v.notes || "—"}
+                          {cleanVisitNotes(v.notes) || "—"}
                         </Typography>
                       </TableCell>
                     </TableRow>

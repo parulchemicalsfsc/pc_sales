@@ -64,6 +64,7 @@ import {
 import VoiceTextField from "../../components/VoiceTextField";
 import { auraManagerAPI, type VerifyVisitPayload } from "../../services/auraApi";
 import type { CustomerVisit, VisitPhoto } from "../../types/aura";
+import { cleanVisitNotes } from "../../utils/individualTimelinePdf";
 
 interface Props {
   selectedFoEmail: string | "all";
@@ -383,7 +384,7 @@ export default function VisitVerificationTab({ selectedFoEmail, selectedDate }: 
                     sx={{ p: 1.5, mt: 0.5, bgcolor: "action.hover", borderRadius: 1 }}
                   >
                     <Typography variant="body2">
-                      {selectedVisit.notes || (selectedVisit as any).fo_notes || "No observation notes submitted."}
+                      {cleanVisitNotes(selectedVisit.notes || (selectedVisit as any).fo_notes) || "No observation notes submitted."}
                     </Typography>
                   </Paper>
 
