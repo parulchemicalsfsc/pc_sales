@@ -480,9 +480,17 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                       )}
                       {adhocStops.length > 0 && (
                         <Chip
-                          label={`+ ${adhocStops.length} Ad-Hoc`}
+                          label={
+                            adhocStops.some((a) => a.location_mismatch)
+                              ? `⚠️ ${adhocStops.filter((a) => a.location_mismatch).length} Location Mismatch`
+                              : `+ ${adhocStops.length} Ad-Hoc`
+                          }
                           size="small"
-                          sx={{ bgcolor: "#9c27b0", color: "white", fontWeight: 600 }}
+                          sx={{
+                            bgcolor: adhocStops.some((a) => a.location_mismatch) ? "#d32f2f" : "#9c27b0",
+                            color: "white",
+                            fontWeight: 600,
+                          }}
                         />
                       )}
                       <Chip
@@ -729,8 +737,8 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                               sx={{
                                 p: 1.5,
                                 borderRadius: 1.5,
-                                borderLeft: "5px solid #9c27b0",
-                                bgcolor: "rgba(156, 39, 176, 0.04)",
+                                borderLeft: adhoc.location_mismatch ? "5px solid #d32f2f" : "5px solid #9c27b0",
+                                bgcolor: adhoc.location_mismatch ? "rgba(211, 47, 47, 0.04)" : "rgba(156, 39, 176, 0.04)",
                               }}
                             >
                               <Box display="flex" justifyContent="space-between" alignItems="flex-start">
@@ -747,10 +755,10 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                                   </Typography>
                                 </Box>
                                 <Chip
-                                  label="Ad-Hoc Visit"
+                                  label={adhoc.location_mismatch ? "⚠️ Location Mismatch" : "Ad-Hoc Visit"}
                                   size="small"
                                   sx={{
-                                    bgcolor: "#9c27b0",
+                                    bgcolor: adhoc.location_mismatch ? "#d32f2f" : "#9c27b0",
                                     color: "white",
                                     fontWeight: 700,
                                     fontSize: "10px",
@@ -758,6 +766,30 @@ export default function RouteAuditTab({ selectedFoEmail, selectedDate, officers:
                                   }}
                                 />
                               </Box>
+
+                              {adhoc.location_mismatch && (
+                                <Alert
+                                  severity="error"
+                                  sx={{
+                                    mt: 1.2,
+                                    py: 0.2,
+                                    px: 1,
+                                    fontSize: "0.75rem",
+                                    "& .MuiAlert-icon": { fontSize: "1rem", mr: 0.8 },
+                                  }}
+                                >
+                                  <strong>Location Mismatch:</strong> Officer recorded visit at{" "}
+                                  <em>{adhoc.checkin_location || "device location"}</em>, which is{" "}
+                                  <strong>{adhoc.mismatch_distance_km ? `${adhoc.mismatch_distance_km} km` : "far"} away</strong> from planned destination{" "}
+                                  <strong>{adhoc.mismatch_target_village}</strong>. Must be within 3.0 km geofence to verify.
+                                </Alert>
+                              )}
+
+                              {adhoc.notes && (
+                                <Typography variant="caption" color="text.secondary" display="block" fontStyle="italic" mt={0.5}>
+                                  Notes: &ldquo;{adhoc.notes}&rdquo;
+                                </Typography>
+                              )}
                             </Paper>
                           ))}
                         </Stack>

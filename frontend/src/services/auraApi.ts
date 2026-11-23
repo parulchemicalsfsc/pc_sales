@@ -12,6 +12,7 @@
  */
 
 import axios, { type AxiosRequestConfig } from "axios";
+import { lookupVillageFast, resolveVillageLocation } from "./gujaratVillages";
 import type {
   ManagerAuthRequest,
   ManagerAuthResponse,
@@ -533,6 +534,10 @@ export const GUJARAT_VILLAGE_COORDS: Record<string, { lat: number; lng: number; 
 
 export function lookupVillageCoordinates(villageName: string): { lat: number; lng: number; taluka: string; district: string } | null {
   if (!villageName) return null;
+  const fast = lookupVillageFast(villageName);
+  if (fast) {
+    return { lat: fast.latitude, lng: fast.longitude, taluka: fast.taluka, district: fast.district };
+  }
   const key = villageName.toLowerCase().trim();
   if (GUJARAT_VILLAGE_COORDS[key]) return GUJARAT_VILLAGE_COORDS[key];
   for (const [k, v] of Object.entries(GUJARAT_VILLAGE_COORDS)) {
@@ -1506,15 +1511,23 @@ export const auraManagerAPI = {
           { headers: auraAnonHeaders }
         );
 
-        planned_stops = (itRes.data || []).map((it: any) => {
+        planned_stops = await Promise.all((itRes.data || []).map(async (it: any) => {
           const cust = it.customers || {};
           const vName = it.village_name || cust.village || cust.name || "";
           const vKey = vName.toLowerCase().trim();
           const av = assignedMap.get(vKey);
-          const knownCoord = lookupVillageCoordinates(vName);
+          let knownCoord = lookupVillageCoordinates(vName);
+          if (!knownCoord && vName) {
+            try {
+              const dyn = await resolveVillageLocation(vName, cust.taluka);
+              if (dyn) {
+                knownCoord = { lat: dyn.latitude, lng: dyn.longitude, taluka: dyn.taluka, district: dyn.district };
+              }
+            } catch (_) {}
+          }
 
-          const explicitLat = av?.latitude ?? knownCoord?.lat ?? (cust.latitude || null);
-          const explicitLng = av?.longitude ?? knownCoord?.lng ?? (cust.longitude || null);
+          const explicitLat = av?.latitude ?? knownCoord?.lat ?? (typeof cust.latitude === "number" ? cust.latitude : null);
+          const explicitLng = av?.longitude ?? knownCoord?.lng ?? (typeof cust.longitude === "number" ? cust.longitude : null);
           const hasExplicitCoords = typeof explicitLat === "number" && typeof explicitLng === "number";
 
           return {
@@ -1530,7 +1543,7 @@ export const auraManagerAPI = {
             planned_time: it.planned_time || "09:00",
             status: "pending" as const,
           };
-        });
+        }));
       }
     } catch (err) {
       console.warn("[AURA] Date-wise daily_route_plans note:", err);
@@ -1563,8 +1576,8 @@ export const auraManagerAPI = {
       }));
     }
 
-    // 4. Match Planned Destinations vs Actual Visits by Village Name / Address / GPS
-    // Strict 1-to-1 matching: one actual visit cannot complete multiple planned destinations.
+    // 4. Match Planned Destinations vs Actual Visits with Strict Physical GPS Geofence Verification
+    // A destination is ONLY marked completed if the officer was physically within the 3.0 km geofence of that village!
     const matchedVisitIds = new Set<string>();
 
     planned_stops.forEach((p) => {
@@ -1575,39 +1588,80 @@ export const auraManagerAPI = {
       const matched = actual_stops.find((a) => {
         if (matchedVisitIds.has(a.visit_id)) return false;
 
-        // A. Direct customer ID match
-        if (pCustId && a.customer_id && a.customer_id === pCustId) return true;
+        // Physical GPS distance calculation
+        const hasCheckinCoords = typeof a.checkin_lat === "number" && typeof a.checkin_lng === "number";
+        const hasCheckoutCoords = typeof a.checkout_lat === "number" && typeof a.checkout_lng === "number";
 
-        // B. Village / Address text match (strict: must be a meaningful village name, >= 3 chars)
-        if (pVillage && pVillage.length >= 3) {
-          const candidates = [
-            a.village,
-            a.visit_village,
-            a.checkin_village_name,
-            a.checkout_village_name,
-            a.checkin_location,
-            a.checkout_location,
-            a.customer_name,
-          ]
-            .filter(Boolean)
-            .map((s) => s!.toLowerCase());
+        const pLat = p.lat;
+        const pLng = p.lng;
+        const hasPCoords = typeof pLat === "number" && typeof pLng === "number";
 
-          const hasNameMatch = candidates.some((c) => {
-            return c === pVillage || c.includes(pVillage) || (pVillage.length >= 4 && pVillage.includes(c));
-          });
-
-          if (hasNameMatch) return true;
+        let minGpsDist: number | null = null;
+        if (hasExplicitCoords && hasPCoords && (hasCheckinCoords || hasCheckoutCoords)) {
+          const dIn = (hasCheckinCoords && typeof a.checkin_lat === "number" && typeof a.checkin_lng === "number")
+            ? calculateDistanceMeters(pLat, pLng, a.checkin_lat, a.checkin_lng)
+            : Infinity;
+          const dOut = (hasCheckoutCoords && typeof a.checkout_lat === "number" && typeof a.checkout_lng === "number")
+            ? calculateDistanceMeters(pLat, pLng, a.checkout_lat, a.checkout_lng)
+            : Infinity;
+          minGpsDist = Math.min(dIn, dOut);
         }
 
-        // C. GPS distance match (ONLY if planned stop has genuine known coordinates)
-        if (hasExplicitCoords && p.lat && p.lng && a.checkin_lat && a.checkin_lng) {
-          const dIn = calculateDistanceMeters(p.lat, p.lng, a.checkin_lat, a.checkin_lng);
-          if (dIn <= 2500) return true;
+        // Check if the device's reverse-geocoded GPS address contains the planned village
+        const addressCandidates = [
+          a.checkin_location,
+          a.checkout_location,
+          a.checkin_village_name,
+          a.checkout_village_name,
+        ]
+          .filter(Boolean)
+          .map((s) => s!.toLowerCase());
 
-          if (a.checkout_lat && a.checkout_lng) {
-            const dOut = calculateDistanceMeters(p.lat, p.lng, a.checkout_lat, a.checkout_lng);
-            if (dOut <= 2500) return true;
+        const addressMentionsVillage = Boolean(
+          pVillage && pVillage.length >= 3 &&
+          addressCandidates.some((addr) => addr.includes(pVillage))
+        );
+
+        // Check if the officer selected this destination in their visit form
+        const formCandidates = [
+          a.village,
+          a.visit_village,
+          a.customer_name,
+        ]
+          .filter(Boolean)
+          .map((s) => s!.toLowerCase());
+
+        const formClaimsThisDestination = Boolean(
+          (pCustId && a.customer_id && a.customer_id === pCustId) ||
+          (pVillage && pVillage.length >= 3 && formCandidates.some((c) => c === pVillage || c.includes(pVillage)))
+        );
+
+        // ── STRICT VERIFICATION DECISION ──
+        if (minGpsDist !== null && minGpsDist !== Infinity) {
+          // Standard Geofence: Officer was physically within 3000m (3.0 km) of planned village center
+          if (minGpsDist <= 3000) {
+            return true;
           }
+
+          // Extended Geofence: Within 5000m (5.0 km) AND device reverse-geocoded address explicitly confirms village
+          if (minGpsDist <= 5000 && addressMentionsVillage) {
+            return true;
+          }
+
+          // Outside Geofence (> 3 km): Officer was physically NOT at the planned village!
+          if (formClaimsThisDestination) {
+            // Flag Location Mismatch: form claimed this destination, but GPS proved they were elsewhere
+            a.location_mismatch = true;
+            a.mismatch_distance_km = Math.round((minGpsDist / 1000) * 10) / 10;
+            a.mismatch_target_village = p.village_name || p.village;
+          }
+          return false;
+        }
+
+        // Fallback: If planned stop coordinates are completely unresolvable:
+        // Must have device reverse-geocoded address mentioning the village to verify
+        if (addressMentionsVillage) {
+          return true;
         }
 
         return false;

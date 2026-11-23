@@ -15,7 +15,7 @@
  *    planned destinations against actual check-in & check-out locations.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -41,6 +41,7 @@ import {
   Alert,
   CircularProgress,
   Tooltip,
+  Autocomplete,
 } from "@mui/material";
 import {
   LocationOn as LocationIcon,
@@ -59,6 +60,11 @@ import {
   lookupVillageCoordinates,
   GUJARAT_VILLAGE_COORDS,
 } from "../../services/auraApi";
+import {
+  getAllGujaratVillageNames,
+  lookupVillageFast,
+  resolveVillageLocation,
+} from "../../services/gujaratVillages";
 import type {
   FieldOfficerItem,
   AssignedVillage,
@@ -135,14 +141,41 @@ export default function TerritoryAssignmentModal({
     }
   }, [open, currentOfficerEmail]);
 
+  const allVillageNames = useMemo(() => getAllGujaratVillageNames(), []);
+
   // Auto-fill coordinates & taluka when user types village name
-  const handleVillageNameChange = (name: string) => {
+  const handleVillageNameChange = async (name: string) => {
     setNewVillageName(name);
-    const match = lookupVillageCoordinates(name);
+    const clean = (name || "").trim();
+    if (!clean) return;
+
+    // Fast local lookup
+    const fast = lookupVillageFast(clean);
+    if (fast) {
+      setNewTaluka(fast.taluka);
+      setNewLat(fast.latitude.toString());
+      setNewLng(fast.longitude.toString());
+      return;
+    }
+
+    const match = lookupVillageCoordinates(clean);
     if (match) {
       setNewTaluka(match.taluka);
       setNewLat(match.lat.toString());
       setNewLng(match.lng.toString());
+      return;
+    }
+
+    // Dynamic OpenStreetMap geocoding fallback
+    if (clean.length >= 3) {
+      try {
+        const dyn = await resolveVillageLocation(clean);
+        if (dyn) {
+          setNewTaluka(dyn.taluka);
+          setNewLat(dyn.latitude.toString());
+          setNewLng(dyn.longitude.toString());
+        }
+      } catch (_) {}
     }
   };
 
@@ -404,13 +437,24 @@ export default function TerritoryAssignmentModal({
               </Typography>
               <Grid container spacing={1.5} alignItems="center">
                 <Grid item xs={12} sm={4}>
-                  <TextField
+                  <Autocomplete
+                    freeSolo
                     size="small"
-                    fullWidth
-                    label="Village Name"
-                    placeholder="e.g. Gorwa, Bhayli"
+                    options={allVillageNames}
                     value={newVillageName}
-                    onChange={(e) => handleVillageNameChange(e.target.value)}
+                    onInputChange={(_, newValue) => handleVillageNameChange(newValue)}
+                    onChange={(_, newValue) => {
+                      if (typeof newValue === "string") {
+                        handleVillageNameChange(newValue);
+                      }
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Village Name"
+                        placeholder="Search Gujarat village..."
+                      />
+                    )}
                   />
                 </Grid>
                 <Grid item xs={12} sm={3}>

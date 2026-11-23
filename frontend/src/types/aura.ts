@@ -652,6 +652,9 @@ export interface ActualVisitStop {
   is_unknown_customer?: boolean;
   village_match?: boolean; // Matched planned village
   sequence_match?: boolean; // Visited in planned order
+  location_mismatch?: boolean;
+  mismatch_distance_km?: number;
+  mismatch_target_village?: string;
   notes?: string | null;
   status: "verified" | "disputed" | "pending" | "unreachable" | "on_sequence" | "out_of_sequence" | "adhoc" | string;
 }
