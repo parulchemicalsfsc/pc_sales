@@ -231,9 +231,9 @@ function StatusChip({ status }: { status: FieldOfficer["today_status"] }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 function formatRevenueDisplay(amt: number): string {
-  if (amt >= 100000) return `₹${(amt / 100000).toFixed(1)}L`;
+  if (amt >= 100000) return `₹${(amt / 100000).toFixed(2)} Lakh`;
   if (amt > 0) return `₹${amt.toLocaleString("en-IN")}`;
-  return "₹0.0L";
+  return "₹0";
 }
 
 export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewRoute }: Props) {
@@ -287,6 +287,9 @@ export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewR
       ? (kpi.total_achieved_amount / kpi.total_target_amount) * 100
       : 0;
 
+  const totalTargetLiters = officers.reduce((s, o) => s + (o.monthly_target_liters ?? 500), 0);
+  const totalAchievedLiters = officers.reduce((s, o) => s + (o.achieved_liters ?? 0), 0);
+
   const displayedOfficers =
     selectedFoEmail === "all"
       ? officers
@@ -335,30 +338,51 @@ export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewR
     {
       field: "monthly_target_amount",
       headerName: "Target (₹)",
-      width: 120,
+      width: 140,
       renderCell: (p: GridRenderCellParams<FieldOfficer>) => (
-        <Typography variant="body2">₹{(p.row.monthly_target_amount ?? 0).toLocaleString("en-IN")}</Typography>
+        <Box>
+          <Typography variant="body2" fontWeight={600}>
+            ₹{(p.row.monthly_target_amount ?? 0).toLocaleString("en-IN")}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {p.row.monthly_target_liters ?? 500} Liters
+          </Typography>
+        </Box>
       ),
     },
     {
       field: "achieved_sales_amount",
       headerName: "Achieved (₹)",
-      width: 130,
+      width: 140,
       renderCell: (p: GridRenderCellParams<FieldOfficer>) => (
-        <Typography variant="body2" color="success.main">
-          ₹{(p.row.achieved_sales_amount ?? 0).toLocaleString("en-IN")}
-        </Typography>
+        <Box>
+          <Typography variant="body2" color="success.main" fontWeight={600}>
+            ₹{(p.row.achieved_sales_amount ?? 0).toLocaleString("en-IN")}
+          </Typography>
+          <Typography variant="caption" color="success.dark">
+            {p.row.achieved_liters ?? 0} Liter{(p.row.achieved_liters ?? 0) === 1 ? "" : "s"}
+          </Typography>
+        </Box>
       ),
     },
     {
       field: "target_shortfall",
       headerName: "Shortfall (₹)",
-      width: 130,
-      renderCell: (p: GridRenderCellParams<FieldOfficer>) => (
-        <Typography variant="body2" color={(p.row.target_shortfall ?? 0) > 0 ? "error.main" : "success.main"}>
-          ₹{Math.abs(p.row.target_shortfall ?? 0).toLocaleString("en-IN")}
-        </Typography>
-      ),
+      width: 140,
+      renderCell: (p: GridRenderCellParams<FieldOfficer>) => {
+        const shortfall = p.row.target_shortfall ?? 0;
+        const literShortfall = Math.max(0, (p.row.monthly_target_liters ?? 500) - (p.row.achieved_liters ?? 0));
+        return (
+          <Box>
+            <Typography variant="body2" color={shortfall > 0 ? "error.main" : "success.main"} fontWeight={600}>
+              ₹{Math.abs(shortfall).toLocaleString("en-IN")}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {literShortfall} L shortfall
+            </Typography>
+          </Box>
+        );
+      },
     },
     {
       field: "kms_this_month",
@@ -421,8 +445,8 @@ export default function TeamTargetsTab({ selectedFoEmail, selectedMonth, onViewR
         <Grid item xs={12} sm={6} md={3}>
           <KpiCard
             title="Team Target vs Achieved"
-            value={`${formatRevenueDisplay(kpi.total_achieved_amount)} / ₹${(kpi.total_target_amount / 100000).toFixed(1)}L`}
-            sub={`Shortfall: ₹${(kpi.team_shortfall_amount / 100000).toFixed(1)}L (${kpi.team_shortfall_pct.toFixed(1)}%)`}
+            value={`${formatRevenueDisplay(kpi.total_achieved_amount)} / ₹${(kpi.total_target_amount / 100000).toFixed(1)} Lakh`}
+            sub={`Volume: ${totalAchievedLiters} / ${totalTargetLiters.toLocaleString("en-IN")} Liters · Shortfall: ₹${(kpi.team_shortfall_amount / 100000).toFixed(1)} Lakh (${kpi.team_shortfall_pct.toFixed(1)}%)`}
             icon={<TargetIcon />}
             color="#1976d2"
             progress={achievedPct}
