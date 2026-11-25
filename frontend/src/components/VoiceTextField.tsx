@@ -55,6 +55,7 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
   speechLang,
   showLanguageSelector = true,
   InputProps,
+  inputProps,
   placeholder,
   ...props
 }) => {
@@ -148,6 +149,11 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         placeholder={isListening ? "Listening... start talking now" : placeholder}
+        inputProps={{
+          ...inputProps,
+          translate: "no",
+          className: `${inputProps?.className || ""} notranslate`.trim(),
+        }}
         InputProps={{
           ...InputProps,
           endAdornment: (
@@ -269,6 +275,8 @@ export const VoiceTextField: React.FC<VoiceTextFieldProps> = ({
 
             <Typography
               variant="caption"
+              translate={liveTranscript ? "no" : undefined}
+              className={liveTranscript ? "notranslate" : undefined}
               sx={{
                 color: "text.primary",
                 fontStyle: liveTranscript ? "normal" : "italic",

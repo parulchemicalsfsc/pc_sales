@@ -1,3 +1,6 @@
+// AI Call Logger hook commented out — no Groq/Sarvam AI API calls or note modifications desired.
+// Keeping mic dictation via VoiceTextField / useSpeechToText instead.
+/*
 import { useState, useCallback, useRef, useEffect } from "react";
 import { callLoggerAPI } from "../services/api";
 
@@ -156,3 +159,5 @@ export function useCallLogger(language: "auto" | "hi" | "gu" = "auto") {
     analyze,
   };
 }
+*/
+export {};

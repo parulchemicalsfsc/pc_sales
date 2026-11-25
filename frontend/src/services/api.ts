@@ -1416,23 +1416,23 @@ export function formatError(err: any): string {
   return typeof fallback === "string" ? fallback : JSON.stringify(fallback);
 }
 
-// AI Call Logger API
-export const callLoggerAPI = {
-  transcribeChunk: async (blob: Blob, language: string, provider: string = "sarvam") => {
-    const form = new FormData();
-    form.append("file", blob, "chunk.webm");
-    form.append("language", language);
-    form.append("provider", provider);
-    const response = await apiClient.post("/api/call-logger/transcribe-chunk", form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return response.data;
-  },
-  analyzeTranscript: async (transcript: string) => {
-    const response = await apiClient.post("/api/call-logger/analyze", { transcript });
-    return response.data;
-  },
-};
+// AI Call Logger API commented out — no Groq/Sarvam AI API calls or note modifications
+// export const callLoggerAPI = {
+//   transcribeChunk: async (blob: Blob, language: string, provider: string = "sarvam") => {
+//     const form = new FormData();
+//     form.append("file", blob, "chunk.webm");
+//     form.append("language", language);
+//     form.append("provider", provider);
+//     const response = await apiClient.post("/api/call-logger/transcribe-chunk", form, {
+//       headers: { "Content-Type": "multipart/form-data" },
+//     });
+//     return response.data;
+//   },
+//   analyzeTranscript: async (transcript: string) => {
+//     const response = await apiClient.post("/api/call-logger/analyze", { transcript });
+//     return response.data;
+//   },
+// };
 
 // Tally Integration API
 export const tallyAPI = {

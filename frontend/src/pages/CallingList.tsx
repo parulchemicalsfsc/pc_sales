@@ -69,7 +69,7 @@ import { automationAPI, customerAPI, distributorAPI, telecallerOrderAPI, product
 import { getProductRate } from "../utils/pricing";
 import { useAuth } from "../contexts/AuthContext";
 import { useTranslation } from "../hooks/useTranslation";
-import { FEATURE_FLAGS } from "../config/featureFlags";
+// import { FEATURE_FLAGS } from "../config/featureFlags";
 import VoiceTextField from "../components/VoiceTextField";
 import MyPerformanceWidget from "../components/MyPerformanceWidget";
 import TelecallerQuestionnaire, {
@@ -1568,7 +1568,7 @@ export default function CallingList() {
                         // Strip the [Time: HH:MM] prefix that the backend embeds in notes — it's already shown above
                         const cleaned = item.notes.replace(/^\[Time:\s*\d{1,2}:\d{2}\]\s*/, "").trim();
                         return cleaned ? (
-                          <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                          <Typography variant="caption" translate="no" className="notranslate" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
                             {cleaned}
                           </Typography>
                         ) : null;
@@ -1874,7 +1874,7 @@ export default function CallingList() {
                             )}
                           </Stack>
                           {item.status !== "Pending" && item.notes && !(tab === 1 && item.last_call) && (
-                            <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
+                            <Typography variant="caption" translate="no" className="notranslate" sx={{ color: "text.disabled", fontStyle: "italic", mt: 0.5, display: "block" }}>
                               {item.notes}
                             </Typography>
                           )}
@@ -1891,7 +1891,7 @@ export default function CallingList() {
                                 />
                               </Stack>
                               {item.last_call.notes && (
-                                <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
+                                <Typography variant="caption" translate="no" className="notranslate" sx={{ color: "text.disabled", fontStyle: "italic", display: "block", mt: 0.5 }}>
                                   {item.last_call.notes}
                                 </Typography>
                               )}
@@ -2091,7 +2091,7 @@ export default function CallingList() {
                             </Typography>
                           </Stack>
                           {log.notes && (
-                            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, fontStyle: "italic" }}>
+                            <Typography variant="body2" translate="no" className="notranslate" sx={{ color: "text.secondary", mt: 0.5, fontStyle: "italic" }}>
                               {log.notes}
                             </Typography>
                           )}
@@ -2162,7 +2162,7 @@ export default function CallingList() {
                           </Typography>
                         </Stack>
                         {log.notes && (
-                          <Typography variant="caption" sx={{ color: "text.secondary", fontStyle: "italic", display: "block" }}>
+                          <Typography variant="caption" translate="no" className="notranslate" sx={{ color: "text.secondary", fontStyle: "italic", display: "block" }}>
                             "{log.notes}"
                           </Typography>
                         )}

@@ -22,6 +22,7 @@ from .doctors import router as doctors
 from .attendance import router as attendance
 from .leads import router as leads
 from .telecaller_orders import router as telecaller_orders
-from .call_logger import router as call_logger
+# AI call logger commented out — no AI API calls / note modifications desired
+# from .call_logger import router as call_logger
 from .field_officers import router as field_officers
 from .recruitment import router as recruitment
